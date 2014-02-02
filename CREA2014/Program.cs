@@ -412,15 +412,17 @@ namespace CREA2014
         [STAThread]
         public static void Main()
         {
-            string appName = "CREACOIN";
+            string appname = "CREA2014";
             int verMaj = 0;
             int verMin = 0;
             int verMMin = 1;
+            string verS = "α";
             //リリース番号（リリース毎に増やす番号）
             int verR = 1;
             //コミット番号（コミット毎に増やす番号）
-            int verC = 4;
-            string version = string.Join(".", verMaj.ToString(), verMin.ToString(), verMMin.ToString());
+            int verC = 11;
+            string version = string.Join(".", verMaj.ToString(), verMin.ToString(), verMMin.ToString()) + "(" + verS + ")" + "(" + verR.ToString() + ")" + "(" + verC.ToString() + ")";
+            string appnameWithVersion = string.Join(" ", appname, version);
 
             string lisenceTextFilename = "Lisence.txt";
 
@@ -454,10 +456,10 @@ namespace CREA2014
             Action<Exception, ExceptionKind> _OnException = (ex, exKind) =>
             {
                 Dictionary<string, string> errMessages = new Dictionary<string, string>(){
-                    {"already_starting", string.Format("{0}は既に起動しています。".Multilanguage(0), appName)}, 
-                    {"ie_not_exsiting", string.Format("{0}の動作には Internet Explorer 10 以上が必要です。".Multilanguage(1), appName)}, 
-                    {"ie_too_old", string.Format("{0}の動作には Internet Explorer 10 以上が必要です。".Multilanguage(2), appName)}, 
-                    {"require_administrator", string.Format("{0}は管理者として実行する必要があります。".Multilanguage(3), appName)}, 
+                    {"already_starting", string.Format("{0}は既に起動しています。".Multilanguage(0), appname)}, 
+                    {"ie_not_exsiting", string.Format("{0}の動作には Internet Explorer 10 以上が必要です。".Multilanguage(1), appname)}, 
+                    {"ie_too_old", string.Format("{0}の動作には Internet Explorer 10 以上が必要です。".Multilanguage(2), appname)}, 
+                    {"require_administrator", string.Format("{0}は管理者として実行する必要があります。".Multilanguage(3), appname)}, 
                 };
 
                 if (errMessages.ContainsKey(ex.Message))
@@ -596,7 +598,7 @@ namespace CREA2014
 
 
             // Windows 2000（NT 5.0）以降のみグローバル・ミューテックス利用可
-            string appNameMutex = appName + " by Piz Yumina";
+            string appNameMutex = appname + " by Piz Yumina";
             OperatingSystem os = Environment.OSVersion;
             if ((os.Platform == PlatformID.Win32NT) && (os.Version.Major >= 5))
                 appNameMutex = @"Global\" + appNameMutex;
@@ -680,7 +682,7 @@ namespace CREA2014
                 };
                 app.Startup += (sender, e) =>
                 {
-                    MainWindow mw = new MainWindow(core, psettings, pstatus, appName, lisenceTextFilename, assembly, basepath);
+                    MainWindow mw = new MainWindow(core, psettings, pstatus, appnameWithVersion, version, lisenceTextFilename, assembly, basepath);
                     mw.Show();
                 };
                 app.InitializeComponent();

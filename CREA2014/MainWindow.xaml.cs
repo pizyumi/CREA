@@ -15,8 +15,6 @@ namespace CREA2014
 {
     public partial class MainWindow : Window
     {
-        public enum FileType { resource, file, data }
-
         public class MainformSettings
         {
             private int portWebSocket = 3333;
@@ -33,11 +31,25 @@ namespace CREA2014
                 set { portWebServer = value; }
             }
 
+            private bool isWallpaper = true;
+            public bool IsWallpaper
+            {
+                get { return isWallpaper; }
+                set { isWallpaper = value; }
+            }
+
             private string wallpaper = @"E:\#壁紙\good\16574.jpg";
             public string Wallpaper
             {
                 get { return wallpaper; }
                 set { wallpaper = value; }
+            }
+
+            private float wallpaperOpacity = 0.5F;
+            public float WallpaperOpecity
+            {
+                get { return wallpaperOpacity; }
+                set { wallpaperOpacity = value; }
             }
         }
 
@@ -49,35 +61,42 @@ namespace CREA2014
         private CREACOINCore core;
         private Program.ProgramSettings psettings;
         private Program.ProgramStatus pstatus;
-        private string appname;
+        private string appnameWithVersion;
+        private string version;
         private string lisenceTextFilePath;
         private Assembly assembly;
 
 
-        public MainWindow(CREACOINCore _core, Program.ProgramSettings _psettings, Program.ProgramStatus _pstatus, string _appname, string _lisenceTextFilename, Assembly _assembly, string _basepath)
+        public MainWindow(CREACOINCore _core, Program.ProgramSettings _psettings, Program.ProgramStatus _pstatus, string _appnameWithVersion, string _version, string _lisenceTextFilename, Assembly _assembly, string _basepath)
         {
             core = _core;
             psettings = _psettings;
             pstatus = _pstatus;
-            appname = _appname;
+            appnameWithVersion = _appnameWithVersion;
+            version = _version;
             lisenceTextFilePath = Path.Combine(_basepath, _lisenceTextFilename);
             assembly = _assembly;
 
             ms = new MainformSettings();
 
             InitializeComponent();
+
+            Title = _appnameWithVersion;
+            miFile.Header = "ファイル".Multilanguage(19) + "(_F)";
+            miClose.Header = "終了".Multilanguage(20) + "(_X)";
+            miHelp.Header = "ヘルプ".Multilanguage(21) + "(_H)";
+            miAbout.Header = "CREAについて".Multilanguage(22) + "(_A)...";
         }
 
         private void Window_Loaded(object sender, RoutedEventArgs e)
         {
-            Title = appname;
-
             if (pstatus.IsFirst)
             {
                 if (!File.Exists(lisenceTextFilePath))
                     throw new FileNotFoundException("lisence_text_not_found");
 
                 LisenceWindow lw = new LisenceWindow(File.ReadAllText(lisenceTextFilePath));
+                lw.Owner = this;
                 if (lw.ShowDialog() == false)
                 {
                     Close();
@@ -90,8 +109,7 @@ namespace CREA2014
             string url = "http://localhost:" + ms.PortWebServer.ToString() + "/";
 
             byte[] kabegamiData = null;
-            if (File.Exists(ms.Wallpaper))
-            {
+            if (ms.IsWallpaper && File.Exists(ms.Wallpaper))
                 using (MemoryStream memoryStream = new MemoryStream())
                 using (Bitmap bitmap = new Bitmap(ms.Wallpaper))
                 using (Bitmap bitmap2 = new Bitmap(bitmap.Width, bitmap.Height))
@@ -101,7 +119,7 @@ namespace CREA2014
                     cm.Matrix00 = 1;
                     cm.Matrix11 = 1;
                     cm.Matrix22 = 1;
-                    cm.Matrix33 = 0.7F;
+                    cm.Matrix33 = ms.WallpaperOpecity;
                     cm.Matrix44 = 1;
 
                     ImageAttributes ia = new ImageAttributes();
@@ -113,48 +131,35 @@ namespace CREA2014
 
                     kabegamiData = memoryStream.ToArray();
                 }
-            }
+
+            Func<string, string> homeHtmProcessor = (data) =>
+            {
+                return data.Replace("%%title%%", appnameWithVersion).Replace("%%address%%", addressWebSocket);
+            };
+            Func<string, string> doNothing = (data) => data;
 
             var iResource = new[] {
-                    new {type = FileType.resource, path = "CREA2014.WebResources.home.htm", url = "/", replaces = new[]{Tuple.Create("<%title%>", appname)}}, 
-                    new {type = FileType.resource, path = "CREA2014.WebResources.home.js", url = "/home.js", replaces = new[]{Tuple.Create("<%address%>", addressWebSocket)}}, 
-                    new {type = FileType.resource, path = "CREA2014.WebResources.jquery-2.0.3.min.js", url = "/jquery-2.0.3.min.js", replaces = new Tuple<string,string>[]{}}, 
+                    new {path = "CREA2014.WebResources.home.htm", url = "/", processor = homeHtmProcessor}, 
+                    new {path = "CREA2014.WebResources.jquery-2.0.3.min.js", url = "/jquery-2.0.3.min.js", processor = doNothing}, 
+                    new {path = "CREA2014.WebResources.jquery-ui-1.10.4.custom.js", url = "/jquery-ui-1.10.4.custom.js", processor = doNothing}, 
                 };
             var iData = new[] {
                     new {url = "/back.png", data = kabegamiData}, 
                 };
 
-            Func<FileType, string, Tuple<string, string>[], byte[]> _GetData = (type, path, replaces) =>
+            Func<string, Func<string, string>, byte[]> _GetData = (path, processor) =>
             {
-                byte[] data = null;
-
-                if (type == FileType.resource)
-                    using (Stream stream = assembly.GetManifestResourceStream(path))
-                    {
-                        data = new byte[stream.Length];
-                        stream.Read(data, 0, data.Length);
-                    }
-                else if (File.Exists(path))
-                    data = File.ReadAllBytes(path);
-                else
-                    data = new byte[] { };
-
-                if (replaces == null || replaces.Length == 0)
-                    return data;
-                else
+                using (Stream stream = assembly.GetManifestResourceStream(path))
                 {
-                    string str = Encoding.UTF8.GetString(data);
-                    foreach (var r in replaces)
-                        str = str.Replace(r.Item1, r.Item2);
-                    byte[] newdata = Encoding.UTF8.GetBytes(str);
-
-                    return newdata;
+                    byte[] data = new byte[stream.Length];
+                    stream.Read(data, 0, data.Length);
+                    return Encoding.UTF8.GetBytes(processor(Encoding.UTF8.GetString(data)));
                 }
             };
 
             var i2 = (from ii in iResource
                       select
-                          new { url = ii.url, data = _GetData(ii.type, ii.path, ii.replaces) }).ToArray().Concat(iData);
+                          new { url = ii.url, data = _GetData(ii.path, ii.processor) }).ToArray().Concat(iData);
 
 
             hl = new HttpListener();
@@ -206,10 +211,6 @@ namespace CREA2014
             wss.Setup(ms.PortWebSocket);
             wss.NewSessionConnected += (session) =>
             {
-                string script = "";
-
-                session.Send("main <div id='main'><h1>テスト</h1></div>");
-                //session.Send("script " + script);
             };
             wss.NewMessageReceived += (session, message) =>
             {
@@ -235,6 +236,13 @@ namespace CREA2014
         private void miClose_Click(object sender, RoutedEventArgs e)
         {
             Close();
+        }
+
+        private void miAbout_Click(object sender, RoutedEventArgs e)
+        {
+            AboutWindow aw = new AboutWindow(version);
+            aw.Owner = this;
+            aw.ShowDialog();
         }
     }
 }

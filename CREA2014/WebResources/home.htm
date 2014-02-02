@@ -2,21 +2,243 @@
 <html lang="ja">
 <head>
     <meta charset="UTF-8" />
-    <title><%title%></title>
     <script type="text/javascript" src="jquery-2.0.3.min.js"></script>
-    <script type="text/javascript" src="home.js"></script>
+    <script type="text/javascript" src="jquery-ui-1.10.4.custom.js"></script>
+    <script type="text/javascript">
+        var ws = null;
+
+        $(function () {
+            document.title = "%%title%%";
+
+            ws = new WebSocket("%%address%%");
+            ws.onopen = function () {
+            };
+            ws.onerror = function (error) {
+            };
+            ws.onmessage = function (e) {
+                if (e.data.indexOf("main", 0) == 0) {
+                    var html = e.data.substring(5);
+
+                    $("#main").html(html);
+                }
+                else if (e.data.indexOf("script", 0) == 0) {
+                    var script = e.data.substring(7);
+
+                    eval(script);
+                }
+            };
+        });
+
+        window.onunload = function () {
+            if (ws != null)
+                ws.close();
+        };
+    </script>
     <style type="text/css">
+        * {
+            margin: 0px;
+            padding: 0px;
+            font-family: 'MS Gothic';
+        }
+
+        html {
+            height: 100%;
+        }
+
         body {
+            height: 100%;
             background-image: url("back.png");
             background-size: cover;
             background-attachment: fixed;
+        }
+
+        #main {
+            width: 100%;
             height: 100%;
+        }
+
+        #content {
+            word-wrap: break-word;
+            height: 100%;
+            overflow: auto;
         }
     </style>
 </head>
 <body>
     <div id="main">
-        <h1> No Data</h1>
+        <div id="content">
+            <div id="tab1">
+                <style type="text/css">
+                    #tab1 {
+                        height: 100%;
+                    }
+
+                    #tab1items {
+                        float: left;
+                        width: 20%;
+                        height: 100%;
+                        background-color: rgba(221,221,221,0.5);
+                        overflow: hidden;
+                    }
+
+                    #tab1contents {
+                        float: left;
+                        width: 80%;
+                        height: 100%;
+                        overflow: auto;
+                    }
+
+                    .tab1_tabitem {
+                        font-size: 20px;
+                        font-weight: bold;
+                        color: #0073ea;
+                        margin: 10px 1px 10px 10px;
+                        padding: 4px;
+                        border: solid gray;
+                        border-width: 2px 0px 2px 2px;
+                        border-radius: 5px 0px 0px 5px;
+                        box-shadow: 3px 3px 3px rgba(0,0,0,0.4);
+                        background-color: lightgray;
+                    }
+
+                    .tab1_tabitem_selected {
+                        font-size: 20px;
+                        font-weight: bold;
+                        color: #ff0084;
+                        margin: 10px 0px 10px 10px;
+                        padding: 4px;
+                        border: solid gray;
+                        border-width: 2px 0px 2px 2px;
+                        border-radius: 5px 0px 0px 5px;
+                        box-shadow: 4px 4px 4px rgba(0,0,0,0.2);
+                        background-color: white;
+                    }
+
+                    .tab1_tabitem_hover {
+                        font-size: 20px;
+                        font-weight: bold;
+                        color: white;
+                        margin: 10px 1px 10px 10px;
+                        padding: 4px;
+                        border: solid gray;
+                        border-width: 2px 0px 2px 2px;
+                        border-radius: 5px 0px 0px 5px;
+                        box-shadow: 3px 3px 3px rgba(0,0,0,0.4);
+                        background-color: #0073ea;
+                    }
+
+                    .tab1_tabcontent {
+                        padding: 15px;
+                        display: none;
+                    }
+
+                    .tab1_tabcontent_selected {
+                        padding: 15px;
+                        display: block;
+                    }
+
+                    #zandaka_label {
+                        font-size: 32px;
+                        font-weight: bold;
+                    }
+
+                    #zandaka {
+                        font-size: 16px;
+                        font-weight: bold;
+                        margin: 10px 0px 0px 30px;
+                    }
+                </style>
+                <script type="text/javascript">
+                    $(function () {
+                        var items = $(".tab1_tabitem");
+                        var contents = $(".tab1_tabcontent");
+
+                        if (items.length != contents.length)
+                            throw "tab1_items_contents";
+
+                        items.each(function (i) {
+                            $.data($(this).get(0), "i", i);
+                        });
+                        contents.each(function (i) {
+                            $.data($(this).get(0), "i", i);
+                        });
+
+                        items.hover(function () {
+                            if (!$(this).hasClass("tab1_tabitem_selected"))
+                                $(this).switchClass("tab1_tabitem", "tab1_tabitem_hover", 200);
+                        }, function () {
+                            if (!$(this).hasClass("tab1_tabitem_selected"))
+                                $(this).switchClass("tab1_tabitem_hover", "tab1_tabitem", 200);
+                        });
+                        items.click(function () {
+                            if (!$(this).hasClass("tab1_tabitem_selected")) {
+                                $(".tab1_tabitem_selected").switchClass("tab1_tabitem_selected", "tab1_tabitem", 200);
+                                $(this).switchClass("tab1_tabitem_hover", "tab1_tabitem_selected", 200);
+
+                                var i = $.data($(this).get(0), "i");
+                                contents.each(function () {
+                                    if ($.data($(this).get(0), "i") == i) {
+                                        $(".tab1_tabcontent_selected").switchClass("tab1_tabcontent_selected", "tab1_tabcontent", 200);
+                                        $(this).switchClass("tab1_tabcontent", "tab1_tabcontent_selected", 200);
+                                    }
+                                });
+                            }
+                        });
+
+                        items.first().switchClass("tab1_tabitem", "tab1_tabitem_selected", 0);
+                        contents.first().switchClass("tab1_tabcontent", "tab1_tabcontent_selected", 0);
+                    });
+                </script>
+                <div id="tab1items">
+                    <div id="tab1_tabitem1" class="tab1_tabitem">残高</div>
+                    <div id="tab1_tabitem2" class="tab1_tabitem">受け取り口座</div>
+                    <div id="tab1_tabitem3" class="tab1_tabitem">記録</div>
+                </div>
+                <div id="tab1contents">
+                    <div id="tab1_tabcontent1" class="tab1_tabcontent">
+                        <div id="zandaka_label">残高</div>
+                        <div id="zandaka">0.00000000CREA</div>
+                    </div>
+                    <div id="tab1_tabcontent2" class="tab1_tabcontent">
+                        未実装<br />
+                        未実装<br />
+                        未実装<br />
+                        未実装<br />
+                        未実装<br />
+                        未実装<br />
+                        未実装<br />
+                        未実装<br />
+                        未実装<br />
+                        未実装<br />
+                        未実装<br />
+                        未実装<br />
+                        未実装<br />
+                        未実装<br />
+                        未実装<br />
+                        未実装<br />
+                        未実装<br />
+                        未実装<br />
+                        未実装<br />
+                        未実装<br />
+                        未実装<br />
+                        未実装<br />
+                        未実装<br />
+                        未実装<br />
+                        未実装<br />
+                        未実装<br />
+                        未実装<br />
+                        未実装<br />
+                        未実装<br />
+                        未実装<br />
+                        未実装<br />
+                        未実装<br />
+                    </div>
+                    <div id="tab1_tabcontent3" class="tab1_tabcontent">
+                        未実装
+                    </div>
+                </div>
+            </div>
+        </div>
     </div>
 </body>
 </html>

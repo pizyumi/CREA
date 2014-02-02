@@ -1,12 +1,13 @@
 ﻿var ws = null;
 
 window.onload = function () {
-    ws = new WebSocket("<%address%>");
+    document.title = "%%title%%";
+
+    ws = new WebSocket("%%address%%");
     ws.onopen = function () {
-        //ws.send("test");
     };
     ws.onerror = function (error) {
-        alert("WebSocket Error " + error);
+        throw error;
     };
     ws.onmessage = function (e) {
         if (e.data.indexOf("main", 0) == 0) {

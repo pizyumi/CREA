@@ -79,6 +79,9 @@
     <Reference Include="PresentationFramework" />
   </ItemGroup>
   <ItemGroup>
+    <Compile Include="Windows\AboutWindow.xaml.cs">
+      <DependentUpon>AboutWindow.xaml</DependentUpon>
+    </Compile>
     <Compile Include="Windows\LisenceWindow.xaml.cs">
       <DependentUpon>LisenceWindow.xaml</DependentUpon>
     </Compile>
@@ -99,6 +102,10 @@
       <DependentUpon>MainWindow.xaml</DependentUpon>
       <SubType>Code</SubType>
     </Compile>
+    <Page Include="Windows\AboutWindow.xaml">
+      <SubType>Designer</SubType>
+      <Generator>MSBuild:Compile</Generator>
+    </Page>
     <Page Include="Windows\LisenceWindow.xaml">
       <SubType>Designer</SubType>
       <Generator>MSBuild:Compile</Generator>
@@ -129,6 +136,8 @@
       <LastGenOutput>Settings.Designer.cs</LastGenOutput>
     </None>
     <AppDesigner Include="Properties\" />
+    <Resource Include="Resources\Ubuntu-Regular.ttf" />
+    <Resource Include="Resources\Audiowide-Regular.ttf" />
   </ItemGroup>
   <ItemGroup>
     <None Include="App.config" />
@@ -140,8 +149,9 @@
   </ItemGroup>
   <ItemGroup>
     <EmbeddedResource Include="Resources\langResouece_ja-JP.txt" />
-    <EmbeddedResource Include="WebResources\home.htm" />
-    <EmbeddedResource Include="WebResources\home.js" />
+    <EmbeddedResource Include="WebResources\home.htm">
+      <SubType>Designer</SubType>
+    </EmbeddedResource>
     <EmbeddedResource Include="WebResources\jquery-2.0.3.min.js" />
   </ItemGroup>
   <ItemGroup>
@@ -160,6 +170,12 @@
       <ProductName>.NET Framework 3.5 SP1</ProductName>
       <Install>false</Install>
     </BootstrapperPackage>
+  </ItemGroup>
+  <ItemGroup>
+    <Resource Include="Resources\up0669.png" />
+  </ItemGroup>
+  <ItemGroup>
+    <EmbeddedResource Include="WebResources\jquery-ui-1.10.4.custom.js" />
   </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
   <!-- To modify your build process, add your task inside one of the targets below and uncomment it. 

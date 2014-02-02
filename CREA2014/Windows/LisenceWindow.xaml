@@ -1,7 +1,8 @@
 ﻿<Window x:Class="CREA2014.Windows.LisenceWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="" Height="400" Width="600" WindowStartupLocation="CenterOwner">
+        ResizeMode="NoResize" ShowInTaskbar="False" WindowStartupLocation="CenterOwner" WindowStyle="SingleBorderWindow" 
+        Height="400" Width="600">
     <DockPanel>
         <TextBlock x:Name="tbDescription" DockPanel.Dock="Top" Margin="20,10,20,0" TextWrapping="Wrap"></TextBlock>
         <StackPanel DockPanel.Dock="Bottom" HorizontalAlignment="Center" Margin="0,10,0,10" Orientation="Horizontal">

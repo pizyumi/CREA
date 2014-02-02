@@ -25,9 +25,5 @@ namespace CREA2014.Windows
         {
             DialogResult = false;
         }
-
-        private void Window_Loaded(object sender, RoutedEventArgs e)
-        {
-        }
     }
 }
