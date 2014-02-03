@@ -417,10 +417,8 @@ namespace CREA2014
             int verMin = 0;
             int verMMin = 1;
             string verS = "α";
-            //リリース番号（リリース毎に増やす番号）
-            int verR = 1;
-            //コミット番号（コミット毎に増やす番号）
-            int verC = 11;
+            int verR = 1; //リリース番号（リリース毎に増やす番号）
+            int verC = 11; //コミット番号（コミット毎に増やす番号）
             string version = string.Join(".", verMaj.ToString(), verMin.ToString(), verMMin.ToString()) + "(" + verS + ")" + "(" + verR.ToString() + ")" + "(" + verC.ToString() + ")";
             string appnameWithVersion = string.Join(" ", appname, version);
 

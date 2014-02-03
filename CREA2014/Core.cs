@@ -4,6 +4,7 @@ using System.IO;
 using System.Linq;
 using System.Security.Cryptography;
 using System.Text;
+using System.Xml.Linq;
 
 namespace CREA2014
 {
@@ -14,6 +15,8 @@ namespace CREA2014
     public abstract class CREACOINSHAREDDATA : CREACOINDATA
     {
         //<未実装>圧縮機能
+        //<未実装>id機能
+        //<未実装>ジャグ配列に対応
 
         private int? version;
         public int Version
@@ -142,7 +145,7 @@ namespace CREA2014
                     {
                         if (type == typeof(bool) || type == typeof(byte))
                             return 1;
-                        else if (type == typeof(int))
+                        else if (type == typeof(int) || type == typeof(float))
                             return 4;
                         else if (type == typeof(long) || type == typeof(double) || type == typeof(DateTime))
                             return 8;
@@ -211,6 +214,8 @@ namespace CREA2014
                             innerMs.Write(BitConverter.GetBytes((bool)innerObj), 0, 1);
                         else if (type == typeof(int))
                             innerMs.Write(BitConverter.GetBytes((int)innerObj), 0, 4);
+                        else if (type == typeof(float))
+                            innerMs.Write(BitConverter.GetBytes((float)innerObj), 0, 4);
                         else if (type == typeof(long))
                             innerMs.Write(BitConverter.GetBytes((long)innerObj), 0, 8);
                         else if (type == typeof(double))
@@ -253,7 +258,7 @@ namespace CREA2014
 
                         if (mdi.Length == null)
                             ms.Write(BitConverter.GetBytes(os.Length), 0, 4);
-                        foreach (var innerObj in os)
+                        foreach (var innerObj in o as object[])
                             _Write(elementType, mdi, innerObj, ms);
                     }
                     else
@@ -319,6 +324,12 @@ namespace CREA2014
                             byte[] bytes = new byte[4];
                             innerMs.Read(bytes, 0, 4);
                             return BitConverter.ToInt32(bytes, 0);
+                        }
+                        else if (type == typeof(float))
+                        {
+                            byte[] bytes = new byte[4];
+                            innerMs.Read(bytes, 0, 4);
+                            return BitConverter.ToSingle(bytes, 0);
                         }
                         else if (type == typeof(long))
                         {
@@ -422,10 +433,123 @@ namespace CREA2014
                 }
             }
         }
+    }
+    public abstract class CREACOINSETTINGSDATA : CREACOINDATA
+    {
+        //<未実装>ジャグ配列に対応
 
-        public static T FromBin<T>(byte[] binary) where T : CREACOINSHAREDDATA, new()
+        public class MainDataInfomation
         {
-            return new T().Operate((o) => o.FromBinary(binary));
+            public MainDataInfomation(Type _type, string _xmlName, Func<object> _getter, Action<object> _setter)
+            {
+                Type = _type;
+                XmlName = _xmlName;
+                Getter = _getter;
+                Setter = _setter;
+            }
+
+            public readonly Type Type;
+            public readonly string XmlName;
+            public readonly Func<object> Getter;
+            public readonly Action<object> Setter;
+        }
+
+        protected abstract string XmlName { get; }
+        protected abstract MainDataInfomation[] MainDataInfo { get; }
+
+        public XElement ToXml()
+        {
+            XElement xElement = new XElement(XmlName);
+            foreach (var mdi in MainDataInfo)
+            {
+                Action<Type, MainDataInfomation, object, XElement> _Write = (type, innerMdi, innerObj, innerXElement) =>
+                {
+                    if (type == typeof(bool))
+                        innerXElement.Add(new XElement(innerMdi.XmlName, ((bool)innerObj).ToString()));
+                    else if (type == typeof(int))
+                        innerXElement.Add(new XElement(innerMdi.XmlName, ((int)innerObj).ToString()));
+                    else if (type == typeof(float))
+                        innerXElement.Add(new XElement(innerMdi.XmlName, ((float)innerObj).ToString()));
+                    else if (type == typeof(long))
+                        innerXElement.Add(new XElement(innerMdi.XmlName, ((long)innerObj).ToString()));
+                    else if (type == typeof(double))
+                        innerXElement.Add(new XElement(innerMdi.XmlName, ((double)innerObj).ToString()));
+                    else if (type == typeof(DateTime))
+                        innerXElement.Add(new XElement(innerMdi.XmlName, ((DateTime)innerObj).ToString()));
+                    else if (type == typeof(string))
+                        innerXElement.Add(new XElement(innerMdi.XmlName, (string)innerObj));
+                    else if (type.IsSubclassOf(typeof(CREACOINSETTINGSDATA)))
+                        innerXElement.Add(new XElement(innerMdi.XmlName, (innerObj as CREACOINSETTINGSDATA).ToXml()));
+                    else
+                        throw new NotSupportedException("to_xml_not_supported");
+                };
+
+                object o = mdi.Getter();
+
+                if (mdi.Type.IsArray)
+                {
+                    Type elementType = mdi.Type.GetElementType();
+
+                    XElement xElementArray = new XElement(XmlName + "s");
+                    foreach (var innerObj in o as object[])
+                        _Write(elementType, mdi, innerObj, xElementArray);
+
+                    xElement.Add(xElementArray);
+                }
+                else
+                    _Write(mdi.Type, mdi, o, xElement);
+            }
+            return xElement;
+        }
+
+        public void FromXml(XElement xElement)
+        {
+            if (xElement.Name.LocalName != XmlName)
+                throw new ArgumentException("xml_name");
+
+            foreach (var mdi in MainDataInfo)
+            {
+                Func<Type, MainDataInfomation, XElement, object> _Read = (type, innerMdi, innerXElement) =>
+                {
+                    if (type == typeof(bool))
+                        return bool.Parse(innerXElement.Element(mdi.XmlName).Value);
+                    else if (type == typeof(int))
+                        return int.Parse(innerXElement.Element(mdi.XmlName).Value);
+                    else if (type == typeof(float))
+                        return float.Parse(innerXElement.Element(mdi.XmlName).Value);
+                    else if (type == typeof(long))
+                        return long.Parse(innerXElement.Element(mdi.XmlName).Value);
+                    else if (type == typeof(double))
+                        return double.Parse(innerXElement.Element(mdi.XmlName).Value);
+                    else if (type == typeof(DateTime))
+                        return DateTime.Parse(innerXElement.Element(mdi.XmlName).Value);
+                    else if (type == typeof(string))
+                        return innerXElement.Element(mdi.XmlName).Value;
+                    else if (type.IsSubclassOf(typeof(CREACOINSETTINGSDATA)))
+                    {
+                        CREACOINSETTINGSDATA ccsd = Activator.CreateInstance(type) as CREACOINSETTINGSDATA;
+                        ccsd.FromXml(innerXElement.Element(mdi.XmlName).Element(ccsd.XmlName));
+                        return ccsd;
+                    }
+                    else
+                        throw new NotSupportedException("from_xml_not_supported");
+                };
+
+                if (mdi.Type.IsArray)
+                {
+                    Type elementType = mdi.Type.GetElementType();
+
+                    XElement[] xElements = xElement.Element(mdi.XmlName + "s").Elements(mdi.XmlName).ToArray();
+
+                    object[] os = Array.CreateInstance(elementType, xElements.Length) as object[];
+                    for (int i = 0; i < os.Length; i++)
+                        os[i] = _Read(elementType, mdi, xElements[i]);
+
+                    mdi.Setter(os);
+                }
+                else
+                    mdi.Setter(_Read(mdi.Type, mdi, xElement));
+            }
         }
     }
 

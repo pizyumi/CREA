@@ -51,6 +51,13 @@ namespace CREA2014
                 get { return wallpaperOpacity; }
                 set { wallpaperOpacity = value; }
             }
+
+            private bool isConfirmAtExit = true;
+            public bool IsConfirmAtExit
+            {
+                get { return isConfirmAtExit; }
+                set { isConfirmAtExit = value; }
+            }
         }
 
 
@@ -84,6 +91,8 @@ namespace CREA2014
             Title = _appnameWithVersion;
             miFile.Header = "ファイル".Multilanguage(19) + "(_F)";
             miClose.Header = "終了".Multilanguage(20) + "(_X)";
+            miTool.Header = "ツール".Multilanguage(48) + "(_T)";
+            miSettings.Header = "設定".Multilanguage(49) + "(_S)...";
             miHelp.Header = "ヘルプ".Multilanguage(21) + "(_H)";
             miAbout.Header = "CREAについて".Multilanguage(22) + "(_A)...";
         }
@@ -236,6 +245,13 @@ namespace CREA2014
         private void miClose_Click(object sender, RoutedEventArgs e)
         {
             Close();
+        }
+
+        private void miSettings_Click(object sender, RoutedEventArgs e)
+        {
+            SettingsWindow sw = new SettingsWindow(ms);
+            sw.Owner = this;
+            sw.ShowDialog();
         }
 
         private void miAbout_Click(object sender, RoutedEventArgs e)
