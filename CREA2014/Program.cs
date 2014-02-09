@@ -305,13 +305,13 @@ namespace CREA2014
         }
 
         //エラーイベントはこのクラス内でより具体的なイベントに変換して、具体的なイベントをUIで処理する
-        private static event EventHandler<EventArgs<ErrorInfomation>> ErrorEvent;
+        private static event EventHandler<ErrorInfomation> ErrorEvent;
 
         //エラーイベントを発生させる（拡張：型表現型）
         public static void RaiseError(this Type type, string error, int level)
         {
             if (ErrorEvent != null)
-                ErrorEvent(null, new EventArgs<ErrorInfomation>(new ErrorInfomation(type, error, level)));
+                ErrorEvent(null, new ErrorInfomation(type, error, level));
         }
 
         //真偽値が真のときのみエラーイベントを発生させ、真偽値をそのまま返す（拡張：真偽型）
@@ -366,27 +366,88 @@ namespace CREA2014
 
         public enum ExceptionKind { wpf, unhandled }
 
-        public class ProgramSettings
+        public class ProgramSettings : CREACOINSETTINGSDATA
         {
+            public class Setter
+            {
+                public Setter(Action<string> _cultureSetter, Action<string> _errorLogSetter, Action<string> _errorReportSetter)
+                {
+                    cultureSetter = _cultureSetter;
+                    errorLogSetter = _errorLogSetter;
+                    errorReportSetter = _errorReportSetter;
+                }
+
+                private Action<string> cultureSetter;
+                public string Culture
+                {
+                    set { cultureSetter(value); }
+                }
+
+                private Action<string> errorLogSetter;
+                public string ErrorLog
+                {
+                    set { errorLogSetter(value); }
+                }
+
+                private Action<string> errorReportSetter;
+                public string ErrorReport
+                {
+                    set { errorReportSetter(value); }
+                }
+            }
+
             private string culture = "ja-JP";
             public string Culture
             {
                 get { return culture; }
-                set { culture = value; }
             }
 
-            private string errlog = "Error.txt";
-            public string Errlog
+            private string errorLog = "Error.txt";
+            public string ErrorLog
             {
-                get { return errlog; }
-                set { errlog = value; }
+                get { return errorLog; }
             }
 
-            private string errreport = "ErrorReport.txt";
-            public string Errreport
+            private string errorReport = "ErrorReport.txt";
+            public string ErrorReport
             {
-                get { return errreport; }
-                set { errreport = value; }
+                get { return errorReport; }
+            }
+
+            public ProgramSettings()
+                : base("ProgramSettings.xml")
+            {
+                Load();
+            }
+
+            protected override string XmlName
+            {
+                get { return "ProgramSettings"; }
+            }
+
+            protected override CREACOINSETTINGSDATA.MainDataInfomation[] MainDataInfo
+            {
+                get
+                {
+                    return new MainDataInfomation[]{
+                        new MainDataInfomation(typeof(string), "Culture", () => culture, (o) => culture = (string)o), 
+                        new MainDataInfomation(typeof(string), "ErrorLog", () => errorLog, (o) => errorLog = (string)o), 
+                        new MainDataInfomation(typeof(string), "ErrorReport", () => errorReport, (o) => errorReport = (string)o), 
+                    };
+                }
+            }
+
+            private readonly object setAndSaveLock = new object();
+            public void SetAndSave(Action<Setter> setAction)
+            {
+                lock (setAndSaveLock)
+                {
+                    setAction(new Setter(
+                        (_culture) => culture = _culture,
+                        (_errorLog) => errorLog = _errorLog,
+                        (_errorReport) => errorReport = _errorReport));
+                    Save();
+                }
             }
         }
 
@@ -461,7 +522,7 @@ namespace CREA2014
                 };
 
                 if (errMessages.ContainsKey(ex.Message))
-                    MessageBox.Show(errMessages[ex.Message]);
+                    MessageBox.Show(errMessages[ex.Message], appname);
                 else
                 {
                     string kind = "Kind: " + (exKind == ExceptionKind.wpf ? "ThreadException" : "UnhandledException");
@@ -470,7 +531,7 @@ namespace CREA2014
                     message = string.Join(Environment.NewLine, kind, message);
 
 
-                    string errlogPath = Path.Combine(basepath, psettings.Errlog);
+                    string errlogPath = Path.Combine(basepath, psettings.ErrorLog);
 
                     using (FileStream fs = new FileStream(errlogPath, FileMode.Append))
                     using (StreamWriter sr = new StreamWriter(fs))
@@ -484,7 +545,7 @@ namespace CREA2014
 
 
                     string messageText = "未知の問題が発生しました。この問題を開発者に報告しますか？".Multilanguage(4);
-                    if (MessageBox.Show(messageText, null, MessageBoxButton.YesNo) == MessageBoxResult.Yes)
+                    if (MessageBox.Show(messageText, appname, MessageBoxButton.YesNo) == MessageBoxResult.Yes)
                     {
                         string cpu = string.Empty;
                         try
@@ -570,7 +631,7 @@ namespace CREA2014
 
                         text = string.Join(Environment.NewLine, setumei, splitter, text);
 
-                        string errreportPath = Path.Combine(basepath, psettings.Errreport);
+                        string errreportPath = Path.Combine(basepath, psettings.ErrorReport);
                         File.WriteAllText(errreportPath, text);
                         Process.Start("notepad.exe", errreportPath);
                     }
@@ -578,6 +639,7 @@ namespace CREA2014
 
                 if (core != null)
                     core.EndSystem();
+                psettings.Save();
 
                 Environment.Exit(0);
             };
@@ -680,13 +742,14 @@ namespace CREA2014
                 };
                 app.Startup += (sender, e) =>
                 {
-                    MainWindow mw = new MainWindow(core, psettings, pstatus, appnameWithVersion, version, lisenceTextFilename, assembly, basepath);
+                    MainWindow mw = new MainWindow(core, psettings, pstatus, appname, version, appnameWithVersion, lisenceTextFilename, assembly, basepath);
                     mw.Show();
                 };
                 app.InitializeComponent();
                 app.Run();
 
                 core.EndSystem();
+                psettings.Save();
 
 
                 mutex.ReleaseMutex();

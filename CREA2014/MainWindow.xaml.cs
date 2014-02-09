@@ -1,6 +1,8 @@
 ﻿using CREA2014.Windows;
 using SuperWebSocket;
 using System;
+using System.Collections.Generic;
+using System.Diagnostics;
 using System.Drawing;
 using System.Drawing.Imaging;
 using System.IO;
@@ -15,76 +17,238 @@ namespace CREA2014
 {
     public partial class MainWindow : Window
     {
-        public class MainformSettings
+        public class MainWindowSettings : CREACOINSETTINGSDATA
         {
+            public class Setter
+            {
+                public Setter(Action<int> _portWebSocketSetter, Action<int> _portWebServerSetter, Action<bool> _isWallpaperSetter, Action<string> _wallpaperSetter, Action<float> _wallpaperOpacitySetter, Action<bool> _isConfirmAtExitSetter)
+                {
+                    portWebSocketSetter = _portWebSocketSetter;
+                    portWebServerSetter = _portWebServerSetter;
+                    isWallpaperSetter = _isWallpaperSetter;
+                    wallpaperSetter = _wallpaperSetter;
+                    wallpaperOpacitySetter = _wallpaperOpacitySetter;
+                    isConfirmAtExitSetter = _isConfirmAtExitSetter;
+                }
+
+                private Action<int> portWebSocketSetter;
+                public int PortWebSocket
+                {
+                    set { portWebSocketSetter(value); }
+                }
+
+                private Action<int> portWebServerSetter;
+                public int PortWebServer
+                {
+                    set { portWebServerSetter(value); }
+                }
+
+                private Action<bool> isWallpaperSetter;
+                public bool IsWallpaper
+                {
+                    set { isWallpaperSetter(value); }
+                }
+
+                private Action<string> wallpaperSetter;
+                public string Wallpaper
+                {
+                    set { wallpaperSetter(value); }
+                }
+
+                private Action<float> wallpaperOpacitySetter;
+                public float WallpaperOpacity
+                {
+                    set { wallpaperOpacitySetter(value); }
+                }
+
+                private Action<bool> isConfirmAtExitSetter;
+                public bool IsConfirmAtExit
+                {
+                    set { isConfirmAtExitSetter(value); }
+                }
+            }
+
+            private bool isPortWebSocketAltered;
             private int portWebSocket = 3333;
             public int PortWebSocket
             {
                 get { return portWebSocket; }
-                set { portWebSocket = value; }
             }
+            public event EventHandler PortWebSocketChanged = delegate { };
 
+            private bool isPortWebServerAltered;
             private int portWebServer = 3334;
             public int PortWebServer
             {
                 get { return portWebServer; }
-                set { portWebServer = value; }
             }
+            public event EventHandler PortWebServerChanged = delegate { };
 
+            private bool isIsWallpaperAltered;
             private bool isWallpaper = true;
             public bool IsWallpaper
             {
                 get { return isWallpaper; }
-                set { isWallpaper = value; }
             }
+            public event EventHandler IsWallpaperChanged = delegate { };
 
+            private bool isWallpaperAltered;
             private string wallpaper = @"E:\#壁紙\good\16574.jpg";
             public string Wallpaper
             {
                 get { return wallpaper; }
-                set { wallpaper = value; }
             }
+            public event EventHandler WallpaperChanged = delegate { };
 
+            private bool isWallpaperOpacityAltered;
             private float wallpaperOpacity = 0.5F;
-            public float WallpaperOpecity
+            public float WallpaperOpacity
             {
                 get { return wallpaperOpacity; }
-                set { wallpaperOpacity = value; }
             }
+            public event EventHandler WallpaperOpacityChanged = delegate { };
 
+            private bool isIsConfirmAtExitAltered;
             private bool isConfirmAtExit = true;
             public bool IsConfirmAtExit
             {
                 get { return isConfirmAtExit; }
-                set { isConfirmAtExit = value; }
+            }
+            public event EventHandler IsConfirmAtExitChanged = delegate { };
+
+            public event EventHandler WallpaperSettingsChanged = delegate { };
+
+            public MainWindowSettings()
+                : base("MainWindowSettings.xml")
+            {
+                Load();
+            }
+
+            protected override string XmlName
+            {
+                get { return "MainWindowSettings"; }
+            }
+
+            protected override CREACOINSETTINGSDATA.MainDataInfomation[] MainDataInfo
+            {
+                get
+                {
+                    return new MainDataInfomation[]{
+                        new MainDataInfomation(typeof(int), "PortWebSocket", () => portWebSocket, (o) => portWebSocket = (int)o), 
+                        new MainDataInfomation(typeof(int), "PortWebServer", () => portWebServer, (o) => portWebServer = (int)o), 
+                        new MainDataInfomation(typeof(bool), "IsWallpaper", () => isWallpaper, (o) => isWallpaper = (bool)o), 
+                        new MainDataInfomation(typeof(string), "Wallpaper", () => wallpaper, (o) => wallpaper = (string)o), 
+                        new MainDataInfomation(typeof(float), "WallpaperOpecity", () => wallpaperOpacity, (o) => wallpaperOpacity = (float)o), 
+                        new MainDataInfomation(typeof(bool), "IsConfirmAtExit", () => isConfirmAtExit, (o) => isConfirmAtExit = (bool)o), 
+                    };
+                }
+            }
+
+            private readonly object setAndSaveLock = new object();
+            public void SetAndSave(Action<Setter> setAction)
+            {
+                lock (setAndSaveLock)
+                {
+                    setAction(new Setter(
+                        (_portWebSocket) =>
+                        {
+                            if (portWebSocket != _portWebSocket)
+                            {
+                                portWebSocket = _portWebSocket;
+                                isPortWebSocketAltered = true;
+                            }
+                        },
+                        (_portWebServer) =>
+                        {
+                            if (portWebServer != _portWebServer)
+                            {
+                                portWebServer = _portWebServer;
+                                isPortWebServerAltered = true;
+                            }
+                        },
+                        (_isWallpaper) =>
+                        {
+                            if (isWallpaper != _isWallpaper)
+                            {
+                                isWallpaper = _isWallpaper;
+                                isIsWallpaperAltered = true;
+                            }
+                        },
+                        (_wallpaper) =>
+                        {
+                            if (wallpaper != _wallpaper)
+                            {
+                                wallpaper = _wallpaper;
+                                isWallpaperAltered = true;
+                            }
+                        },
+                        (_wallpaperOpacity) =>
+                        {
+                            if (wallpaperOpacity != _wallpaperOpacity)
+                            {
+                                wallpaperOpacity = _wallpaperOpacity;
+                                isWallpaperOpacityAltered = true;
+                            }
+                        },
+                        (_isConfirmAtExit) =>
+                        {
+                            if (isConfirmAtExit != _isConfirmAtExit)
+                            {
+                                isConfirmAtExit = _isConfirmAtExit;
+                                isIsConfirmAtExitAltered = true;
+                            }
+                        }));
+                    Save();
+
+                    if (isPortWebSocketAltered)
+                        PortWebSocketChanged(this, EventArgs.Empty);
+                    if (isPortWebServerAltered)
+                        PortWebServerChanged(this, EventArgs.Empty);
+                    if (isIsWallpaperAltered)
+                        IsWallpaperChanged(this, EventArgs.Empty);
+                    if (isWallpaperAltered)
+                        WallpaperChanged(this, EventArgs.Empty);
+                    if (isWallpaperOpacityAltered)
+                        WallpaperOpacityChanged(this, EventArgs.Empty);
+                    if (isIsConfirmAtExitAltered)
+                        IsConfirmAtExitChanged(this, EventArgs.Empty);
+
+                    if (isIsWallpaperAltered || isWallpaperAltered || isWallpaperOpacityAltered)
+                        WallpaperSettingsChanged(this, EventArgs.Empty);
+
+                    isPortWebSocketAltered = false;
+                    isPortWebServerAltered = false;
+                    isIsWallpaperAltered = false;
+                    isWallpaperAltered = false;
+                    isWallpaperOpacityAltered = false;
+                    isIsConfirmAtExitAltered = false;
+                }
             }
         }
 
-
         private HttpListener hl;
         private WebSocketServer wss;
-        private MainformSettings ms;
+        private MainWindowSettings mws;
 
         private CREACOINCore core;
         private Program.ProgramSettings psettings;
         private Program.ProgramStatus pstatus;
-        private string appnameWithVersion;
+        private string appname;
         private string version;
+        private string appnameWithVersion;
         private string lisenceTextFilePath;
         private Assembly assembly;
 
-
-        public MainWindow(CREACOINCore _core, Program.ProgramSettings _psettings, Program.ProgramStatus _pstatus, string _appnameWithVersion, string _version, string _lisenceTextFilename, Assembly _assembly, string _basepath)
+        public MainWindow(CREACOINCore _core, Program.ProgramSettings _psettings, Program.ProgramStatus _pstatus, string _appname, string _version, string _appnameWithVersion, string _lisenceTextFilename, Assembly _assembly, string _basepath)
         {
             core = _core;
             psettings = _psettings;
             pstatus = _pstatus;
-            appnameWithVersion = _appnameWithVersion;
+            appname = _appname;
             version = _version;
+            appnameWithVersion = _appnameWithVersion;
             lisenceTextFilePath = Path.Combine(_basepath, _lisenceTextFilename);
             assembly = _assembly;
-
-            ms = new MainformSettings();
 
             InitializeComponent();
 
@@ -99,6 +263,8 @@ namespace CREA2014
 
         private void Window_Loaded(object sender, RoutedEventArgs e)
         {
+            mws = new MainWindowSettings();
+
             if (pstatus.IsFirst)
             {
                 if (!File.Exists(lisenceTextFilePath))
@@ -113,125 +279,157 @@ namespace CREA2014
                 }
             }
 
-            string addressWebSocket = "ws://localhost:" + ms.PortWebSocket.ToString() + "/";
-            string prefix = "http://*:" + ms.PortWebServer.ToString() + "/";
-            string url = "http://localhost:" + ms.PortWebServer.ToString() + "/";
-
-            byte[] kabegamiData = null;
-            if (ms.IsWallpaper && File.Exists(ms.Wallpaper))
-                using (MemoryStream memoryStream = new MemoryStream())
-                using (Bitmap bitmap = new Bitmap(ms.Wallpaper))
-                using (Bitmap bitmap2 = new Bitmap(bitmap.Width, bitmap.Height))
-                using (Graphics g = Graphics.FromImage(bitmap2))
-                {
-                    ColorMatrix cm = new ColorMatrix();
-                    cm.Matrix00 = 1;
-                    cm.Matrix11 = 1;
-                    cm.Matrix22 = 1;
-                    cm.Matrix33 = ms.WallpaperOpecity;
-                    cm.Matrix44 = 1;
-
-                    ImageAttributes ia = new ImageAttributes();
-                    ia.SetColorMatrix(cm);
-
-                    g.DrawImage(bitmap, new System.Drawing.Rectangle(0, 0, bitmap.Width, bitmap.Height), 0, 0, bitmap.Width, bitmap.Height, GraphicsUnit.Pixel, ia);
-
-                    bitmap2.Save(memoryStream, ImageFormat.Png);
-
-                    kabegamiData = memoryStream.ToArray();
-                }
-
-            Func<string, string> homeHtmProcessor = (data) =>
+            Func<byte[]> _GetWallpaperData = () =>
             {
-                return data.Replace("%%title%%", appnameWithVersion).Replace("%%address%%", addressWebSocket);
-            };
-            Func<string, string> doNothing = (data) => data;
+                if (mws.IsWallpaper && File.Exists(mws.Wallpaper))
+                    using (MemoryStream memoryStream = new MemoryStream())
+                    using (Bitmap bitmap = new Bitmap(mws.Wallpaper))
+                    using (Bitmap bitmap2 = new Bitmap(bitmap.Width, bitmap.Height))
+                    using (Graphics g = Graphics.FromImage(bitmap2))
+                    {
+                        ColorMatrix cm = new ColorMatrix();
+                        cm.Matrix00 = 1;
+                        cm.Matrix11 = 1;
+                        cm.Matrix22 = 1;
+                        cm.Matrix33 = mws.WallpaperOpacity;
+                        cm.Matrix44 = 1;
 
-            var iResource = new[] {
+                        ImageAttributes ia = new ImageAttributes();
+                        ia.SetColorMatrix(cm);
+
+                        g.DrawImage(bitmap, new System.Drawing.Rectangle(0, 0, bitmap.Width, bitmap.Height), 0, 0, bitmap.Width, bitmap.Height, GraphicsUnit.Pixel, ia);
+
+                        bitmap2.Save(memoryStream, ImageFormat.Png);
+
+                        return memoryStream.ToArray();
+                    }
+                else
+                    return new byte[] { };
+            };
+            Func<string, string> _GetWallpaperFileName = (id) => id == null ? "/back.png" : "/back" + id + ".png";
+
+            Func<int, string> _GetWssAddress = (wssPort) => "ws://localhost:" + wssPort.ToString() + "/";
+
+            string wallpaperFileName = null;
+            Func<Dictionary<string, byte[]>> _GetWebServerData = () =>
+            {
+                Dictionary<string, byte[]> iWebServerData = new Dictionary<string, byte[]>();
+
+                iWebServerData.Add(wallpaperFileName = _GetWallpaperFileName(null), _GetWallpaperData());
+
+                Func<string, string> homeHtmProcessor = (data) =>
+                {
+                    return data.Replace("%%title%%", appnameWithVersion).Replace("%%address%%", _GetWssAddress(mws.PortWebSocket));
+                };
+                Func<string, string> doNothing = (data) => data;
+
+                foreach (var wsr in new[] {
                     new {path = "CREA2014.WebResources.home.htm", url = "/", processor = homeHtmProcessor}, 
                     new {path = "CREA2014.WebResources.jquery-2.0.3.min.js", url = "/jquery-2.0.3.min.js", processor = doNothing}, 
                     new {path = "CREA2014.WebResources.jquery-ui-1.10.4.custom.js", url = "/jquery-ui-1.10.4.custom.js", processor = doNothing}, 
-                };
-            var iData = new[] {
-                    new {url = "/back.png", data = kabegamiData}, 
-                };
+                })
+                    using (Stream stream = assembly.GetManifestResourceStream(wsr.path))
+                    {
+                        byte[] data = new byte[stream.Length];
+                        stream.Read(data, 0, data.Length);
 
-            Func<string, Func<string, string>, byte[]> _GetData = (path, processor) =>
-            {
-                using (Stream stream = assembly.GetManifestResourceStream(path))
-                {
-                    byte[] data = new byte[stream.Length];
-                    stream.Read(data, 0, data.Length);
-                    return Encoding.UTF8.GetBytes(processor(Encoding.UTF8.GetString(data)));
-                }
+                        iWebServerData.Add(wsr.url, Encoding.UTF8.GetBytes(wsr.processor(Encoding.UTF8.GetString(data))));
+                    }
+
+                return iWebServerData;
             };
+            Dictionary<string, byte[]> webServerData = _GetWebServerData();
 
-            var i2 = (from ii in iResource
-                      select
-                          new { url = ii.url, data = _GetData(ii.path, ii.processor) }).ToArray().Concat(iData);
-
-
-            hl = new HttpListener();
-            hl.Prefixes.Add(prefix);
-            try
+            Action _StartWebServer = () =>
             {
-                hl.Start();
-            }
-            catch (HttpListenerException ex)
-            {
-                throw new HttpListenerException(ex.ErrorCode, "require_administrator");
-            }
-
-            Thread thread = new Thread(() =>
-            {
-                while (true)
+                HttpListener innerHl = hl = new HttpListener();
+                innerHl.Prefixes.Add("http://*:" + mws.PortWebServer.ToString() + "/");
+                try
                 {
-                    HttpListenerContext hlc = null;
+                    innerHl.Start();
+                }
+                catch (HttpListenerException ex)
+                {
+                    throw new HttpListenerException(ex.ErrorCode, "require_administrator");
+                }
 
-                    try
+                Thread thread = new Thread(() =>
+                {
+                    while (true)
                     {
-                        hlc = hl.GetContext();
-                    }
-                    catch (HttpListenerException)
-                    {
-                        hl.Close();
-                        break;
-                    }
+                        HttpListenerContext hlc = null;
 
-                    HttpListenerRequest hlreq = hlc.Request;
-                    HttpListenerResponse hlres = hlc.Response;
-
-                    foreach (var ii2 in i2)
-                        if (hlreq.RawUrl == ii2.url)
+                        try
                         {
-                            if (ii2.data != null)
-                                hlres.OutputStream.Write(ii2.data, 0, ii2.data.Length);
+                            hlc = innerHl.GetContext();
+                        }
+                        catch (HttpListenerException)
+                        {
+                            innerHl.Close();
                             break;
                         }
 
-                    hlres.Close();
-                }
-            });
-            thread.Start();
-
+                        using (HttpListenerResponse hlres = hlc.Response)
+                            if (webServerData.Keys.Contains(hlc.Request.RawUrl) && webServerData[hlc.Request.RawUrl] != null)
+                                hlres.OutputStream.Write(webServerData[hlc.Request.RawUrl], 0, webServerData[hlc.Request.RawUrl].Length);
+                            else
+                                throw new KeyNotFoundException("web_server_data");
+                    }
+                });
+                thread.Start();
+            };
+            _StartWebServer();
 
             //<未改良>.NET Framework 4.5 のWenSocketを使用する
+            WebSocketServer oldWss;
             wss = new WebSocketServer();
-            wss.Setup(ms.PortWebSocket);
-            wss.NewSessionConnected += (session) =>
-            {
-            };
-            wss.NewMessageReceived += (session, message) =>
-            {
-                //MessageBox.Show(message.ToString());
-            };
-            wss.SessionClosed += (session, e2) =>
-            {
-                //RemoveSession(session);
-            };
+            wss.Setup(mws.PortWebSocket);
             wss.Start();
 
-            wb.Navigate(url);
+            wb.Navigate("http://localhost:" + mws.PortWebServer.ToString() + "/");
+
+            mws.PortWebSocketChanged += (sender2, e2) =>
+            {
+                oldWss = wss;
+                wss = new WebSocketServer();
+                wss.NewSessionConnected += (session) =>
+                {
+                    if (oldWss != null)
+                    {
+                        oldWss.Stop();
+                        oldWss = null;
+                    }
+                };
+                wss.Setup(mws.PortWebSocket);
+                wss.Start();
+
+                foreach (var wssession in oldWss.GetAllSessions())
+                    wssession.Send("wss " + _GetWssAddress(mws.PortWebSocket));
+            };
+            mws.PortWebServerChanged += (sender2, e2) =>
+            {
+                hl.Abort();
+
+                webServerData = _GetWebServerData();
+                _StartWebServer();
+
+                wb.Navigate("http://localhost:" + mws.PortWebServer.ToString() + "/");
+            };
+            mws.WallpaperSettingsChanged += (sender2, e2) =>
+            {
+                webServerData.Remove(wallpaperFileName);
+                wallpaperFileName = _GetWallpaperFileName(DateTime.Now.Ticks.ToString());
+                webServerData.Add(wallpaperFileName, _GetWallpaperData());
+
+                foreach (var wssession in wss.GetAllSessions())
+                    wssession.Send("wallpaper " + wallpaperFileName);
+            };
+        }
+
+        private void Window_Closing(object sender, System.ComponentModel.CancelEventArgs e)
+        {
+            if (mws.IsConfirmAtExit && MessageBox.Show(string.Format("{0}を終了しますか？".Multilanguage(50), appname), appname, MessageBoxButton.YesNo) == MessageBoxResult.No)
+                e.Cancel = true;
         }
 
         private void Window_Closed(object sender, EventArgs e)
@@ -240,6 +438,8 @@ namespace CREA2014
                 hl.Abort();
             if (wss != null)
                 wss.Stop();
+
+            mws.Save();
         }
 
         private void miClose_Click(object sender, RoutedEventArgs e)
@@ -249,9 +449,28 @@ namespace CREA2014
 
         private void miSettings_Click(object sender, RoutedEventArgs e)
         {
-            SettingsWindow sw = new SettingsWindow(ms);
+            SettingsWindow sw = new SettingsWindow(mws);
             sw.Owner = this;
+
+            sw.tbPortWebSocket.Text = mws.PortWebSocket.ToString();
+            sw.tbPortWebServer.Text = mws.PortWebServer.ToString();
+            sw.cbIsWallpaper.IsChecked = mws.IsWallpaper;
+            sw.tbWallpaper.Text = mws.Wallpaper;
+            sw.tbWallpaperOpacity.Text = mws.WallpaperOpacity.ToString();
+            sw.cbConfirmAtExit.IsChecked = mws.IsConfirmAtExit;
+
             sw.ShowDialog();
+
+            if (sw.DialogResult == true)
+                mws.SetAndSave((setter) =>
+                {
+                    setter.PortWebSocket = int.Parse(sw.tbPortWebSocket.Text);
+                    setter.PortWebServer = int.Parse(sw.tbPortWebServer.Text);
+                    setter.IsWallpaper = (bool)sw.cbIsWallpaper.IsChecked;
+                    setter.Wallpaper = sw.tbWallpaper.Text;
+                    setter.WallpaperOpacity = float.Parse(sw.tbWallpaperOpacity.Text);
+                    setter.IsConfirmAtExit = (bool)sw.cbConfirmAtExit.IsChecked;
+                });
         }
 
         private void miAbout_Click(object sender, RoutedEventArgs e)

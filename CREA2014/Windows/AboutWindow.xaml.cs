@@ -20,7 +20,7 @@ namespace CREA2014.Windows
             tblIconCreater.Text = "CREAアイコン".Multilanguage(28);
             tbIconCreater.Text = "386氏".Multilanguage(29);
             tblCreatanCreater.Text = "CREAたんイラスト".Multilanguage(30);
-            tbCreatanCreater.Text = "";
+            tbCreatanCreater.Text = "571氏".Multilanguage(51);
             tblSpecialThanks.Text = "特別協力".Multilanguage(31);
             tbSpecialThanks.Text = "2ch／したらば／PDボード 専用スレ／Twitter　他".Multilanguage(32);
             tbDescription.Text = "本ソフトウェアはソフトウェア使用許諾契約書に示す契約に基づいて実行されています。".Multilanguage(33);

@@ -15,18 +15,18 @@
             };
             ws.onerror = function (error) {
             };
-            ws.onmessage = function (e) {
-                if (e.data.indexOf("main", 0) == 0) {
-                    var html = e.data.substring(5);
 
-                    $("#main").html(html);
+            om = function (e) {
+                if (e.data.indexOf("wss", 0) == 0) {
+                    ws.close();
+                    ws = new WebSocket(e.data.substring(4));
+                    ws.onmessage = om;
                 }
-                else if (e.data.indexOf("script", 0) == 0) {
-                    var script = e.data.substring(7);
-
-                    eval(script);
-                }
+                else if (e.data.indexOf("wallpaper", 0) == 0)
+                    $(document.body).css("background-image", "url('" + e.data.substring(10) + "')");
             };
+
+            ws.onmessage = om;
         });
 
         window.onunload = function () {

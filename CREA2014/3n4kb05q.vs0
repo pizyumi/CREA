@@ -1,0 +1,252 @@
+﻿using CREA2014.Windows;
+using SuperWebSocket;
+using System;
+using System.Drawing;
+using System.Drawing.Imaging;
+using System.IO;
+using System.Linq;
+using System.Net;
+using System.Reflection;
+using System.Text;
+using System.Threading;
+using System.Windows;
+
+namespace CREA2014
+{
+    public partial class MainWindow : Window
+    {
+        public class MainformSettings
+        {
+            private int portWebSocket = 3333;
+            public int PortWebSocket
+            {
+                get { return portWebSocket; }
+                set { portWebSocket = value; }
+            }
+
+            private int portWebServer = 3334;
+            public int PortWebServer
+            {
+                get { return portWebServer; }
+                set { portWebServer = value; }
+            }
+
+            private bool isWallpaper = true;
+            public bool IsWallpaper
+            {
+                get { return isWallpaper; }
+                set { isWallpaper = value; }
+            }
+
+            private string wallpaper = @"E:\#壁紙\good\16574.jpg";
+            public string Wallpaper
+            {
+                get { return wallpaper; }
+                set { wallpaper = value; }
+            }
+
+            private float wallpaperOpacity = 0.7F;
+            public float WallpaperOpecity
+            {
+                get { return wallpaperOpacity; }
+                set { wallpaperOpacity = value; }
+            }
+        }
+
+
+        private HttpListener hl;
+        private WebSocketServer wss;
+        private MainformSettings ms;
+
+        private CREACOINCore core;
+        private Program.ProgramSettings psettings;
+        private Program.ProgramStatus pstatus;
+        private string appnameWithVersion;
+        private string version;
+        private string lisenceTextFilePath;
+        private Assembly assembly;
+
+
+        public MainWindow(CREACOINCore _core, Program.ProgramSettings _psettings, Program.ProgramStatus _pstatus, string _appnameWithVersion, string _version, string _lisenceTextFilename, Assembly _assembly, string _basepath)
+        {
+            core = _core;
+            psettings = _psettings;
+            pstatus = _pstatus;
+            appnameWithVersion = _appnameWithVersion;
+            version = _version;
+            lisenceTextFilePath = Path.Combine(_basepath, _lisenceTextFilename);
+            assembly = _assembly;
+
+            ms = new MainformSettings();
+
+            InitializeComponent();
+
+            Title = _appnameWithVersion;
+            miFile.Header = "ファイル".Multilanguage(19) + "(_F)";
+            miClose.Header = "終了".Multilanguage(20) + "(_X)";
+            miHelp.Header = "ヘルプ".Multilanguage(21) + "(_H)";
+            miAbout.Header = "CREAについて".Multilanguage(22) + "(_A)...";
+        }
+
+        private void Window_Loaded(object sender, RoutedEventArgs e)
+        {
+            if (pstatus.IsFirst)
+            {
+                if (!File.Exists(lisenceTextFilePath))
+                    throw new FileNotFoundException("lisence_text_not_found");
+
+                LisenceWindow lw = new LisenceWindow(File.ReadAllText(lisenceTextFilePath));
+                lw.Owner = this;
+                if (lw.ShowDialog() == false)
+                {
+                    Close();
+                    return;
+                }
+            }
+
+            string addressWebSocket = "ws://localhost:" + ms.PortWebSocket.ToString() + "/";
+            string prefix = "http://*:" + ms.PortWebServer.ToString() + "/";
+            string url = "http://localhost:" + ms.PortWebServer.ToString() + "/";
+
+            byte[] kabegamiData = null;
+            if (ms.IsWallpaper && File.Exists(ms.Wallpaper))
+                using (MemoryStream memoryStream = new MemoryStream())
+                using (Bitmap bitmap = new Bitmap(ms.Wallpaper))
+                using (Bitmap bitmap2 = new Bitmap(bitmap.Width, bitmap.Height))
+                using (Graphics g = Graphics.FromImage(bitmap2))
+                {
+                    ColorMatrix cm = new ColorMatrix();
+                    cm.Matrix00 = 1;
+                    cm.Matrix11 = 1;
+                    cm.Matrix22 = 1;
+                    cm.Matrix33 = ms.WallpaperOpecity;
+                    cm.Matrix44 = 1;
+
+                    ImageAttributes ia = new ImageAttributes();
+                    ia.SetColorMatrix(cm);
+
+                    g.DrawImage(bitmap, new System.Drawing.Rectangle(0, 0, bitmap.Width, bitmap.Height), 0, 0, bitmap.Width, bitmap.Height, GraphicsUnit.Pixel, ia);
+
+                    bitmap2.Save(memoryStream, ImageFormat.Png);
+
+                    kabegamiData = memoryStream.ToArray();
+                }
+
+            Func<string, string> homeHtmProcessor = (data) =>
+            {
+
+            };
+            Func<string, string> homeJsProcessor = (data) =>
+            {
+                 data.Replace("%%title%%", appnameWithVersion).Replace("%%address%%", ms.PortWebSocket);
+            };
+            Func<string, string> doNothing = (data) => { };
+
+            var iResource = new[] {
+                    new {path = "CREA2014.WebResources.home.htm", url = "/", processor = homeHtmProcessor}, 
+                    new {path = "CREA2014.WebResources.home.js", url = "/home.js", processor = homeJsProcessor}, 
+                    new {path = "CREA2014.WebResources.jquery-2.0.3.min.js", url = "/jquery-2.0.3.min.js", processor = doNothing}, 
+                };
+            var iData = new[] {
+                    new {url = "/back.png", data = kabegamiData}, 
+                };
+
+            Func<string, Action<string>, byte[]> _GetData = (path, processor) =>
+            {
+                using (Stream stream = assembly.GetManifestResourceStream(path))
+                {
+                    byte[] data = new byte[stream.Length];
+                    stream.Read(data, 0, data.Length);
+                    return processor(Encoding.UTF8.GetString(data));
+                }
+            };
+
+            var i2 = (from ii in iResource
+                      select
+                          new { url = ii.url, data = _GetData(ii.path, ii.processor) }).ToArray().Concat(iData);
+
+
+            hl = new HttpListener();
+            hl.Prefixes.Add(prefix);
+            try
+            {
+                hl.Start();
+            }
+            catch (HttpListenerException ex)
+            {
+                throw new HttpListenerException(ex.ErrorCode, "require_administrator");
+            }
+
+            Thread thread = new Thread(() =>
+            {
+                while (true)
+                {
+                    HttpListenerContext hlc = null;
+
+                    try
+                    {
+                        hlc = hl.GetContext();
+                    }
+                    catch (HttpListenerException)
+                    {
+                        hl.Close();
+                        break;
+                    }
+
+                    HttpListenerRequest hlreq = hlc.Request;
+                    HttpListenerResponse hlres = hlc.Response;
+
+                    foreach (var ii2 in i2)
+                        if (hlreq.RawUrl == ii2.url)
+                        {
+                            if (ii2.data != null)
+                                hlres.OutputStream.Write(ii2.data, 0, ii2.data.Length);
+                            break;
+                        }
+
+                    hlres.Close();
+                }
+            });
+            thread.Start();
+
+
+            //<未改良>.NET Framework 4.5 のWenSocketを使用する
+            wss = new WebSocketServer();
+            wss.Setup(ms.PortWebSocket);
+            wss.NewSessionConnected += (session) =>
+            {
+            };
+            wss.NewMessageReceived += (session, message) =>
+            {
+                //MessageBox.Show(message.ToString());
+            };
+            wss.SessionClosed += (session, e2) =>
+            {
+                //RemoveSession(session);
+            };
+            wss.Start();
+
+            wb.Navigate(url);
+        }
+
+        private void Window_Closed(object sender, EventArgs e)
+        {
+            if (hl != null)
+                hl.Abort();
+            if (wss != null)
+                wss.Stop();
+        }
+
+        private void miClose_Click(object sender, RoutedEventArgs e)
+        {
+            Close();
+        }
+
+        private void miAbout_Click(object sender, RoutedEventArgs e)
+        {
+            AboutWindow aw = new AboutWindow(version);
+            aw.Owner = this;
+            aw.ShowDialog();
+        }
+    }
+}

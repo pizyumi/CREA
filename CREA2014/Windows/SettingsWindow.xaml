@@ -69,7 +69,7 @@
         </ScrollViewer>
         <DockPanel DockPanel.Dock="Bottom">
             <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
-                <Button x:Name="bOK" Width="100" Click="bOK_Click">OK(_O)</Button>
+                <Button x:Name="bOK" Width="100" IsDefault="True" Click="bOK_Click">OK(_O)</Button>
                 <Button x:Name="bCancel" Width="100" IsCancel="True" Click="bCancel_Click">キャンセル(_C)</Button>
             </StackPanel>
             <Grid></Grid>

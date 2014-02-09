@@ -6,9 +6,9 @@ namespace CREA2014.Windows
 {
     public partial class SettingsWindow : Window
     {
-        private MainWindow.MainformSettings ms;
+        private MainWindow.MainWindowSettings ms;
 
-        public SettingsWindow(MainWindow.MainformSettings _ms)
+        public SettingsWindow(MainWindow.MainWindowSettings _ms)
         {
             ms = _ms;
 
@@ -26,13 +26,6 @@ namespace CREA2014.Windows
             cbConfirmAtExit.Content = "終了確認を行う".Multilanguage(45) + "(_X)";
             bOK.Content = "OK".Multilanguage(46) + "(_O)";
             bCancel.Content = "キャンセル".Multilanguage(47) + "(_C)";
-
-            tbPortWebSocket.Text = ms.PortWebSocket.ToString();
-            tbPortWebServer.Text = ms.PortWebServer.ToString();
-            cbIsWallpaper.IsChecked = ms.IsWallpaper;
-            tbWallpaper.Text = ms.Wallpaper;
-            tbWallpaperOpacity.Text = ms.WallpaperOpecity.ToString();
-            cbConfirmAtExit.IsChecked = ms.IsConfirmAtExit;
         }
 
         private void tbPortWebSocket_TextChanged(object sender, TextChangedEventArgs e)
@@ -69,13 +62,6 @@ namespace CREA2014.Windows
         private void bOK_Click(object sender, RoutedEventArgs e)
         {
             DialogResult = true;
-
-            ms.PortWebSocket = int.Parse(tbPortWebSocket.Text);
-            ms.PortWebServer = int.Parse(tbPortWebServer.Text);
-            ms.IsWallpaper = (bool)cbIsWallpaper.IsChecked;
-            ms.Wallpaper = tbWallpaper.Text;
-            ms.WallpaperOpecity = float.Parse(tbWallpaperOpacity.Text);
-            ms.IsConfirmAtExit = (bool)cbConfirmAtExit.IsChecked;
         }
 
         private void bCancel_Click(object sender, RoutedEventArgs e)

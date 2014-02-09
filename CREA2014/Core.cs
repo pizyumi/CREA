@@ -437,6 +437,18 @@ namespace CREA2014
     public abstract class CREACOINSETTINGSDATA : CREACOINDATA
     {
         //<未実装>ジャグ配列に対応
+        //<未改良>SetAndSaveの抽象化 結構難しいので後回し
+
+        private string filename;
+        public string Filename
+        {
+            get { return filename; }
+        }
+
+        public CREACOINSETTINGSDATA(string _filename)
+        {
+            filename = _filename;
+        }
 
         public class MainDataInfomation
         {
@@ -551,6 +563,14 @@ namespace CREA2014
                     mdi.Setter(_Read(mdi.Type, mdi, xElement));
             }
         }
+
+        public void Load()
+        {
+            if (File.Exists(filename))
+                FromXml(XElement.Load(filename));
+        }
+
+        public void Save() { ToXml().Save(filename); }
     }
 
     #endregion

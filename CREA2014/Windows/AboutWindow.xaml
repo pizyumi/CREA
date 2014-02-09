@@ -45,7 +45,7 @@
         </Grid>
         <DockPanel DockPanel.Dock="Bottom">
             <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
-                <Button x:Name="bOK" Width="100" Margin="5,5,2,5" IsCancel="True" Click="bOK_Click"></Button>
+                <Button x:Name="bOK" Width="100" Margin="5,5,2,5" IsDefault="True" IsCancel="True" Click="bOK_Click"></Button>
             </StackPanel>
             <Grid></Grid>
         </DockPanel>
