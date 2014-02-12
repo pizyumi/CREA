@@ -1,8 +1,8 @@
 ﻿using CREA2014.Windows;
+using SuperSocket.SocketBase;
 using SuperWebSocket;
 using System;
 using System.Collections.Generic;
-using System.Diagnostics;
 using System.Drawing;
 using System.Drawing.Imaging;
 using System.IO;
@@ -12,6 +12,7 @@ using System.Reflection;
 using System.Text;
 using System.Threading;
 using System.Windows;
+using System.Windows.Input;
 
 namespace CREA2014
 {
@@ -319,7 +320,23 @@ namespace CREA2014
 
                 Func<string, string> homeHtmProcessor = (data) =>
                 {
-                    return data.Replace("%%title%%", appnameWithVersion).Replace("%%address%%", _GetWssAddress(mws.PortWebSocket));
+                    data = data.Replace("%%title%%", appnameWithVersion).Replace("%%address%%", _GetWssAddress(mws.PortWebSocket));
+
+                    string buttonBaseHtml;
+                    using (Stream stream = assembly.GetManifestResourceStream("CREA2014.WebResources.button.htm"))
+                    {
+                        byte[] buttonData = new byte[stream.Length];
+                        stream.Read(buttonData, 0, buttonData.Length);
+                        buttonBaseHtml = Encoding.UTF8.GetString(buttonData);
+                    }
+
+                    foreach (var button in new[] { 
+                        new { identifier = "new_account_holder", name = "button1", text = "新しい口座名義".Multilanguage(60) + "(<u>A</u>)...", command = "new_account_holder", key = Key.A }, 
+                        new { identifier = "new_account", name = "button2", text = "新しい口座".Multilanguage(61) + "(<u>B</u>)...", command = "new_account", key = Key.B }, 
+                    })
+                        data = data.Replace("%%" + button.identifier + "%%", buttonBaseHtml.Replace("button1", button.name).Replace("%%text%%", button.text).Replace("%%command%%", button.command).Replace("%%key%%", ((int)button.key).ToString()));
+
+                    return data;
                 };
                 Func<string, string> doNothing = (data) => data;
 
@@ -381,8 +398,26 @@ namespace CREA2014
             _StartWebServer();
 
             //<未改良>.NET Framework 4.5 のWenSocketを使用する
+            SessionHandler<WebSocketSession, string> newMessageReceived = (session, message) =>
+            {
+                ((Action)(() =>
+                {
+                    if (message == "new_account_holder")
+                    {
+                        NewAccountHolderWindow nahw = new NewAccountHolderWindow();
+                        nahw.Owner = this;
+                        if (nahw.ShowDialog() == true)
+                        {
+                        }
+                    }
+                    else
+                        throw new NotSupportedException("wss_command");
+                })).ExecuteInUIThread();
+            };
+
             WebSocketServer oldWss;
             wss = new WebSocketServer();
+            wss.NewMessageReceived += newMessageReceived;
             wss.Setup(mws.PortWebSocket);
             wss.Start();
 
@@ -400,6 +435,7 @@ namespace CREA2014
                         oldWss = null;
                     }
                 };
+                wss.NewMessageReceived += newMessageReceived;
                 wss.Setup(mws.PortWebSocket);
                 wss.Start();
 
@@ -459,9 +495,7 @@ namespace CREA2014
             sw.tbWallpaperOpacity.Text = mws.WallpaperOpacity.ToString();
             sw.cbConfirmAtExit.IsChecked = mws.IsConfirmAtExit;
 
-            sw.ShowDialog();
-
-            if (sw.DialogResult == true)
+            if (sw.ShowDialog() == true)
                 mws.SetAndSave((setter) =>
                 {
                     setter.PortWebSocket = int.Parse(sw.tbPortWebSocket.Text);
@@ -478,6 +512,15 @@ namespace CREA2014
             AboutWindow aw = new AboutWindow(version);
             aw.Owner = this;
             aw.ShowDialog();
+        }
+
+        private void Window_PreviewKeyDown(object sender, System.Windows.Input.KeyEventArgs e)
+        {
+            if (e.Key == Key.System)
+                foreach (var wssession in wss.GetAllSessions())
+                    wssession.Send("keydown " + ((int)e.SystemKey).ToString());
+
+            e.Handled = true;
         }
     }
 }

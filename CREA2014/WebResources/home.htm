@@ -24,6 +24,17 @@
                 }
                 else if (e.data.indexOf("wallpaper", 0) == 0)
                     $(document.body).css("background-image", "url('" + e.data.substring(10) + "')");
+                else if (e.data.indexOf("keydown", 0) == 0) {
+                    var code = Number(e.data.substring(8));
+                    if (code == NaN)
+                        throw "keydown_nan";
+
+                    var evt = $.Event("keydown");
+                    evt.keyCode = code;
+                    $(document).trigger(evt);
+                }
+                else
+                    throw "wss_command_html";
             };
 
             ws.onmessage = om;
@@ -128,24 +139,25 @@
                     }
 
                     .tab1_tabcontent {
-                        padding: 15px;
+                        padding: 0px 0px 0px 15px;
                         display: none;
                     }
 
                     .tab1_tabcontent_selected {
-                        padding: 15px;
+                        padding: 0px 0px 0px 15px;
                         display: block;
                     }
 
                     #zandaka_label {
                         font-size: 32px;
                         font-weight: bold;
+                        margin: 30px 0px 0px 0px;
                     }
 
                     #zandaka {
                         font-size: 16px;
                         font-weight: bold;
-                        margin: 10px 0px 0px 30px;
+                        margin: 15px 0px 0px 30px;
                     }
                 </style>
                 <script type="text/javascript">
@@ -178,6 +190,9 @@
                                 var i = $.data($(this).get(0), "i");
                                 contents.each(function () {
                                     if ($.data($(this).get(0), "i") == i) {
+                                        $(".tab1_tabcontent_selected").children(".button").removeClass("activated");
+                                        $(this).children(".button").addClass("activated");
+
                                         $(".tab1_tabcontent_selected").switchClass("tab1_tabcontent_selected", "tab1_tabcontent", 200);
                                         $(this).switchClass("tab1_tabcontent", "tab1_tabcontent_selected", 200);
                                     }
@@ -187,6 +202,7 @@
 
                         items.first().switchClass("tab1_tabitem", "tab1_tabitem_selected", 0);
                         contents.first().switchClass("tab1_tabcontent", "tab1_tabcontent_selected", 0);
+                        contents.first().children(".button").addClass("activated");
                     });
                 </script>
                 <div id="tab1items">
@@ -200,38 +216,8 @@
                         <div id="zandaka">0.00000000CREA</div>
                     </div>
                     <div id="tab1_tabcontent2" class="tab1_tabcontent">
-                        未実装<br />
-                        未実装<br />
-                        未実装<br />
-                        未実装<br />
-                        未実装<br />
-                        未実装<br />
-                        未実装<br />
-                        未実装<br />
-                        未実装<br />
-                        未実装<br />
-                        未実装<br />
-                        未実装<br />
-                        未実装<br />
-                        未実装<br />
-                        未実装<br />
-                        未実装<br />
-                        未実装<br />
-                        未実装<br />
-                        未実装<br />
-                        未実装<br />
-                        未実装<br />
-                        未実装<br />
-                        未実装<br />
-                        未実装<br />
-                        未実装<br />
-                        未実装<br />
-                        未実装<br />
-                        未実装<br />
-                        未実装<br />
-                        未実装<br />
-                        未実装<br />
-                        未実装<br />
+                        %%new_account_holder%%
+                        %%new_account%%
                     </div>
                     <div id="tab1_tabcontent3" class="tab1_tabcontent">
                         未実装

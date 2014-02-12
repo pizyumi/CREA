@@ -85,6 +85,9 @@
     <Compile Include="Windows\LisenceWindow.xaml.cs">
       <DependentUpon>LisenceWindow.xaml</DependentUpon>
     </Compile>
+    <Compile Include="Windows\NewAccountHolderWindow.xaml.cs">
+      <DependentUpon>NewAccountHolderWindow.xaml</DependentUpon>
+    </Compile>
     <Compile Include="Windows\SettingsWindow.xaml.cs">
       <DependentUpon>SettingsWindow.xaml</DependentUpon>
     </Compile>
@@ -110,6 +113,10 @@
       <Generator>MSBuild:Compile</Generator>
     </Page>
     <Page Include="Windows\LisenceWindow.xaml">
+      <SubType>Designer</SubType>
+      <Generator>MSBuild:Compile</Generator>
+    </Page>
+    <Page Include="Windows\NewAccountHolderWindow.xaml">
       <SubType>Designer</SubType>
       <Generator>MSBuild:Compile</Generator>
     </Page>
@@ -183,6 +190,9 @@
   </ItemGroup>
   <ItemGroup>
     <EmbeddedResource Include="WebResources\jquery-ui-1.10.4.custom.js" />
+  </ItemGroup>
+  <ItemGroup>
+    <EmbeddedResource Include="WebResources\button.htm" />
   </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
   <!-- To modify your build process, add your task inside one of the targets below and uncomment it. 

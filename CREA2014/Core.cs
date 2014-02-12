@@ -832,8 +832,8 @@ namespace CREA2014
 
     public abstract class CREASIGNATUREDATA : CREACOINSHAREDDATA
     {
-        protected int keyLength;
-        public int KeyLength
+        protected EcdsaKeyLength keyLength;
+        public EcdsaKeyLength KeyLength
         {
             get { return keyLength; }
         }
@@ -850,17 +850,19 @@ namespace CREA2014
             get { return privateKey; }
         }
 
-        public CREASIGNATUREDATA(int _keyLength, int? _version)
+        public enum EcdsaKeyLength { Ecdsa256, Ecdsa384, Ecdsa521 }
+
+        public CREASIGNATUREDATA(EcdsaKeyLength _keyLength, int? _version)
             : base(_version)
         {
             keyLength = _keyLength;
 
             CngAlgorithm ca;
-            if (keyLength == 256)
+            if (keyLength == EcdsaKeyLength.Ecdsa256)
                 ca = CngAlgorithm.ECDsaP256;
-            else if (keyLength == 384)
+            else if (keyLength == EcdsaKeyLength.Ecdsa384)
                 ca = CngAlgorithm.ECDsaP384;
-            else if (keyLength == 521)
+            else if (keyLength == EcdsaKeyLength.Ecdsa521)
                 ca = CngAlgorithm.ECDsaP521;
             else
                 throw new NotSupportedException("ecdsa_key_length_not_suppoeted");
@@ -871,16 +873,16 @@ namespace CREA2014
             privateKey = ck.Export(CngKeyBlobFormat.EccPrivateBlob);
         }
 
-        public CREASIGNATUREDATA(int _keyLength) : this(_keyLength, null) { }
+        public CREASIGNATUREDATA(EcdsaKeyLength _keyLength) : this(_keyLength, null) { }
 
-        public CREASIGNATUREDATA() : this(256) { }
+        public CREASIGNATUREDATA() : this(EcdsaKeyLength.Ecdsa256) { }
 
         protected override MainDataInfomation[] MainDataInfo
         {
             get
             {
                 return new MainDataInfomation[]{
-                    new MainDataInfomation(typeof(int), () => keyLength, (o) => keyLength = (int)o), 
+                    new MainDataInfomation(typeof(int), () => (int)keyLength, (o) => keyLength = (EcdsaKeyLength)o), 
                     new MainDataInfomation(typeof(byte[]), null, () => publicKey, (o) => publicKey = (byte[])o), 
                     new MainDataInfomation(typeof(byte[]), null, () => privateKey, (o) => privateKey = (byte[])o), 
                 };
@@ -914,18 +916,18 @@ namespace CREA2014
             get { return accounts.ToArray(); }
         }
 
-        public AccountHolder(string _name, int _keyLength)
+        public AccountHolder(string _name, EcdsaKeyLength _keyLength)
             : base(_keyLength, 0)
         {
             name = _name;
             accounts = new List<Account>();
         }
 
-        public AccountHolder(string _name) : this(_name, 256) { }
+        public AccountHolder(string _name) : this(_name, EcdsaKeyLength.Ecdsa256) { }
 
-        public AccountHolder(int _keyLength) : this(null, _keyLength) { }
+        public AccountHolder(EcdsaKeyLength _keyLength) : this(null, _keyLength) { }
 
-        public AccountHolder() : this(null, 256) { }
+        public AccountHolder() : this(null, EcdsaKeyLength.Ecdsa256) { }
 
         protected override MainDataInfomation[] MainDataInfo
         {
@@ -1002,18 +1004,18 @@ namespace CREA2014
             set { description = value; }
         }
 
-        public Account(string _name, string _description, int _keyLength)
+        public Account(string _name, string _description, EcdsaKeyLength _keyLength)
             : base(_keyLength, 0)
         {
             name = _name;
             description = _description;
         }
 
-        public Account(string _name, string _description) : this(_name, _description, 256) { }
+        public Account(string _name, string _description) : this(_name, _description, EcdsaKeyLength.Ecdsa256) { }
 
-        public Account(int _keyLength) : this(null, null, _keyLength) { }
+        public Account(EcdsaKeyLength _keyLength) : this(null, null, _keyLength) { }
 
-        public Account() : this(null, null, 256) { }
+        public Account() : this(null, null, EcdsaKeyLength.Ecdsa256) { }
 
         public class AccountAddress
         {

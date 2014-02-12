@@ -82,6 +82,62 @@ namespace CREA2014
 
     public static class Extension
     {
+        //UIスレッドで処理を同期的に実行する（拡張：操作型）
+        public static void ExecuteInUIThread(this Action action)
+        {
+            if (Application.Current == null)
+                action();
+            else
+                if (Application.Current.Dispatcher.CheckAccess())
+                    action();
+                else
+                    Application.Current.Dispatcher.Invoke(new Action(() => action()));
+        }
+
+        //UIスレッドで処理を同期的に実行する（拡張：関数型）
+        public static T ExecuteInUIThread<T>(this Func<T> action)
+        {
+            if (Application.Current == null)
+                return action();
+            else
+                if (Application.Current.Dispatcher.CheckAccess())
+                    return action();
+                else
+                {
+                    T result = default(T);
+                    Application.Current.Dispatcher.Invoke(new Action(() => result = action()));
+                    return result;
+                }
+        }
+
+        //UIスレッドで処理を非同期的に実行する（拡張：操作型）
+        public static void BeginExecuteInUIThread(Action action)
+        {
+            if (Application.Current == null)
+                action();
+            else
+                if (Application.Current.Dispatcher.CheckAccess())
+                    action();
+                else
+                    Application.Current.Dispatcher.BeginInvoke(new Action(() => action()));
+        }
+
+        //UIスレッドで処理を同期的に実行する（拡張：関数型）
+        public static T BeginExecuteInUIThread<T>(this Func<T> action)
+        {
+            if (Application.Current == null)
+                return action();
+            else
+                if (Application.Current.Dispatcher.CheckAccess())
+                    return action();
+                else
+                {
+                    T result = default(T);
+                    Application.Current.Dispatcher.BeginInvoke(new Action(() => result = action()));
+                    return result;
+                }
+        }
+
         //バイト配列から16進文字列に変換する（拡張：バイト配列型）
         public static string ToHexstring(this byte[] bytes)
         {
