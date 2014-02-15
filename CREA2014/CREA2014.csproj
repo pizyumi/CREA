@@ -51,6 +51,9 @@
   <PropertyGroup>
     <ApplicationManifest>app.manifest</ApplicationManifest>
   </PropertyGroup>
+  <PropertyGroup>
+    <ApplicationIcon>up0669.ico</ApplicationIcon>
+  </PropertyGroup>
   <ItemGroup>
     <Reference Include="SuperSocket.SocketBase">
       <HintPath>C:\Users\湯味菜\Downloads\SuperWebSocket(0.8).Binaries\Net45\Release\SuperSocket.SocketBase.dll</HintPath>
@@ -58,7 +61,8 @@
     <Reference Include="SuperSocket.SocketEngine">
       <HintPath>C:\Users\湯味菜\Downloads\SuperWebSocket(0.8).Binaries\Net45\Release\SuperSocket.SocketEngine.dll</HintPath>
     </Reference>
-    <Reference Include="SuperWebSocket">
+    <Reference Include="SuperWebSocket, Version=0.8.0.0, Culture=neutral, PublicKeyToken=7ba53b9a7cef5d1c, processorArchitecture=MSIL">
+      <SpecificVersion>False</SpecificVersion>
       <HintPath>C:\Users\湯味菜\Downloads\SuperWebSocket(0.8).Binaries\Net45\Release\SuperWebSocket.dll</HintPath>
     </Reference>
     <Reference Include="System" />
@@ -87,6 +91,9 @@
     </Compile>
     <Compile Include="Windows\NewAccountHolderWindow.xaml.cs">
       <DependentUpon>NewAccountHolderWindow.xaml</DependentUpon>
+    </Compile>
+    <Compile Include="Windows\NewAccountWindow.xaml.cs">
+      <DependentUpon>NewAccountWindow.xaml</DependentUpon>
     </Compile>
     <Compile Include="Windows\SettingsWindow.xaml.cs">
       <DependentUpon>SettingsWindow.xaml</DependentUpon>
@@ -117,6 +124,10 @@
       <Generator>MSBuild:Compile</Generator>
     </Page>
     <Page Include="Windows\NewAccountHolderWindow.xaml">
+      <SubType>Designer</SubType>
+      <Generator>MSBuild:Compile</Generator>
+    </Page>
+    <Page Include="Windows\NewAccountWindow.xaml">
       <SubType>Designer</SubType>
       <Generator>MSBuild:Compile</Generator>
     </Page>
@@ -193,6 +204,9 @@
   </ItemGroup>
   <ItemGroup>
     <EmbeddedResource Include="WebResources\button.htm" />
+  </ItemGroup>
+  <ItemGroup>
+    <Resource Include="up0669.ico" />
   </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
   <!-- To modify your build process, add your task inside one of the targets below and uncomment it. 

@@ -15,8 +15,9 @@ namespace CREA2014
     public abstract class CREACOINSHAREDDATA : CREACOINDATA
     {
         //<未実装>圧縮機能
-        //<未実装>id機能
+        //<未実装>id機能 ← これって何のことだったっけ
         //<未実装>ジャグ配列に対応
+        //<未実装>抽象クラスを指定できないことに今更気付いた ｱﾁｬｰ 抽象クラスの場合は型名も保存しなければならないのか・・・
 
         private int? version;
         public int Version
@@ -44,14 +45,13 @@ namespace CREA2014
         {
             //CREACOINSHAREDDATA（の派生クラス）の配列専用
             public MainDataInfomation(Type _type, int? _version, int? _length, Func<object> _getter, Action<object> _setter)
-                : this(_type, _getter, _setter)
             {
-                if (!Type.IsArray)
+                if (!_type.IsArray)
                     throw new ArgumentException("main_data_info_not_array");
 
-                Type elementType = Type.GetElementType();
+                Type elementType = _type.GetElementType();
                 if (!elementType.IsSubclassOf(typeof(CREACOINSHAREDDATA)))
-                    throw new ArgumentException("main_data_info_not_ccsc_array");
+                    throw new ArgumentException("main_data_info_not_ccsd_array");
 
                 CREACOINSHAREDDATA ccsd = Activator.CreateInstance(elementType) as CREACOINSHAREDDATA;
                 if ((!ccsd.IsVersioned && _version != null) || (ccsd.IsVersioned && _version == null))
@@ -59,20 +59,23 @@ namespace CREA2014
 
                 version = _version;
                 length = _length;
+
+                Type = _type;
+                Getter = _getter;
+                Setter = _setter;
             }
 
             //CREACOINSHAREDDATA（の派生クラス）の配列以外の配列またはCREACOINSHAREDDATA（の派生クラス）専用
             public MainDataInfomation(Type _type, int? _lengthOrVersion, Func<object> _getter, Action<object> _setter)
-                : this(_type, _getter, _setter)
             {
-                if (Type.IsArray)
-                    if (Type.GetElementType().IsSubclassOf(typeof(CREACOINSHAREDDATA)))
-                        throw new ArgumentException("main_data_info_ccsc_array");
+                if (_type.IsArray)
+                    if (_type.GetElementType().IsSubclassOf(typeof(CREACOINSHAREDDATA)))
+                        throw new ArgumentException("main_data_info_ccsd_array");
                     else
                         length = _lengthOrVersion;
-                else if (Type.IsSubclassOf(typeof(CREACOINSHAREDDATA)))
+                else if (_type.IsSubclassOf(typeof(CREACOINSHAREDDATA)))
                 {
-                    CREACOINSHAREDDATA ccsd = Activator.CreateInstance(Type) as CREACOINSHAREDDATA;
+                    CREACOINSHAREDDATA ccsd = Activator.CreateInstance(_type) as CREACOINSHAREDDATA;
                     if ((!ccsd.IsVersioned && _lengthOrVersion != null) || (ccsd.IsVersioned && _lengthOrVersion == null))
                         throw new ArgumentException("main_data_info_not_is_versioned");
 
@@ -80,10 +83,19 @@ namespace CREA2014
                 }
                 else
                     throw new ArgumentException("main_data_info_not_bytes_ccsd");
+
+                Type = _type;
+                Getter = _getter;
+                Setter = _setter;
             }
 
             public MainDataInfomation(Type _type, Func<object> _getter, Action<object> _setter)
             {
+                if (_type.IsArray)
+                    throw new ArgumentException("main_data_info_array");
+                else if (_type.IsSubclassOf(typeof(CREACOINSHAREDDATA)))
+                    throw new ArgumentException("main_data_info_ccsd");
+
                 Type = _type;
                 Getter = _getter;
                 Setter = _setter;
@@ -900,6 +912,67 @@ namespace CREA2014
         }
     }
 
+    public class AnonymousAccountHolder : CREACOINSHAREDDATA
+    {
+        private readonly object accountsLock = new object();
+        private List<Account> accounts;
+        public Account[] Accounts
+        {
+            get { return accounts.ToArray(); }
+        }
+
+        public AnonymousAccountHolder()
+            : base(0)
+        {
+            accounts = new List<Account>();
+        }
+
+        protected override MainDataInfomation[] MainDataInfo
+        {
+            get
+            {
+                if (Version == 0)
+                {
+                    return new MainDataInfomation[]{
+                        new MainDataInfomation(typeof(Account[]), 0, null, () => accounts.ToArray(), (o) => accounts = ((Account[])o).ToList()), 
+                    };
+                }
+                else
+                    throw new NotSupportedException("aah_main_data_info");
+            }
+        }
+
+        protected override bool IsVersioned
+        {
+            get { return true; }
+        }
+
+        protected override bool IsCorruptionChecked
+        {
+            get
+            {
+                if (Version <= 0)
+                    return true;
+                else
+                    throw new NotSupportedException("aah_check");
+            }
+        }
+
+        public void AddAccount(Account account)
+        {
+            lock (accountsLock)
+                if (!accounts.Contains(account).RaiseError(this.GetType(), "exist_account", 5))
+                    accounts.Add(account);
+        }
+
+        public void RemoveAccount(Account account)
+        {
+            lock (accountsLock)
+                if (accounts.Contains(account).NotRaiseError(this.GetType(), "not_exist_account", 5))
+                    accounts.Remove(account);
+        }
+    }
+
     public class AccountHolder : CREASIGNATUREDATA
     {
         private string name;
@@ -941,7 +1014,7 @@ namespace CREA2014
                     });
                 }
                 else
-                    throw new NotSupportedException("account_hilder_main_data_info");
+                    throw new NotSupportedException("account_holder_main_data_info");
             }
         }
 
@@ -971,18 +1044,21 @@ namespace CREA2014
             get { return name + "◆" + Trip; }
         }
 
+        public event EventHandler AccountAdded = delegate { };
+        public event EventHandler AccountRemoved = delegate { };
+
         public void AddAccount(Account account)
         {
             lock (accountsLock)
                 if (!accounts.Contains(account).RaiseError(this.GetType(), "exist_account", 5))
-                    accounts.Add(account);
+                    this.ExecuteBeforeEvent(() => accounts.Add(account), AccountAdded);
         }
 
         public void RemoveAccount(Account account)
         {
             lock (accountsLock)
                 if (accounts.Contains(account).NotRaiseError(this.GetType(), "not_exist_account", 5))
-                    accounts.Remove(account);
+                    this.ExecuteBeforeEvent(() => accounts.Remove(account), AccountRemoved);
         }
 
         public override string ToString() { return Sign; }
@@ -1157,6 +1233,12 @@ namespace CREA2014
 
     public class AccountHolderDatabase : CREACOINSHAREDDATA
     {
+        private AnonymousAccountHolder anonymousAccountHolder;
+        public AnonymousAccountHolder AnonymousAccountHolder
+        {
+            get { return anonymousAccountHolder; }
+        }
+
         private readonly object ahsLock = new object();
         private List<AccountHolder> accountHolders;
         public AccountHolder[] AccountHolders
@@ -1174,6 +1256,7 @@ namespace CREA2014
         public AccountHolderDatabase()
             : base(0)
         {
+            anonymousAccountHolder = new AnonymousAccountHolder();
             accountHolders = new List<AccountHolder>();
             candidateAccountHolders = new List<AccountHolder>();
         }
@@ -1185,8 +1268,9 @@ namespace CREA2014
                 if (Version == 0)
                 {
                     return new MainDataInfomation[]{
-                        new MainDataInfomation(typeof(AccountHolder[]), () => accountHolders.ToArray(), (o) => accountHolders = ((AccountHolder[])o).ToList()), 
-                        new MainDataInfomation(typeof(AccountHolder[]), () => candidateAccountHolders.ToArray(), (o) => candidateAccountHolders = ((AccountHolder[])o).ToList()), 
+                        new MainDataInfomation(typeof(AnonymousAccountHolder), 0, () => anonymousAccountHolder, (o) => anonymousAccountHolder = (AnonymousAccountHolder)o), 
+                        new MainDataInfomation(typeof(AccountHolder[]), 0, null, () => accountHolders.ToArray(), (o) => accountHolders = ((AccountHolder[])o).ToList()), 
+                        new MainDataInfomation(typeof(AccountHolder[]), 0, null, () => candidateAccountHolders.ToArray(), (o) => candidateAccountHolders = ((AccountHolder[])o).ToList()), 
                     };
                 }
                 else
@@ -1210,7 +1294,10 @@ namespace CREA2014
             }
         }
 
-        public void AddSignData(AccountHolder ah)
+        public event EventHandler AccountHolderAdded = delegate { };
+        public event EventHandler AccountHolderRemoved = delegate { };
+
+        public void AddAccountHolder(AccountHolder ah)
         {
             lock (ahsLock)
             {
@@ -1220,32 +1307,32 @@ namespace CREA2014
                 };
 
                 if (!conditions.And())
-                    accountHolders.Add(ah);
+                    this.ExecuteBeforeEvent(() => accountHolders.Add(ah), AccountHolderAdded);
             }
         }
 
-        public void DeleteSignData(AccountHolder ah)
+        public void DeleteAccountHolder(AccountHolder ah)
         {
             lock (ahsLock)
                 if (accountHolders.Contains(ah).NotRaiseError(this.GetType(), "not_exist_account_holder", 5))
-                    accountHolders.Remove(ah);
+                    this.ExecuteBeforeEvent(() => accountHolders.Remove(ah), AccountHolderRemoved);
         }
 
-        public void AddCandidateSignData(AccountHolder ah)
+        public void AddCandidateAccountHolder(AccountHolder ah)
         {
             lock (cahsLock)
                 if (!candidateAccountHolders.Contains(ah).RaiseError(this.GetType(), "exist_candidate_account_holder", 5))
                     candidateAccountHolders.Add(ah);
         }
 
-        public void DeleteCandidateSignData(AccountHolder ah)
+        public void DeleteCandidateAccountHolder(AccountHolder ah)
         {
             lock (cahsLock)
                 if (candidateAccountHolders.Contains(ah).NotRaiseError(this.GetType(), "not_exist_candidate_account_holder", 5))
                     candidateAccountHolders.Remove(ah);
         }
 
-        public void ClearCandidateSignDatas()
+        public void ClearCandidateAccountHolders()
         {
             lock (cahsLock)
                 candidateAccountHolders.Clear();

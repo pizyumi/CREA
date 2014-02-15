@@ -1,0 +1,37 @@
+﻿<Window x:Class="CREA2014.Windows.NewAccountHolderWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        SizeToContent="WidthAndHeight" ResizeMode="NoResize" ShowInTaskbar="False" WindowStartupLocation="CenterOwner" WindowStyle="SingleBorderWindow">
+    <DockPanel>
+        <Grid DockPanel.Dock="Top">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="500"></ColumnDefinition>
+            </Grid.ColumnDefinitions>
+            <Grid.RowDefinitions>
+                <RowDefinition Height="*"></RowDefinition>
+                <RowDefinition Height="*"></RowDefinition>
+                <RowDefinition Height="10"></RowDefinition>
+                <RowDefinition Height="*"></RowDefinition>
+                <RowDefinition Height="*"></RowDefinition>
+                <RowDefinition Height="*"></RowDefinition>
+                <RowDefinition Height="*"></RowDefinition>
+            </Grid.RowDefinitions>
+
+            <TextBlock Grid.Column="0" Grid.Row="0"><AccessText x:Name="atAccountHolder">口座名義(_H)：</AccessText></TextBlock>
+            <TextBox x:Name="tbAccountHolder" Grid.Column="0" Grid.Row="1"></TextBox>
+
+            <TextBlock x:Name="tbKeyLength" Grid.Column="0" Grid.Row="3">鍵長：</TextBlock>
+            <RadioButton x:Name="rb256bit" Grid.Column="0" Grid.Row="4">256ビット(_2)</RadioButton>
+            <RadioButton x:Name="rb384bit" Grid.Column="0" Grid.Row="5">384ビット(_3)</RadioButton>
+            <RadioButton x:Name="rb521bit" Grid.Column="0" Grid.Row="6">521ビット(_5)</RadioButton>
+        </Grid>
+
+        <DockPanel DockPanel.Dock="Bottom">
+            <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
+                <Button x:Name="bOK" Width="100" IsDefault="True" Click="bOK_Click">OK(_O)</Button>
+                <Button x:Name="bCancel" Width="100" IsCancel="True" Click="bCancel_Click">キャンセル(_C)</Button>
+            </StackPanel>
+            <Grid></Grid>
+        </DockPanel>
+    </DockPanel>
+</Window>

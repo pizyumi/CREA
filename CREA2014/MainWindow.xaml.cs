@@ -69,6 +69,56 @@ namespace CREA2014
                 }
             }
 
+            public class MainWindowSettingsChangedEventArgs : EventArgs
+            {
+                private bool isPortWebSocketAltered;
+                public bool IsPortWebSocketAltered
+                {
+                    get { return isPortWebSocketAltered; }
+                }
+
+                private bool isPortWebServerAltered;
+                public bool IsPortWebServerAltered
+                {
+                    get { return isPortWebServerAltered; }
+                }
+
+                private bool isIsWallpaperAltered;
+                public bool IsIsWallpaperAltered
+                {
+                    get { return isIsWallpaperAltered; }
+                }
+
+                private bool isWallpaperAltered;
+                public bool IsWallpaperAltered
+                {
+                    get { return isWallpaperAltered; }
+                }
+
+                private bool isWallpaperOpacityAltered;
+                public bool IsWallpaperOpacityAltered
+                {
+                    get { return isWallpaperOpacityAltered; }
+                }
+
+                private bool isIsConfirmAtExitAltered;
+                public bool IsIsConfirmAtExitAltered
+                {
+                    get { return isIsConfirmAtExitAltered; }
+                }
+
+                public MainWindowSettingsChangedEventArgs(bool _isPortWebSocketAltered, bool _isPortWebServerAltered, bool _isIsWallpaperAltered, bool _isWallpaperAltered, bool _isWallpaperOpacityAltered, bool _isIsConfirmAtExitAltered)
+                    : base()
+                {
+                    isPortWebSocketAltered = _isPortWebSocketAltered;
+                    isPortWebServerAltered = _isPortWebServerAltered;
+                    isIsWallpaperAltered = _isIsWallpaperAltered;
+                    isWallpaperAltered = _isWallpaperAltered;
+                    isWallpaperOpacityAltered = _isWallpaperOpacityAltered;
+                    isIsConfirmAtExitAltered = _isIsConfirmAtExitAltered;
+                }
+            }
+
             private bool isPortWebSocketAltered;
             private int portWebSocket = 3333;
             public int PortWebSocket
@@ -118,6 +168,8 @@ namespace CREA2014
             public event EventHandler IsConfirmAtExitChanged = delegate { };
 
             public event EventHandler WallpaperSettingsChanged = delegate { };
+
+            public event EventHandler<MainWindowSettingsChangedEventArgs> SettingsChanged = delegate { };
 
             public MainWindowSettings()
                 : base("MainWindowSettings.xml")
@@ -217,6 +269,9 @@ namespace CREA2014
                     if (isIsWallpaperAltered || isWallpaperAltered || isWallpaperOpacityAltered)
                         WallpaperSettingsChanged(this, EventArgs.Empty);
 
+                    if (isPortWebSocketAltered || isPortWebServerAltered || isIsWallpaperAltered || isWallpaperAltered || isWallpaperOpacityAltered || isIsConfirmAtExitAltered)
+                        SettingsChanged(this, new MainWindowSettingsChangedEventArgs(isPortWebSocketAltered, isPortWebServerAltered, isIsWallpaperAltered, isWallpaperAltered, isWallpaperOpacityAltered, isIsConfirmAtExitAltered));
+
                     isPortWebSocketAltered = false;
                     isPortWebServerAltered = false;
                     isIsWallpaperAltered = false;
@@ -240,7 +295,9 @@ namespace CREA2014
         private string lisenceTextFilePath;
         private Assembly assembly;
 
-        public MainWindow(CREACOINCore _core, Program.ProgramSettings _psettings, Program.ProgramStatus _pstatus, string _appname, string _version, string _appnameWithVersion, string _lisenceTextFilename, Assembly _assembly, string _basepath)
+        private Action<Exception, Program.ExceptionKind> OnException;
+
+        public MainWindow(CREACOINCore _core, Program.ProgramSettings _psettings, Program.ProgramStatus _pstatus, string _appname, string _version, string _appnameWithVersion, string _lisenceTextFilename, Assembly _assembly, string _basepath, Action<Exception, Program.ExceptionKind> _OnException)
         {
             core = _core;
             psettings = _psettings;
@@ -250,6 +307,7 @@ namespace CREA2014
             appnameWithVersion = _appnameWithVersion;
             lisenceTextFilePath = Path.Combine(_basepath, _lisenceTextFilename);
             assembly = _assembly;
+            OnException = _OnException;
 
             InitializeComponent();
 
@@ -400,19 +458,58 @@ namespace CREA2014
             //<未改良>.NET Framework 4.5 のWenSocketを使用する
             SessionHandler<WebSocketSession, string> newMessageReceived = (session, message) =>
             {
-                ((Action)(() =>
+                try
                 {
-                    if (message == "new_account_holder")
+                    ((Action)(() =>
                     {
-                        NewAccountHolderWindow nahw = new NewAccountHolderWindow();
-                        nahw.Owner = this;
-                        if (nahw.ShowDialog() == true)
+                        Action<Window> _NewAccountHolder = (window) =>
                         {
+                            NewAccountHolderWindow nahw = new NewAccountHolderWindow();
+                            nahw.Owner = window;
+                            if (nahw.ShowDialog() == true)
+                                core.AccountHolderDatabase.AddAccountHolder(new AccountHolder(nahw.tbAccountHolder.Text, nahw.rb256bit.IsChecked == true ? CREASIGNATUREDATA.EcdsaKeyLength.Ecdsa256 : nahw.rb384bit.IsChecked == true ? CREASIGNATUREDATA.EcdsaKeyLength.Ecdsa384 : CREASIGNATUREDATA.EcdsaKeyLength.Ecdsa521));
+                        };
+
+                        if (message == "new_account_holder")
+                            _NewAccountHolder(this);
+                        else if (message == "new_account")
+                        {
+                            NewAccountWindow naw = new NewAccountWindow(_NewAccountHolder);
+                            naw.Owner = this;
+
+                            Action _Clear = () => naw.cbAccountHolder.Items.Clear();
+                            Action _Add = () =>
+                            {
+                                foreach (var ah in core.AccountHolderDatabase.AccountHolders)
+                                    naw.cbAccountHolder.Items.Add(ah);
+                            };
+
+                            EventHandler accountHolderAdded = (sender2, e2) => _Clear.AndThen(_Add).ExecuteInUIThread();
+
+                            core.AccountHolderDatabase.AccountHolderAdded += accountHolderAdded;
+
+                            _Add();
+
+                            if (naw.ShowDialog() == true)
+                            {
+                                if (naw.rbAnonymous.IsChecked == true)
+                                    core.AccountHolderDatabase.AnonymousAccountHolder.AddAccount(new Account(naw.tbName.Text, naw.tbDescription.Text, naw.rb256bit.IsChecked == true ? CREASIGNATUREDATA.EcdsaKeyLength.Ecdsa256 : naw.rb384bit.IsChecked == true ? CREASIGNATUREDATA.EcdsaKeyLength.Ecdsa384 : CREASIGNATUREDATA.EcdsaKeyLength.Ecdsa521));
+                                else
+                                    foreach (var ah in core.AccountHolderDatabase.AccountHolders)
+                                        if (ah == naw.cbAccountHolder.SelectedItem)
+                                            ah.AddAccount(new Account(naw.tbName.Text, naw.tbDescription.Text, naw.rb256bit.IsChecked == true ? CREASIGNATUREDATA.EcdsaKeyLength.Ecdsa256 : naw.rb384bit.IsChecked == true ? CREASIGNATUREDATA.EcdsaKeyLength.Ecdsa384 : CREASIGNATUREDATA.EcdsaKeyLength.Ecdsa521));
+                            }
+
+                            core.AccountHolderDatabase.AccountHolderAdded -= accountHolderAdded;
                         }
-                    }
-                    else
-                        throw new NotSupportedException("wss_command");
-                })).ExecuteInUIThread();
+                        else
+                            throw new NotSupportedException("wss_command");
+                    })).ExecuteInUIThread();
+                }
+                catch (Exception ex)
+                {
+                    OnException(ex, Program.ExceptionKind.unhandled);
+                }
             };
 
             WebSocketServer oldWss;
@@ -423,42 +520,48 @@ namespace CREA2014
 
             wb.Navigate("http://localhost:" + mws.PortWebServer.ToString() + "/");
 
-            mws.PortWebSocketChanged += (sender2, e2) =>
+            mws.SettingsChanged += (sender2, e2) =>
             {
-                oldWss = wss;
-                wss = new WebSocketServer();
-                wss.NewSessionConnected += (session) =>
+                if (e2.IsPortWebServerAltered)
                 {
-                    if (oldWss != null)
+                    hl.Abort();
+
+                    webServerData = _GetWebServerData();
+                    _StartWebServer();
+
+                    wb.Navigate("http://localhost:" + mws.PortWebServer.ToString() + "/");
+                }
+                else
+                {
+                    if (e2.IsIsWallpaperAltered || e2.IsWallpaperAltered || e2.IsWallpaperOpacityAltered)
                     {
-                        oldWss.Stop();
-                        oldWss = null;
+                        webServerData.Remove(wallpaperFileName);
+                        wallpaperFileName = _GetWallpaperFileName(DateTime.Now.Ticks.ToString());
+                        webServerData.Add(wallpaperFileName, _GetWallpaperData());
+
+                        foreach (var wssession in wss.GetAllSessions())
+                            wssession.Send("wallpaper " + wallpaperFileName);
                     }
-                };
-                wss.NewMessageReceived += newMessageReceived;
-                wss.Setup(mws.PortWebSocket);
-                wss.Start();
+                    if (e2.IsPortWebSocketAltered)
+                    {
+                        oldWss = wss;
+                        wss = new WebSocketServer();
+                        wss.NewSessionConnected += (session) =>
+                        {
+                            if (oldWss != null)
+                            {
+                                oldWss.Stop();
+                                oldWss = null;
+                            }
+                        };
+                        wss.NewMessageReceived += newMessageReceived;
+                        wss.Setup(mws.PortWebSocket);
+                        wss.Start();
 
-                foreach (var wssession in oldWss.GetAllSessions())
-                    wssession.Send("wss " + _GetWssAddress(mws.PortWebSocket));
-            };
-            mws.PortWebServerChanged += (sender2, e2) =>
-            {
-                hl.Abort();
-
-                webServerData = _GetWebServerData();
-                _StartWebServer();
-
-                wb.Navigate("http://localhost:" + mws.PortWebServer.ToString() + "/");
-            };
-            mws.WallpaperSettingsChanged += (sender2, e2) =>
-            {
-                webServerData.Remove(wallpaperFileName);
-                wallpaperFileName = _GetWallpaperFileName(DateTime.Now.Ticks.ToString());
-                webServerData.Add(wallpaperFileName, _GetWallpaperData());
-
-                foreach (var wssession in wss.GetAllSessions())
-                    wssession.Send("wallpaper " + wallpaperFileName);
+                        foreach (var wssession in oldWss.GetAllSessions())
+                            wssession.Send("wss " + _GetWssAddress(mws.PortWebSocket));
+                    }
+                }
             };
         }
 

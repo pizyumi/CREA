@@ -212,6 +212,31 @@ namespace CREA2014
             return true;
         }
 
+        //処理を合成した処理を返す（拡張：処理型）
+        public static Action AndThen(this Action action1, params Action[] actions)
+        {
+            return () =>
+            {
+                action1();
+                foreach (var action in actions)
+                    action();
+            };
+        }
+
+        //イベントの前に処理を実行する（拡張：物件型）
+        public static void ExecuteBeforeEvent(this object obj, Action action, EventHandler eh)
+        {
+            action();
+            eh(obj, EventArgs.Empty);
+        }
+
+        //イベントの後に処理を実行する（拡張：物件型）
+        public static void ExecuteAfterEvent(this object obj, Action action, EventHandler eh)
+        {
+            eh(obj, EventArgs.Empty);
+            action();
+        }
+
         //自分自身を関数に渡してから返す（拡張：任意型）
         public static T Operate<T>(this T self, Action<T> operation)
         {
@@ -226,7 +251,7 @@ namespace CREA2014
         }
 
         //自分自身を関数に渡した結果を永遠に返す（拡張：任意型）
-        public static IEnumerable<S> SelfProcess<T, S>(this T self, Func<T, S> operation)
+        public static IEnumerable<S> OperateWhileTrue<T, S>(this T self, Func<T, S> operation)
         {
             while (true)
                 yield return operation(self);
@@ -237,7 +262,7 @@ namespace CREA2014
         //0からiまでの整数が1回ずつ無作為な順番で含まれる配列を作成する（拡張：整数型）
         public static int[] RandomNum(this int i)
         {
-            return random.SelfProcess((r => r.Next(i))).Distinct().Take(i).ToArray();
+            return random.OperateWhileTrue((r => r.Next(i))).Distinct().Take(i).ToArray();
         }
 
         //バイト配列の要素を無作為な順番で並べ直した新たなバイト配列を作成する（拡張：バイト配列型）
@@ -535,7 +560,7 @@ namespace CREA2014
             int verMMin = 1;
             string verS = "α";
             int verR = 1; //リリース番号（リリース毎に増やす番号）
-            int verC = 11; //コミット番号（コミット毎に増やす番号）
+            int verC = 16; //コミット番号（コミット毎に増やす番号）
             string version = string.Join(".", verMaj.ToString(), verMin.ToString(), verMMin.ToString()) + "(" + verS + ")" + "(" + verR.ToString() + ")" + "(" + verC.ToString() + ")";
             string appnameWithVersion = string.Join(" ", appname, version);
 
@@ -798,7 +823,7 @@ namespace CREA2014
                 };
                 app.Startup += (sender, e) =>
                 {
-                    MainWindow mw = new MainWindow(core, psettings, pstatus, appname, version, appnameWithVersion, lisenceTextFilename, assembly, basepath);
+                    MainWindow mw = new MainWindow(core, psettings, pstatus, appname, version, appnameWithVersion, lisenceTextFilename, assembly, basepath, _OnException);
                     mw.Show();
                 };
                 app.InitializeComponent();
