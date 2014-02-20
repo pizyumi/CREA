@@ -514,11 +514,21 @@ namespace CREA2014
 
             WebSocketServer oldWss;
             wss = new WebSocketServer();
+            wss.NewSessionConnected += (session) =>
+            {
+                using (Stream stream = assembly.GetManifestResourceStream("CREA2014.WebResources.acc_hol.htm"))
+                {
+                    byte[] accHolData = new byte[stream.Length];
+                    stream.Read(accHolData, 0, accHolData.Length);
+                    session.Send("acc_hol " + Encoding.UTF8.GetString(accHolData));
+                }
+            };
             wss.NewMessageReceived += newMessageReceived;
             wss.Setup(mws.PortWebSocket);
             wss.Start();
 
             wb.Navigate("http://localhost:" + mws.PortWebServer.ToString() + "/");
+            wb.Focus();
 
             mws.SettingsChanged += (sender2, e2) =>
             {
@@ -619,6 +629,9 @@ namespace CREA2014
 
         private void Window_PreviewKeyDown(object sender, System.Windows.Input.KeyEventArgs e)
         {
+            if (e.Key == Key.Up || e.Key == Key.Down || e.Key == Key.Left || e.Key == Key.Right)
+                return;
+
             if (e.Key == Key.System)
                 foreach (var wssession in wss.GetAllSessions())
                     wssession.Send("keydown " + ((int)e.SystemKey).ToString());

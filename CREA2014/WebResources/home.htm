@@ -33,6 +33,9 @@
                     evt.keyCode = code;
                     $(document).trigger(evt);
                 }
+                else if (e.data.indexOf("acc_hol", 0) == 0) {
+                    $("#acc_hol_container").html(e.data.substring(8));
+                }
                 else
                     throw "wss_command_html";
             };
@@ -61,6 +64,7 @@
             background-image: url("back.png");
             background-size: cover;
             background-attachment: fixed;
+            background-position: top left;
         }
 
         #main {
@@ -149,7 +153,7 @@
                     #zandaka_label {
                         font-size: 32px;
                         font-weight: bold;
-                        margin: 30px 0px 0px 0px;
+                        margin: 30px 0px 0px 15px;
                     }
 
                     #zandaka {
@@ -216,61 +220,7 @@
                     <div id="tab1_tabcontent2" class="tab1_tabcontent">
                         %%new_account_holder%%
                         %%new_account%%
-                        <div id="acc_hol">
-                            <style type="text/css">
-                                #ano_acc_hol {
-                                    clear: left;
-                                    font-size: 16px;
-                                    margin: 15px 5px 0px 5px;
-                                    background-color: rgba(189,189,189,0.5);
-                                }
-
-                                #psu_acc_hol {
-                                    font-size: 16px;
-                                    margin: 15px 5px 0px 5px;
-                                    background-color: rgba(189,189,189,0.5);
-                                }
-
-                                .acc {
-                                    font-size: 12px;
-                                    margin: 6px 3px 6px 3px;
-                                    border-width: 1px;
-                                }
-                            </style>
-                            <div id="ano_acc_hol">
-                                <div class="acc_hol_title">匿名</div>
-                                <div>
-                                    <div class="acc">
-                                        <div>テスト用</div>
-                                        <div>説明</div>
-                                        <div>口座番号</div>
-                                        <div>鍵長</div>
-                                        <div>公開鍵</div>
-                                        <div>秘密鍵</div>
-                                    </div>
-                                </div>
-                            </div>
-                            <div id="psu_acc_hols">
-                                <div id="psu_acc_hol">
-                                    <div class="acc_hol_title">
-                                        <div>Piz Yumina◆XXXXXXXXXXXX</div>
-                                        <div>鍵長</div>
-                                        <div>公開鍵</div>
-                                        <div>秘密鍵</div>
-                                    </div>
-                                    <div>
-                                        <div class="acc">
-                                            <div>テスト用</div>
-                                            <div>説明</div>
-                                            <div>口座番号</div>
-                                            <div>鍵長</div>
-                                            <div>公開鍵</div>
-                                            <div>秘密鍵</div>
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
+                        <div id="acc_hol_container"></div>
                     </div>
                     <div id="tab1_tabcontent3" class="tab1_tabcontent">
                         未実装
