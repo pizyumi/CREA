@@ -979,7 +979,7 @@ namespace CREA2014
         public string Name
         {
             get { return name; }
-            set { name = value; }
+            set { this.ExecuteBeforeEvent(() => name = value, AccountHolderChanged); }
         }
 
         private readonly object accountsLock = new object();
@@ -1046,19 +1046,20 @@ namespace CREA2014
 
         public event EventHandler AccountAdded = delegate { };
         public event EventHandler AccountRemoved = delegate { };
+        public event EventHandler AccountHolderChanged = delegate { };
 
         public void AddAccount(Account account)
         {
             lock (accountsLock)
                 if (!accounts.Contains(account).RaiseError(this.GetType(), "exist_account", 5))
-                    this.ExecuteBeforeEvent(() => accounts.Add(account), AccountAdded);
+                    this.ExecuteBeforeEvent(() => accounts.Add(account), AccountAdded, AccountHolderChanged);
         }
 
         public void RemoveAccount(Account account)
         {
             lock (accountsLock)
                 if (accounts.Contains(account).NotRaiseError(this.GetType(), "not_exist_account", 5))
-                    this.ExecuteBeforeEvent(() => accounts.Remove(account), AccountRemoved);
+                    this.ExecuteBeforeEvent(() => accounts.Remove(account), AccountRemoved, AccountHolderChanged);
         }
 
         public override string ToString() { return Sign; }
@@ -1070,14 +1071,14 @@ namespace CREA2014
         public string Name
         {
             get { return name; }
-            set { name = value; }
+            set { this.ExecuteBeforeEvent(() => name = value, AccountChanged); }
         }
 
         private string description;
         public string Description
         {
             get { return description; }
-            set { description = value; }
+            set { this.ExecuteBeforeEvent(() => description = value, AccountChanged); }
         }
 
         public Account(string _name, string _description, EcdsaKeyLength _keyLength)
@@ -1223,6 +1224,8 @@ namespace CREA2014
             }
         }
 
+        public event EventHandler AccountChanged = delegate { };
+
         public AccountAddress Address
         {
             get { return new AccountAddress(publicKey); }
@@ -1239,11 +1242,11 @@ namespace CREA2014
             get { return anonymousAccountHolder; }
         }
 
-        private readonly object ahsLock = new object();
-        private List<AccountHolder> accountHolders;
-        public AccountHolder[] AccountHolders
+        private readonly object pahsLock = new object();
+        private List<AccountHolder> pseudonymousAccountHolders;
+        public AccountHolder[] PseudonymousAccountHolders
         {
-            get { return accountHolders.ToArray(); }
+            get { return pseudonymousAccountHolders.ToArray(); }
         }
 
         private readonly object cahsLock = new object();
@@ -1257,7 +1260,7 @@ namespace CREA2014
             : base(0)
         {
             anonymousAccountHolder = new AnonymousAccountHolder();
-            accountHolders = new List<AccountHolder>();
+            pseudonymousAccountHolders = new List<AccountHolder>();
             candidateAccountHolders = new List<AccountHolder>();
         }
 
@@ -1269,7 +1272,7 @@ namespace CREA2014
                 {
                     return new MainDataInfomation[]{
                         new MainDataInfomation(typeof(AnonymousAccountHolder), 0, () => anonymousAccountHolder, (o) => anonymousAccountHolder = (AnonymousAccountHolder)o), 
-                        new MainDataInfomation(typeof(AccountHolder[]), 0, null, () => accountHolders.ToArray(), (o) => accountHolders = ((AccountHolder[])o).ToList()), 
+                        new MainDataInfomation(typeof(AccountHolder[]), 0, null, () => pseudonymousAccountHolders.ToArray(), (o) => pseudonymousAccountHolders = ((AccountHolder[])o).ToList()), 
                         new MainDataInfomation(typeof(AccountHolder[]), 0, null, () => candidateAccountHolders.ToArray(), (o) => candidateAccountHolders = ((AccountHolder[])o).ToList()), 
                     };
                 }
@@ -1296,26 +1299,27 @@ namespace CREA2014
 
         public event EventHandler AccountHolderAdded = delegate { };
         public event EventHandler AccountHolderRemoved = delegate { };
+        public event EventHandler AccountHoldersChanged = delegate { };
 
         public void AddAccountHolder(AccountHolder ah)
         {
-            lock (ahsLock)
+            lock (pahsLock)
             {
                 bool[] conditions = new bool[]{
-                    accountHolders.Contains(ah).RaiseError(this.GetType(), "exist_account_holder", 5), 
-                    accountHolders.Where((e) => e.Name == ah.Name).FirstOrDefault().IsNotNull().RaiseError(this.GetType(), "exist_same_name_account_holder", 5)
+                    pseudonymousAccountHolders.Contains(ah).RaiseError(this.GetType(), "exist_account_holder", 5), 
+                    pseudonymousAccountHolders.Where((e) => e.Name == ah.Name).FirstOrDefault().IsNotNull().RaiseError(this.GetType(), "exist_same_name_account_holder", 5)
                 };
 
                 if (!conditions.And())
-                    this.ExecuteBeforeEvent(() => accountHolders.Add(ah), AccountHolderAdded);
+                    this.ExecuteBeforeEvent(() => pseudonymousAccountHolders.Add(ah), AccountHolderAdded);
             }
         }
 
         public void DeleteAccountHolder(AccountHolder ah)
         {
-            lock (ahsLock)
-                if (accountHolders.Contains(ah).NotRaiseError(this.GetType(), "not_exist_account_holder", 5))
-                    this.ExecuteBeforeEvent(() => accountHolders.Remove(ah), AccountHolderRemoved);
+            lock (pahsLock)
+                if (pseudonymousAccountHolders.Contains(ah).NotRaiseError(this.GetType(), "not_exist_account_holder", 5))
+                    this.ExecuteBeforeEvent(() => pseudonymousAccountHolders.Remove(ah), AccountHolderRemoved);
         }
 
         public void AddCandidateAccountHolder(AccountHolder ah)

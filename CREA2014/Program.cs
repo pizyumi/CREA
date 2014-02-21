@@ -224,16 +224,18 @@ namespace CREA2014
         }
 
         //イベントの前に処理を実行する（拡張：物件型）
-        public static void ExecuteBeforeEvent(this object obj, Action action, EventHandler eh)
+        public static void ExecuteBeforeEvent(this object obj, Action action, params EventHandler[] ehs)
         {
             action();
-            eh(obj, EventArgs.Empty);
+            foreach (var eh in ehs)
+                eh(obj, EventArgs.Empty);
         }
 
         //イベントの後に処理を実行する（拡張：物件型）
-        public static void ExecuteAfterEvent(this object obj, Action action, EventHandler eh)
+        public static void ExecuteAfterEvent(this object obj, Action action, params EventHandler[] ehs)
         {
-            eh(obj, EventArgs.Empty);
+            foreach (var eh in ehs)
+                eh(obj, EventArgs.Empty);
             action();
         }
 

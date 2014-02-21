@@ -338,6 +338,8 @@ namespace CREA2014
                 }
             }
 
+            //<未実装>ぼかし効果に対応
+            //<未実装>埋め込まれたリソースを選択できるようにする
             Func<byte[]> _GetWallpaperData = () =>
             {
                 if (mws.IsWallpaper && File.Exists(mws.Wallpaper))
@@ -369,6 +371,16 @@ namespace CREA2014
 
             Func<int, string> _GetWssAddress = (wssPort) => "ws://localhost:" + wssPort.ToString() + "/";
 
+            Func<string, string> _GetWebResource = (filename) =>
+            {
+                using (Stream stream = assembly.GetManifestResourceStream(filename))
+                {
+                    byte[] data = new byte[stream.Length];
+                    stream.Read(data, 0, data.Length);
+                    return Encoding.UTF8.GetString(data);
+                }
+            };
+
             string wallpaperFileName = null;
             Func<Dictionary<string, byte[]>> _GetWebServerData = () =>
             {
@@ -380,13 +392,7 @@ namespace CREA2014
                 {
                     data = data.Replace("%%title%%", appnameWithVersion).Replace("%%address%%", _GetWssAddress(mws.PortWebSocket));
 
-                    string buttonBaseHtml;
-                    using (Stream stream = assembly.GetManifestResourceStream("CREA2014.WebResources.button.htm"))
-                    {
-                        byte[] buttonData = new byte[stream.Length];
-                        stream.Read(buttonData, 0, buttonData.Length);
-                        buttonBaseHtml = Encoding.UTF8.GetString(buttonData);
-                    }
+                    string buttonBaseHtml = _GetWebResource("CREA2014.WebResources.button.htm");
 
                     foreach (var button in new[] { 
                         new { identifier = "new_account_holder", name = "button1", text = "新しい口座名義".Multilanguage(60) + "(<u>A</u>)...", command = "new_account_holder", key = Key.A }, 
@@ -403,13 +409,7 @@ namespace CREA2014
                     new {path = "CREA2014.WebResources.jquery-2.0.3.min.js", url = "/jquery-2.0.3.min.js", processor = doNothing}, 
                     new {path = "CREA2014.WebResources.jquery-ui-1.10.4.custom.js", url = "/jquery-ui-1.10.4.custom.js", processor = doNothing}, 
                 })
-                    using (Stream stream = assembly.GetManifestResourceStream(wsr.path))
-                    {
-                        byte[] data = new byte[stream.Length];
-                        stream.Read(data, 0, data.Length);
-
-                        iWebServerData.Add(wsr.url, Encoding.UTF8.GetBytes(wsr.processor(Encoding.UTF8.GetString(data))));
-                    }
+                    iWebServerData.Add(wsr.url, Encoding.UTF8.GetBytes(wsr.processor(_GetWebResource(wsr.path))));
 
                 return iWebServerData;
             };
@@ -480,7 +480,7 @@ namespace CREA2014
                             Action _Clear = () => naw.cbAccountHolder.Items.Clear();
                             Action _Add = () =>
                             {
-                                foreach (var ah in core.AccountHolderDatabase.AccountHolders)
+                                foreach (var ah in core.AccountHolderDatabase.PseudonymousAccountHolders)
                                     naw.cbAccountHolder.Items.Add(ah);
                             };
 
@@ -495,7 +495,7 @@ namespace CREA2014
                                 if (naw.rbAnonymous.IsChecked == true)
                                     core.AccountHolderDatabase.AnonymousAccountHolder.AddAccount(new Account(naw.tbName.Text, naw.tbDescription.Text, naw.rb256bit.IsChecked == true ? CREASIGNATUREDATA.EcdsaKeyLength.Ecdsa256 : naw.rb384bit.IsChecked == true ? CREASIGNATUREDATA.EcdsaKeyLength.Ecdsa384 : CREASIGNATUREDATA.EcdsaKeyLength.Ecdsa521));
                                 else
-                                    foreach (var ah in core.AccountHolderDatabase.AccountHolders)
+                                    foreach (var ah in core.AccountHolderDatabase.PseudonymousAccountHolders)
                                         if (ah == naw.cbAccountHolder.SelectedItem)
                                             ah.AddAccount(new Account(naw.tbName.Text, naw.tbDescription.Text, naw.rb256bit.IsChecked == true ? CREASIGNATUREDATA.EcdsaKeyLength.Ecdsa256 : naw.rb384bit.IsChecked == true ? CREASIGNATUREDATA.EcdsaKeyLength.Ecdsa384 : CREASIGNATUREDATA.EcdsaKeyLength.Ecdsa521));
                             }
@@ -512,23 +512,32 @@ namespace CREA2014
                 }
             };
 
+            Func<string> _GetAccountHolderHtml = () =>
+            {
+                string accHolsHtml = _GetWebResource("CREA2014.WebResources.acc_hols.htm");
+                string accHolHtml = _GetWebResource("CREA2014.WebResources.acc_hol.htm");
+                string accHtml = _GetWebResource("CREA2014.WebResources.acc.htm");
+
+                string accs = string.Concat(from i in core.AccountHolderDatabase.AnonymousAccountHolder.Accounts
+                                            select accHtml.Replace("%%name%%", i.Name).Replace("%%description%%", i.Description).Replace("%%address%%", i.Address.Base58));
+
+                string psu_acc_hols = string.Concat(from i in core.AccountHolderDatabase.PseudonymousAccountHolders
+                                                    select accHolHtml.Replace("%%title%%", i.Sign).Replace("%%accs%%",
+                                      string.Concat(from j in i.Accounts
+                                                    select accHtml.Replace("%%name%%", j.Name).Replace("%%description%%", j.Description).Replace("%%address%%", j.Address.Base58))));
+
+                return accHolsHtml.Replace("%%accs%%", accs).Replace("%%psu_acc_hols%%", psu_acc_hols);
+            };
+
             WebSocketServer oldWss;
             wss = new WebSocketServer();
-            wss.NewSessionConnected += (session) =>
-            {
-                using (Stream stream = assembly.GetManifestResourceStream("CREA2014.WebResources.acc_hol.htm"))
-                {
-                    byte[] accHolData = new byte[stream.Length];
-                    stream.Read(accHolData, 0, accHolData.Length);
-                    session.Send("acc_hol " + Encoding.UTF8.GetString(accHolData));
-                }
-            };
+            wss.NewSessionConnected += (session) => session.Send("acc_hols " + _GetAccountHolderHtml());
             wss.NewMessageReceived += newMessageReceived;
             wss.Setup(mws.PortWebSocket);
             wss.Start();
 
+            wb.Navigated += (sender2, e2) => ((mshtml.HTMLDocument)wb.Document).focus();
             wb.Navigate("http://localhost:" + mws.PortWebServer.ToString() + "/");
-            wb.Focus();
 
             mws.SettingsChanged += (sender2, e2) =>
             {
@@ -573,6 +582,15 @@ namespace CREA2014
                     }
                 }
             };
+
+            Action _SendAccountHolderHtmlToAllSessions = () =>
+            {
+                foreach (var wssession in wss.GetAllSessions())
+                    wssession.Send("acc_hols " + _GetAccountHolderHtml());
+            };
+
+            core.AccountHolderDatabase.AccountHolderAdded += (sender2, e2) => _SendAccountHolderHtmlToAllSessions();
+            core.AccountHolderDatabase.AccountHolderRemoved += (sender2, e2) => _SendAccountHolderHtmlToAllSessions();
         }
 
         private void Window_Closing(object sender, System.ComponentModel.CancelEventArgs e)
