@@ -15,9 +15,7 @@ namespace CREA2014
     public abstract class CREACOINSHAREDDATA : CREACOINDATA
     {
         //<未実装>圧縮機能
-        //<未実装>id機能 ← これって何のことだったっけ
         //<未実装>ジャグ配列に対応
-        //<未実装>抽象クラスを指定できないことに今更気付いた ｱﾁｬｰ 抽象クラスの場合は型名も保存しなければならないのか・・・
 
         private int? version;
         public int Version
@@ -43,6 +41,11 @@ namespace CREA2014
 
         public class MainDataInfomation
         {
+            //2014/02/23
+            //抽象クラスには対応しない
+            //抽象クラスの変数に格納されている具象クラスを保存する場合には具象クラスとしてMainDataInfomationを作成する
+            //具象クラスが複数ある場合には具象クラス別にMainDataInfomationを作成する
+
             //CREACOINSHAREDDATA（の派生クラス）の配列専用
             public MainDataInfomation(Type _type, int? _version, int? _length, Func<object> _getter, Action<object> _setter)
             {
@@ -52,6 +55,8 @@ namespace CREA2014
                 Type elementType = _type.GetElementType();
                 if (!elementType.IsSubclassOf(typeof(CREACOINSHAREDDATA)))
                     throw new ArgumentException("main_data_info_not_ccsd_array");
+                else if (elementType.IsAbstract)
+                    throw new ArgumentException("main_data_info_ccsd_array_abstract");
 
                 CREACOINSHAREDDATA ccsd = Activator.CreateInstance(elementType) as CREACOINSHAREDDATA;
                 if ((!ccsd.IsVersioned && _version != null) || (ccsd.IsVersioned && _version == null))
@@ -69,12 +74,20 @@ namespace CREA2014
             public MainDataInfomation(Type _type, int? _lengthOrVersion, Func<object> _getter, Action<object> _setter)
             {
                 if (_type.IsArray)
-                    if (_type.GetElementType().IsSubclassOf(typeof(CREACOINSHAREDDATA)))
+                {
+                    Type elementType = _type.GetElementType();
+                    if (elementType.IsSubclassOf(typeof(CREACOINSHAREDDATA)))
                         throw new ArgumentException("main_data_info_ccsd_array");
+                    else if (elementType.IsAbstract)
+                        throw new ArgumentException("main_data_info_array_abstract");
                     else
                         length = _lengthOrVersion;
+                }
                 else if (_type.IsSubclassOf(typeof(CREACOINSHAREDDATA)))
                 {
+                    if (_type.IsAbstract)
+                        throw new ArgumentException("main_data_info_ccsd_abstract");
+
                     CREACOINSHAREDDATA ccsd = Activator.CreateInstance(_type) as CREACOINSHAREDDATA;
                     if ((!ccsd.IsVersioned && _lengthOrVersion != null) || (ccsd.IsVersioned && _lengthOrVersion == null))
                         throw new ArgumentException("main_data_info_not_is_versioned");
@@ -95,6 +108,8 @@ namespace CREA2014
                     throw new ArgumentException("main_data_info_array");
                 else if (_type.IsSubclassOf(typeof(CREACOINSHAREDDATA)))
                     throw new ArgumentException("main_data_info_ccsd");
+                else if (_type.IsAbstract)
+                    throw new ArgumentException("main_data_info_abstract");
 
                 Type = _type;
                 Getter = _getter;
@@ -140,6 +155,35 @@ namespace CREA2014
             }
             public readonly Func<object> Getter;
             public readonly Action<object> Setter;
+        }
+
+        public class MemoryStreamReaderWriter
+        {
+            private readonly MemoryStream ms;
+            private readonly MemoryStreamReaderWriterMode mode;
+
+            public MemoryStreamReaderWriter(MemoryStream _ms, MemoryStreamReaderWriterMode _mode)
+            {
+                ms = _ms;
+                mode = _mode;
+            }
+
+            public byte[] ReadOrWrite(byte[] input, int length)
+            {
+                if (mode == MemoryStreamReaderWriterMode.read)
+                {
+                    byte[] output = new byte[length];
+                    ms.Read(output, 0, length);
+                    return output;
+                }
+                else
+                {
+                    ms.Write(input, 0, length);
+                    return null;
+                }
+            }
+
+            public enum MemoryStreamReaderWriterMode { read, write }
         }
 
         protected abstract MainDataInfomation[] MainDataInfo { get; }
@@ -842,21 +886,21 @@ namespace CREA2014
         #endregion
     }
 
-    public abstract class CREASIGNATUREDATA : CREACOINSHAREDDATA
+    public class EcdsaKey : CREACOINSHAREDDATA
     {
-        protected EcdsaKeyLength keyLength;
+        private EcdsaKeyLength keyLength;
         public EcdsaKeyLength KeyLength
         {
             get { return keyLength; }
         }
 
-        protected byte[] publicKey;
+        private byte[] publicKey;
         public byte[] PublicKey
         {
             get { return publicKey; }
         }
 
-        protected byte[] privateKey;
+        private byte[] privateKey;
         public byte[] PrivateKey
         {
             get { return privateKey; }
@@ -864,8 +908,8 @@ namespace CREA2014
 
         public enum EcdsaKeyLength { Ecdsa256, Ecdsa384, Ecdsa521 }
 
-        public CREASIGNATUREDATA(EcdsaKeyLength _keyLength, int? _version)
-            : base(_version)
+        public EcdsaKey(EcdsaKeyLength _keyLength)
+            : base(0)
         {
             keyLength = _keyLength;
 
@@ -885,47 +929,7 @@ namespace CREA2014
             privateKey = ck.Export(CngKeyBlobFormat.EccPrivateBlob);
         }
 
-        public CREASIGNATUREDATA(EcdsaKeyLength _keyLength) : this(_keyLength, null) { }
-
-        public CREASIGNATUREDATA() : this(EcdsaKeyLength.Ecdsa256) { }
-
-        protected override MainDataInfomation[] MainDataInfo
-        {
-            get
-            {
-                return new MainDataInfomation[]{
-                    new MainDataInfomation(typeof(int), () => (int)keyLength, (o) => keyLength = (EcdsaKeyLength)o), 
-                    new MainDataInfomation(typeof(byte[]), null, () => publicKey, (o) => publicKey = (byte[])o), 
-                    new MainDataInfomation(typeof(byte[]), null, () => privateKey, (o) => privateKey = (byte[])o), 
-                };
-            }
-        }
-
-        protected override bool IsVersioned
-        {
-            get { return false; }
-        }
-
-        protected override bool IsCorruptionChecked
-        {
-            get { return false; }
-        }
-    }
-
-    public class AnonymousAccountHolder : CREACOINSHAREDDATA
-    {
-        private readonly object accountsLock = new object();
-        private List<Account> accounts;
-        public Account[] Accounts
-        {
-            get { return accounts.ToArray(); }
-        }
-
-        public AnonymousAccountHolder()
-            : base(0)
-        {
-            accounts = new List<Account>();
-        }
+        public EcdsaKey() : this(EcdsaKeyLength.Ecdsa256) { }
 
         protected override MainDataInfomation[] MainDataInfo
         {
@@ -934,11 +938,14 @@ namespace CREA2014
                 if (Version == 0)
                 {
                     return new MainDataInfomation[]{
-                        new MainDataInfomation(typeof(Account[]), 0, null, () => accounts.ToArray(), (o) => accounts = ((Account[])o).ToList()), 
+                        new MainDataInfomation(typeof(int), () => (int)keyLength, (o) => keyLength = (EcdsaKeyLength)o), 
+                        new MainDataInfomation(typeof(byte[]), null, () => publicKey, (o) => publicKey = (byte[])o), 
+                        new MainDataInfomation(typeof(byte[]), null, () => privateKey, (o) => privateKey = (byte[])o), 
                     };
                 }
                 else
-                    throw new NotSupportedException("aah_main_data_info");
+                    throw new NotSupportedException("ecdsa_key_main_data_info");
+
             }
         }
 
@@ -954,118 +961,12 @@ namespace CREA2014
                 if (Version <= 0)
                     return true;
                 else
-                    throw new NotSupportedException("aah_check");
+                    throw new NotSupportedException("ecdsa_key_check");
             }
-        }
-
-        public void AddAccount(Account account)
-        {
-            lock (accountsLock)
-                if (!accounts.Contains(account).RaiseError(this.GetType(), "exist_account", 5))
-                    accounts.Add(account);
-        }
-
-        public void RemoveAccount(Account account)
-        {
-            lock (accountsLock)
-                if (accounts.Contains(account).NotRaiseError(this.GetType(), "not_exist_account", 5))
-                    accounts.Remove(account);
         }
     }
 
-    public class AccountHolder : CREASIGNATUREDATA
-    {
-        private string name;
-        public string Name
-        {
-            get { return name; }
-            set { this.ExecuteBeforeEvent(() => name = value, AccountHolderChanged); }
-        }
-
-        private readonly object accountsLock = new object();
-        private List<Account> accounts;
-        public Account[] Accounts
-        {
-            get { return accounts.ToArray(); }
-        }
-
-        public AccountHolder(string _name, EcdsaKeyLength _keyLength)
-            : base(_keyLength, 0)
-        {
-            name = _name;
-            accounts = new List<Account>();
-        }
-
-        public AccountHolder(string _name) : this(_name, EcdsaKeyLength.Ecdsa256) { }
-
-        public AccountHolder(EcdsaKeyLength _keyLength) : this(null, _keyLength) { }
-
-        public AccountHolder() : this(null, EcdsaKeyLength.Ecdsa256) { }
-
-        protected override MainDataInfomation[] MainDataInfo
-        {
-            get
-            {
-                if (Version == 0)
-                {
-                    return base.MainDataInfo.Combine(new MainDataInfomation[]{
-                        new MainDataInfomation(typeof(string), () => name, (o) => name = (string)o), 
-                        new MainDataInfomation(typeof(Account[]), 0, null, () => accounts.ToArray(), (o) => accounts = ((Account[])o).ToList()), 
-                    });
-                }
-                else
-                    throw new NotSupportedException("account_holder_main_data_info");
-            }
-        }
-
-        protected override bool IsVersioned
-        {
-            get { return true; }
-        }
-
-        protected override bool IsCorruptionChecked
-        {
-            get
-            {
-                if (Version <= 0)
-                    return true;
-                else
-                    throw new NotSupportedException("account_holder_check");
-            }
-        }
-
-        public string Trip
-        {
-            get { return Convert.ToBase64String(publicKey).Operate((s) => s.Substring(s.Length - 12, 12)); }
-        }
-
-        public string Sign
-        {
-            get { return name + "◆" + Trip; }
-        }
-
-        public event EventHandler AccountAdded = delegate { };
-        public event EventHandler AccountRemoved = delegate { };
-        public event EventHandler AccountHolderChanged = delegate { };
-
-        public void AddAccount(Account account)
-        {
-            lock (accountsLock)
-                if (!accounts.Contains(account).RaiseError(this.GetType(), "exist_account", 5))
-                    this.ExecuteBeforeEvent(() => accounts.Add(account), AccountAdded, AccountHolderChanged);
-        }
-
-        public void RemoveAccount(Account account)
-        {
-            lock (accountsLock)
-                if (accounts.Contains(account).NotRaiseError(this.GetType(), "not_exist_account", 5))
-                    this.ExecuteBeforeEvent(() => accounts.Remove(account), AccountRemoved, AccountHolderChanged);
-        }
-
-        public override string ToString() { return Sign; }
-    }
-
-    public class Account : CREASIGNATUREDATA
+    public class Account : CREACOINSHAREDDATA
     {
         private string name;
         public string Name
@@ -1081,18 +982,25 @@ namespace CREA2014
             set { this.ExecuteBeforeEvent(() => description = value, AccountChanged); }
         }
 
-        public Account(string _name, string _description, EcdsaKeyLength _keyLength)
-            : base(_keyLength, 0)
+        private EcdsaKey key;
+        public EcdsaKey Key
+        {
+            get { return key; }
+        }
+
+        public Account(string _name, string _description, EcdsaKey.EcdsaKeyLength _keyLength)
+            : base(0)
         {
             name = _name;
             description = _description;
+            key = new EcdsaKey(_keyLength);
         }
 
-        public Account(string _name, string _description) : this(_name, _description, EcdsaKeyLength.Ecdsa256) { }
+        public Account(string _name, string _description) : this(_name, _description, EcdsaKey.EcdsaKeyLength.Ecdsa256) { }
 
-        public Account(EcdsaKeyLength _keyLength) : this(null, null, _keyLength) { }
+        public Account(EcdsaKey.EcdsaKeyLength _keyLength) : this(string.Empty, string.Empty, _keyLength) { }
 
-        public Account() : this(null, null, EcdsaKeyLength.Ecdsa256) { }
+        public Account() : this(string.Empty, string.Empty, EcdsaKey.EcdsaKeyLength.Ecdsa256) { }
 
         public class AccountAddress
         {
@@ -1147,8 +1055,6 @@ namespace CREA2014
                         return base58;
                     else
                     {
-                        //string identifier = "CREA";
-
                         //base58表現の先頭がCREAになるようなバイト配列を使っている
                         byte[] identifierBytes = new byte[] { 84, 122, 143 };
                         byte[] hashBytes = hash.Bytes;
@@ -1197,12 +1103,11 @@ namespace CREA2014
             get
             {
                 if (Version == 0)
-                {
-                    return base.MainDataInfo.Combine(new MainDataInfomation[]{
+                    return new MainDataInfomation[]{
                         new MainDataInfomation(typeof(string), () => name, (o) => name = (string)o), 
                         new MainDataInfomation(typeof(string), () => description, (o) => description = (string)o), 
-                    });
-                }
+                        new MainDataInfomation(typeof(EcdsaKey), 0, () => key, (o) => key = (EcdsaKey)o), 
+                    };
                 else
                     throw new NotSupportedException("account_main_data_info");
             }
@@ -1228,10 +1133,200 @@ namespace CREA2014
 
         public AccountAddress Address
         {
-            get { return new AccountAddress(publicKey); }
+            get { return new AccountAddress(key.PublicKey); }
         }
 
         public override string ToString() { return Address.Base58; }
+    }
+
+    public abstract class AccountHolder : CREACOINSHAREDDATA
+    {
+        private readonly object accountsLock = new object();
+        private List<Account> accounts;
+        public Account[] Accounts
+        {
+            get { return accounts.ToArray(); }
+        }
+
+        public AccountHolder(int? _version)
+            : base(_version)
+        {
+            accounts = new List<Account>();
+
+            account_changed = (sender, e) => AccountHolderChanged(this, EventArgs.Empty);
+        }
+
+        public AccountHolder() : this(null) { }
+
+        protected override MainDataInfomation[] MainDataInfo
+        {
+            get
+            {
+                return new MainDataInfomation[]{
+                    new MainDataInfomation(typeof(Account[]), 0, null, () => accounts.ToArray(), (o) => 
+                    {
+                        accounts = ((Account[])o).ToList();
+                        foreach (var account in accounts)
+                            account.AccountChanged += account_changed;
+                    }), 
+                };
+            }
+        }
+
+        protected override bool IsVersioned
+        {
+            get { return false; }
+        }
+
+        protected override bool IsCorruptionChecked
+        {
+            get { return false; }
+        }
+
+        public event EventHandler AccountAdded = delegate { };
+        public EventHandler PAccountAdded
+        {
+            get { return AccountAdded; }
+        }
+
+        public event EventHandler AccountRemoved = delegate { };
+        public EventHandler PAccountRemoved
+        {
+            get { return AccountRemoved; }
+        }
+
+        public event EventHandler AccountHolderChanged = delegate { };
+        public EventHandler PAccountHolderChanged
+        {
+            get { return AccountHolderChanged; }
+        }
+
+        private EventHandler account_changed;
+
+        public void AddAccount(Account account)
+        {
+            lock (accountsLock)
+                if (!accounts.Contains(account).RaiseError(this.GetType(), "exist_account", 5))
+                    this.ExecuteBeforeEvent(() =>
+                    {
+                        accounts.Add(account);
+                        account.AccountChanged += account_changed;
+                    }, AccountAdded, AccountHolderChanged);
+        }
+
+        public void RemoveAccount(Account account)
+        {
+            lock (accountsLock)
+                if (accounts.Contains(account).NotRaiseError(this.GetType(), "not_exist_account", 5))
+                    this.ExecuteBeforeEvent(() =>
+                    {
+                        accounts.Remove(account);
+                        account.AccountChanged -= account_changed;
+                    }, AccountRemoved, AccountHolderChanged);
+        }
+    }
+
+    public class AnonymousAccountHolder : AccountHolder
+    {
+        public AnonymousAccountHolder() : base(0) { }
+
+        protected override MainDataInfomation[] MainDataInfo
+        {
+            get
+            {
+                if (Version == 0)
+                    return base.MainDataInfo;
+                else
+                    throw new NotSupportedException("aah_main_data_info");
+            }
+        }
+
+        protected override bool IsVersioned
+        {
+            get { return true; }
+        }
+
+        protected override bool IsCorruptionChecked
+        {
+            get
+            {
+                if (Version <= 0)
+                    return true;
+                else
+                    throw new NotSupportedException("aah_check");
+            }
+        }
+    }
+
+    public class PseudonymousAccountHolder : AccountHolder
+    {
+        private string name;
+        public string Name
+        {
+            get { return name; }
+            set { this.ExecuteBeforeEvent(() => name = value, PAccountAdded); }
+        }
+
+        private EcdsaKey key;
+        public EcdsaKey Key
+        {
+            get { return key; }
+        }
+
+        public PseudonymousAccountHolder(string _name, EcdsaKey.EcdsaKeyLength _keyLength)
+            : base(0)
+        {
+            name = _name;
+            key = new EcdsaKey(_keyLength);
+        }
+
+        public PseudonymousAccountHolder(string _name) : this(_name, EcdsaKey.EcdsaKeyLength.Ecdsa256) { }
+
+        public PseudonymousAccountHolder(EcdsaKey.EcdsaKeyLength _keyLength) : this(string.Empty, _keyLength) { }
+
+        public PseudonymousAccountHolder() : this(string.Empty, EcdsaKey.EcdsaKeyLength.Ecdsa256) { }
+
+        protected override MainDataInfomation[] MainDataInfo
+        {
+            get
+            {
+                if (Version == 0)
+                    return base.MainDataInfo.Combine(new MainDataInfomation[]{
+                        new MainDataInfomation(typeof(string), () => name, (o) => name = (string)o), 
+                        new MainDataInfomation(typeof(EcdsaKey), 0, () => key, (o) => key = (EcdsaKey)o), 
+                    });
+                else
+                    throw new NotSupportedException("pch_main_data_info");
+            }
+        }
+
+        protected override bool IsVersioned
+        {
+            get { return true; }
+        }
+
+        protected override bool IsCorruptionChecked
+        {
+            get
+            {
+                if (Version <= 0)
+                    return true;
+                else
+                    throw new NotSupportedException("pch_check");
+            }
+        }
+
+        public string Trip
+        {
+            get { return Convert.ToBase64String(key.PublicKey).Operate((s) => s.Substring(s.Length - 12, 12)); }
+        }
+
+        public string Sign
+        {
+            get { return name + "◆" + Trip; }
+        }
+
+        public override string ToString() { return Sign; }
     }
 
     public class AccountHolderDatabase : CREACOINSHAREDDATA
@@ -1243,15 +1338,15 @@ namespace CREA2014
         }
 
         private readonly object pahsLock = new object();
-        private List<AccountHolder> pseudonymousAccountHolders;
-        public AccountHolder[] PseudonymousAccountHolders
+        private List<PseudonymousAccountHolder> pseudonymousAccountHolders;
+        public PseudonymousAccountHolder[] PseudonymousAccountHolders
         {
             get { return pseudonymousAccountHolders.ToArray(); }
         }
 
         private readonly object cahsLock = new object();
-        private List<AccountHolder> candidateAccountHolders;
-        public AccountHolder[] CandidateAccountHolders
+        private List<PseudonymousAccountHolder> candidateAccountHolders;
+        public PseudonymousAccountHolder[] CandidateAccountHolders
         {
             get { return candidateAccountHolders.ToArray(); }
         }
@@ -1260,8 +1355,10 @@ namespace CREA2014
             : base(0)
         {
             anonymousAccountHolder = new AnonymousAccountHolder();
-            pseudonymousAccountHolders = new List<AccountHolder>();
-            candidateAccountHolders = new List<AccountHolder>();
+            pseudonymousAccountHolders = new List<PseudonymousAccountHolder>();
+            candidateAccountHolders = new List<PseudonymousAccountHolder>();
+
+            accountHolders_changed = (sender, e) => AccountHoldersChanged(this, EventArgs.Empty);
         }
 
         protected override MainDataInfomation[] MainDataInfo
@@ -1269,13 +1366,20 @@ namespace CREA2014
             get
             {
                 if (Version == 0)
-                {
                     return new MainDataInfomation[]{
-                        new MainDataInfomation(typeof(AnonymousAccountHolder), 0, () => anonymousAccountHolder, (o) => anonymousAccountHolder = (AnonymousAccountHolder)o), 
-                        new MainDataInfomation(typeof(AccountHolder[]), 0, null, () => pseudonymousAccountHolders.ToArray(), (o) => pseudonymousAccountHolders = ((AccountHolder[])o).ToList()), 
-                        new MainDataInfomation(typeof(AccountHolder[]), 0, null, () => candidateAccountHolders.ToArray(), (o) => candidateAccountHolders = ((AccountHolder[])o).ToList()), 
+                        new MainDataInfomation(typeof(AnonymousAccountHolder), 0, () => anonymousAccountHolder, (o) => 
+                        {
+                            anonymousAccountHolder = (AnonymousAccountHolder)o;
+                            anonymousAccountHolder.AccountHolderChanged += accountHolders_changed;
+                        }), 
+                        new MainDataInfomation(typeof(PseudonymousAccountHolder[]), 0, null, () => pseudonymousAccountHolders.ToArray(), (o) => 
+                        {
+                            pseudonymousAccountHolders = ((PseudonymousAccountHolder[])o).ToList();
+                            foreach (var pah in pseudonymousAccountHolders)
+                                pah.AccountHolderChanged += accountHolders_changed;
+                        }), 
+                        new MainDataInfomation(typeof(PseudonymousAccountHolder[]), 0, null, () => candidateAccountHolders.ToArray(), (o) => candidateAccountHolders = ((PseudonymousAccountHolder[])o).ToList()), 
                     };
-                }
                 else
                     throw new NotSupportedException("account_holder_database_main_data_info");
             }
@@ -1301,7 +1405,9 @@ namespace CREA2014
         public event EventHandler AccountHolderRemoved = delegate { };
         public event EventHandler AccountHoldersChanged = delegate { };
 
-        public void AddAccountHolder(AccountHolder ah)
+        private EventHandler accountHolders_changed;
+
+        public void AddAccountHolder(PseudonymousAccountHolder ah)
         {
             lock (pahsLock)
             {
@@ -1311,25 +1417,33 @@ namespace CREA2014
                 };
 
                 if (!conditions.And())
-                    this.ExecuteBeforeEvent(() => pseudonymousAccountHolders.Add(ah), AccountHolderAdded);
+                    this.ExecuteBeforeEvent(() =>
+                    {
+                        pseudonymousAccountHolders.Add(ah);
+                        ah.AccountHolderChanged += accountHolders_changed;
+                    }, AccountHolderAdded, AccountHoldersChanged);
             }
         }
 
-        public void DeleteAccountHolder(AccountHolder ah)
+        public void DeleteAccountHolder(PseudonymousAccountHolder ah)
         {
             lock (pahsLock)
                 if (pseudonymousAccountHolders.Contains(ah).NotRaiseError(this.GetType(), "not_exist_account_holder", 5))
-                    this.ExecuteBeforeEvent(() => pseudonymousAccountHolders.Remove(ah), AccountHolderRemoved);
+                    this.ExecuteBeforeEvent(() =>
+                    {
+                        pseudonymousAccountHolders.Remove(ah);
+                        ah.AccountHolderChanged -= accountHolders_changed;
+                    }, AccountHolderRemoved, AccountHoldersChanged);
         }
 
-        public void AddCandidateAccountHolder(AccountHolder ah)
+        public void AddCandidateAccountHolder(PseudonymousAccountHolder ah)
         {
             lock (cahsLock)
                 if (!candidateAccountHolders.Contains(ah).RaiseError(this.GetType(), "exist_candidate_account_holder", 5))
                     candidateAccountHolders.Add(ah);
         }
 
-        public void DeleteCandidateAccountHolder(AccountHolder ah)
+        public void DeleteCandidateAccountHolder(PseudonymousAccountHolder ah)
         {
             lock (cahsLock)
                 if (candidateAccountHolders.Contains(ah).NotRaiseError(this.GetType(), "not_exist_candidate_account_holder", 5))
@@ -1591,6 +1705,10 @@ namespace CREA2014
     {
         public AddressFormatException(string message, Exception innerException = null) : base(message, innerException) { }
     }
+
+    #endregion
+
+    #region Ethereum
 
     #endregion
 }

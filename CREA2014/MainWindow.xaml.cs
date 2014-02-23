@@ -467,7 +467,7 @@ namespace CREA2014
                             NewAccountHolderWindow nahw = new NewAccountHolderWindow();
                             nahw.Owner = window;
                             if (nahw.ShowDialog() == true)
-                                core.AccountHolderDatabase.AddAccountHolder(new AccountHolder(nahw.tbAccountHolder.Text, nahw.rb256bit.IsChecked == true ? CREASIGNATUREDATA.EcdsaKeyLength.Ecdsa256 : nahw.rb384bit.IsChecked == true ? CREASIGNATUREDATA.EcdsaKeyLength.Ecdsa384 : CREASIGNATUREDATA.EcdsaKeyLength.Ecdsa521));
+                                core.AccountHolderDatabase.AddAccountHolder(new PseudonymousAccountHolder(nahw.tbAccountHolder.Text, nahw.rb256bit.IsChecked == true ? EcdsaKey.EcdsaKeyLength.Ecdsa256 : nahw.rb384bit.IsChecked == true ? EcdsaKey.EcdsaKeyLength.Ecdsa384 : EcdsaKey.EcdsaKeyLength.Ecdsa521));
                         };
 
                         if (message == "new_account_holder")
@@ -493,11 +493,11 @@ namespace CREA2014
                             if (naw.ShowDialog() == true)
                             {
                                 if (naw.rbAnonymous.IsChecked == true)
-                                    core.AccountHolderDatabase.AnonymousAccountHolder.AddAccount(new Account(naw.tbName.Text, naw.tbDescription.Text, naw.rb256bit.IsChecked == true ? CREASIGNATUREDATA.EcdsaKeyLength.Ecdsa256 : naw.rb384bit.IsChecked == true ? CREASIGNATUREDATA.EcdsaKeyLength.Ecdsa384 : CREASIGNATUREDATA.EcdsaKeyLength.Ecdsa521));
+                                    core.AccountHolderDatabase.AnonymousAccountHolder.AddAccount(new Account(naw.tbName.Text, naw.tbDescription.Text, naw.rb256bit.IsChecked == true ? EcdsaKey.EcdsaKeyLength.Ecdsa256 : naw.rb384bit.IsChecked == true ? EcdsaKey.EcdsaKeyLength.Ecdsa384 : EcdsaKey.EcdsaKeyLength.Ecdsa521));
                                 else
                                     foreach (var ah in core.AccountHolderDatabase.PseudonymousAccountHolders)
                                         if (ah == naw.cbAccountHolder.SelectedItem)
-                                            ah.AddAccount(new Account(naw.tbName.Text, naw.tbDescription.Text, naw.rb256bit.IsChecked == true ? CREASIGNATUREDATA.EcdsaKeyLength.Ecdsa256 : naw.rb384bit.IsChecked == true ? CREASIGNATUREDATA.EcdsaKeyLength.Ecdsa384 : CREASIGNATUREDATA.EcdsaKeyLength.Ecdsa521));
+                                            ah.AddAccount(new Account(naw.tbName.Text, naw.tbDescription.Text, naw.rb256bit.IsChecked == true ? EcdsaKey.EcdsaKeyLength.Ecdsa256 : naw.rb384bit.IsChecked == true ? EcdsaKey.EcdsaKeyLength.Ecdsa384 : EcdsaKey.EcdsaKeyLength.Ecdsa521));
                             }
 
                             core.AccountHolderDatabase.AccountHolderAdded -= accountHolderAdded;
@@ -589,8 +589,7 @@ namespace CREA2014
                     wssession.Send("acc_hols " + _GetAccountHolderHtml());
             };
 
-            core.AccountHolderDatabase.AccountHolderAdded += (sender2, e2) => _SendAccountHolderHtmlToAllSessions();
-            core.AccountHolderDatabase.AccountHolderRemoved += (sender2, e2) => _SendAccountHolderHtmlToAllSessions();
+            core.AccountHolderDatabase.AccountHoldersChanged += (sender2, e2) => _SendAccountHolderHtmlToAllSessions();
         }
 
         private void Window_Closing(object sender, System.ComponentModel.CancelEventArgs e)

@@ -58,7 +58,7 @@ namespace CREA2014.Windows
 
         private bool IsOk
         {
-            get { return cbAccountHolder.SelectedItem != null; }
+            get { return rbAnonymous.IsChecked == true || cbAccountHolder.SelectedItem != null; }
         }
 
         private void SetbOKIsEnabled()
