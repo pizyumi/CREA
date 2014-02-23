@@ -144,7 +144,7 @@ namespace CREA2014
             public event EventHandler IsWallpaperChanged = delegate { };
 
             private bool isWallpaperAltered;
-            private string wallpaper = @"E:\#壁紙\good\16574.jpg";
+            private string wallpaper = string.Empty;
             public string Wallpaper
             {
                 get { return wallpaper; }

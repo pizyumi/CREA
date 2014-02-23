@@ -160,9 +160,9 @@ namespace CREA2014
         public class MemoryStreamReaderWriter
         {
             private readonly MemoryStream ms;
-            private readonly MemoryStreamReaderWriterMode mode;
+            private readonly MsrwMode mode;
 
-            public MemoryStreamReaderWriter(MemoryStream _ms, MemoryStreamReaderWriterMode _mode)
+            public MemoryStreamReaderWriter(MemoryStream _ms, MsrwMode _mode)
             {
                 ms = _ms;
                 mode = _mode;
@@ -170,23 +170,26 @@ namespace CREA2014
 
             public byte[] ReadOrWrite(byte[] input, int length)
             {
-                if (mode == MemoryStreamReaderWriterMode.read)
+                if (mode == MsrwMode.read)
                 {
                     byte[] output = new byte[length];
                     ms.Read(output, 0, length);
                     return output;
                 }
-                else
+                else if (mode == MsrwMode.write)
                 {
                     ms.Write(input, 0, length);
                     return null;
                 }
+                else
+                    throw new MsrwCantReadOrWriteException();
             }
 
-            public enum MemoryStreamReaderWriterMode { read, write }
+            public enum MsrwMode { read, write, neither }
+            public class MsrwCantReadOrWriteException : Exception { }
         }
 
-        protected abstract MainDataInfomation[] MainDataInfo { get; }
+        protected abstract Func<MemoryStreamReaderWriter, IEnumerable<MainDataInfomation>> MainDataInfo { get; }
         protected abstract bool IsVersioned { get; }
         protected abstract bool IsCorruptionChecked { get; }
 
@@ -194,64 +197,69 @@ namespace CREA2014
         {
             get
             {
-                int length = 0;
-                foreach (var mdi in MainDataInfo)
+                Func<Type, MainDataInfomation, int?> _GetLength = (type, mdi) =>
                 {
-                    Func<Type, MainDataInfomation, int?> _GetLength = (type, innerMdi) =>
+                    if (type == typeof(bool) || type == typeof(byte))
+                        return 1;
+                    else if (type == typeof(int) || type == typeof(float))
+                        return 4;
+                    else if (type == typeof(long) || type == typeof(double) || type == typeof(DateTime))
+                        return 8;
+                    else if (type == typeof(string))
+                        return null;
+                    else if (type.IsSubclassOf(typeof(CREACOINSHAREDDATA)))
                     {
-                        if (type == typeof(bool) || type == typeof(byte))
-                            return 1;
-                        else if (type == typeof(int) || type == typeof(float))
-                            return 4;
-                        else if (type == typeof(long) || type == typeof(double) || type == typeof(DateTime))
-                            return 8;
-                        else if (type == typeof(string))
+                        CREACOINSHAREDDATA ccsd = Activator.CreateInstance(type) as CREACOINSHAREDDATA;
+                        if (ccsd.IsVersioned)
+                            ccsd.version = mdi.Version;
+
+                        if (ccsd.Length == null)
                             return null;
-                        else if (type.IsSubclassOf(typeof(CREACOINSHAREDDATA)))
+                        else
                         {
-                            CREACOINSHAREDDATA ccsd = Activator.CreateInstance(type) as CREACOINSHAREDDATA;
+                            int innerLength = 0;
+
                             if (ccsd.IsVersioned)
-                                ccsd.version = innerMdi.Version;
+                                innerLength += 4;
+                            if (ccsd.IsCorruptionChecked)
+                                innerLength += 4;
 
-                            if (ccsd.Length == null)
-                                return null;
-                            else
-                            {
-                                int innerLength = 0;
-
-                                if (ccsd.IsVersioned)
-                                    innerLength += 4;
-                                if (ccsd.IsCorruptionChecked)
-                                    innerLength += 4;
-
-                                return innerLength + (int)ccsd.Length;
-                            }
-                        }
-                        else
-                            throw new NotSupportedException("length_not_supported");
-                    };
-
-                    if (mdi.Type.IsArray)
-                    {
-                        if (mdi.Length == null)
-                            return null;
-                        else
-                        {
-                            int? innerLength = _GetLength(mdi.Type.GetElementType(), mdi);
-                            if (innerLength == null)
-                                return null;
-                            else
-                                length += (int)mdi.Length * (int)innerLength;
+                            return innerLength + (int)ccsd.Length;
                         }
                     }
                     else
-                    {
-                        int? innerLength = _GetLength(mdi.Type, mdi);
-                        if (innerLength == null)
-                            return null;
+                        throw new NotSupportedException("length_not_supported");
+                };
+
+                int length = 0;
+                try
+                {
+                    foreach (var mdi in MainDataInfo(new MemoryStreamReaderWriter(null, MemoryStreamReaderWriter.MsrwMode.neither)))
+                        if (mdi.Type.IsArray)
+                        {
+                            if (mdi.Length == null)
+                                return null;
+                            else
+                            {
+                                int? innerLength = _GetLength(mdi.Type.GetElementType(), mdi);
+                                if (innerLength == null)
+                                    return null;
+                                else
+                                    length += (int)mdi.Length * (int)innerLength;
+                            }
+                        }
                         else
-                            length += (int)innerLength;
-                    }
+                        {
+                            int? innerLength = _GetLength(mdi.Type, mdi);
+                            if (innerLength == null)
+                                return null;
+                            else
+                                length += (int)innerLength;
+                        }
+                }
+                catch (MemoryStreamReaderWriter.MsrwCantReadOrWriteException)
+                {
+                    return null;
                 }
                 return length;
             }
@@ -262,43 +270,43 @@ namespace CREA2014
             byte[] mainDataBytes;
             using (MemoryStream ms = new MemoryStream())
             {
-                foreach (var mdi in MainDataInfo)
+                Action<Type, MainDataInfomation, object> _Write = (type, mdi, o) =>
                 {
-                    Action<Type, MainDataInfomation, object, MemoryStream> _Write = (type, innerMdi, innerObj, innerMs) =>
+                    if (type == typeof(bool))
+                        ms.Write(BitConverter.GetBytes((bool)o), 0, 1);
+                    else if (type == typeof(int))
+                        ms.Write(BitConverter.GetBytes((int)o), 0, 4);
+                    else if (type == typeof(float))
+                        ms.Write(BitConverter.GetBytes((float)o), 0, 4);
+                    else if (type == typeof(long))
+                        ms.Write(BitConverter.GetBytes((long)o), 0, 8);
+                    else if (type == typeof(double))
+                        ms.Write(BitConverter.GetBytes((double)o), 0, 8);
+                    else if (type == typeof(DateTime))
+                        ms.Write(BitConverter.GetBytes(((DateTime)o).ToBinary()), 0, 8);
+                    else if (type == typeof(string))
                     {
-                        if (type == typeof(bool))
-                            innerMs.Write(BitConverter.GetBytes((bool)innerObj), 0, 1);
-                        else if (type == typeof(int))
-                            innerMs.Write(BitConverter.GetBytes((int)innerObj), 0, 4);
-                        else if (type == typeof(float))
-                            innerMs.Write(BitConverter.GetBytes((float)innerObj), 0, 4);
-                        else if (type == typeof(long))
-                            innerMs.Write(BitConverter.GetBytes((long)innerObj), 0, 8);
-                        else if (type == typeof(double))
-                            innerMs.Write(BitConverter.GetBytes((double)innerObj), 0, 8);
-                        else if (type == typeof(DateTime))
-                            innerMs.Write(BitConverter.GetBytes(((DateTime)innerObj).ToBinary()), 0, 8);
-                        else if (type == typeof(string))
-                        {
-                            byte[] bytes = Encoding.UTF8.GetBytes((string)innerObj);
-                            innerMs.Write(BitConverter.GetBytes(bytes.Length), 0, 4);
-                            innerMs.Write(bytes, 0, bytes.Length);
-                        }
-                        else if (type.IsSubclassOf(typeof(CREACOINSHAREDDATA)))
-                        {
-                            CREACOINSHAREDDATA ccsd = innerObj as CREACOINSHAREDDATA;
-                            if (ccsd.IsVersioned)
-                                ccsd.version = innerMdi.Version;
+                        byte[] bytes = Encoding.UTF8.GetBytes((string)o);
+                        ms.Write(BitConverter.GetBytes(bytes.Length), 0, 4);
+                        ms.Write(bytes, 0, bytes.Length);
+                    }
+                    else if (type.IsSubclassOf(typeof(CREACOINSHAREDDATA)))
+                    {
+                        CREACOINSHAREDDATA ccsd = o as CREACOINSHAREDDATA;
+                        if (ccsd.IsVersioned)
+                            ccsd.version = mdi.Version;
 
-                            byte[] bytes = ccsd.ToBinary();
-                            if (ccsd.Length == null)
-                                innerMs.Write(BitConverter.GetBytes(bytes.Length), 0, 4);
-                            innerMs.Write(bytes, 0, bytes.Length);
-                        }
-                        else
-                            throw new NotSupportedException("to_binary_not_supported");
-                    };
+                        byte[] bytes = ccsd.ToBinary();
+                        if (ccsd.Length == null)
+                            ms.Write(BitConverter.GetBytes(bytes.Length), 0, 4);
+                        ms.Write(bytes, 0, bytes.Length);
+                    }
+                    else
+                        throw new NotSupportedException("to_binary_not_supported");
+                };
 
+                foreach (var mdi in MainDataInfo(new MemoryStreamReaderWriter(ms, MemoryStreamReaderWriter.MsrwMode.write)))
+                {
                     object o = mdi.Getter();
 
                     if (mdi.Type == typeof(byte[]))
@@ -315,10 +323,10 @@ namespace CREA2014
                         if (mdi.Length == null)
                             ms.Write(BitConverter.GetBytes(os.Length), 0, 4);
                         foreach (var innerObj in o as object[])
-                            _Write(elementType, mdi, innerObj, ms);
+                            _Write(elementType, mdi, innerObj);
                     }
                     else
-                        _Write(mdi.Type, mdi, o, ms);
+                        _Write(mdi.Type, mdi, o);
                 }
 
                 mainDataBytes = ms.ToArray();
@@ -365,89 +373,89 @@ namespace CREA2014
             }
             using (MemoryStream ms = new MemoryStream(mainDataBytes))
             {
-                foreach (var mdi in MainDataInfo)
+                Func<Type, MainDataInfomation, object> _Read = (type, mdi) =>
                 {
-                    Func<Type, MainDataInfomation, MemoryStream, object> _Read = (type, innerMdi, innerMs) =>
+                    if (type == typeof(bool))
                     {
-                        if (type == typeof(bool))
-                        {
-                            byte[] bytes = new byte[1];
-                            innerMs.Read(bytes, 0, 1);
-                            return BitConverter.ToBoolean(bytes, 0);
-                        }
-                        else if (type == typeof(int))
-                        {
-                            byte[] bytes = new byte[4];
-                            innerMs.Read(bytes, 0, 4);
-                            return BitConverter.ToInt32(bytes, 0);
-                        }
-                        else if (type == typeof(float))
-                        {
-                            byte[] bytes = new byte[4];
-                            innerMs.Read(bytes, 0, 4);
-                            return BitConverter.ToSingle(bytes, 0);
-                        }
-                        else if (type == typeof(long))
-                        {
-                            byte[] bytes = new byte[8];
-                            innerMs.Read(bytes, 0, 8);
-                            return BitConverter.ToInt64(bytes, 0);
-                        }
-                        else if (type == typeof(double))
-                        {
-                            byte[] bytes = new byte[8];
-                            innerMs.Read(bytes, 0, 8);
-                            return BitConverter.ToDouble(bytes, 0);
-                        }
-                        else if (type == typeof(DateTime))
-                        {
-                            byte[] bytes = new byte[8];
-                            innerMs.Read(bytes, 0, 8);
-                            return DateTime.FromBinary(BitConverter.ToInt64(bytes, 0));
-                        }
-                        else if (type == typeof(string))
+                        byte[] bytes = new byte[1];
+                        ms.Read(bytes, 0, 1);
+                        return BitConverter.ToBoolean(bytes, 0);
+                    }
+                    else if (type == typeof(int))
+                    {
+                        byte[] bytes = new byte[4];
+                        ms.Read(bytes, 0, 4);
+                        return BitConverter.ToInt32(bytes, 0);
+                    }
+                    else if (type == typeof(float))
+                    {
+                        byte[] bytes = new byte[4];
+                        ms.Read(bytes, 0, 4);
+                        return BitConverter.ToSingle(bytes, 0);
+                    }
+                    else if (type == typeof(long))
+                    {
+                        byte[] bytes = new byte[8];
+                        ms.Read(bytes, 0, 8);
+                        return BitConverter.ToInt64(bytes, 0);
+                    }
+                    else if (type == typeof(double))
+                    {
+                        byte[] bytes = new byte[8];
+                        ms.Read(bytes, 0, 8);
+                        return BitConverter.ToDouble(bytes, 0);
+                    }
+                    else if (type == typeof(DateTime))
+                    {
+                        byte[] bytes = new byte[8];
+                        ms.Read(bytes, 0, 8);
+                        return DateTime.FromBinary(BitConverter.ToInt64(bytes, 0));
+                    }
+                    else if (type == typeof(string))
+                    {
+                        byte[] lengthBytes = new byte[4];
+                        ms.Read(lengthBytes, 0, 4);
+                        int length = BitConverter.ToInt32(lengthBytes, 0);
+
+                        byte[] bytes = new byte[length];
+                        ms.Read(bytes, 0, length);
+                        return Encoding.UTF8.GetString(bytes);
+                    }
+                    else if (type.IsSubclassOf(typeof(CREACOINSHAREDDATA)))
+                    {
+                        CREACOINSHAREDDATA ccsd = Activator.CreateInstance(type) as CREACOINSHAREDDATA;
+                        if (ccsd.IsVersioned)
+                            ccsd.version = mdi.Version;
+
+                        int length;
+                        if (ccsd.Length == null)
                         {
                             byte[] lengthBytes = new byte[4];
-                            innerMs.Read(lengthBytes, 0, 4);
-                            int length = BitConverter.ToInt32(lengthBytes, 0);
-
-                            byte[] bytes = new byte[length];
-                            innerMs.Read(bytes, 0, length);
-                            return Encoding.UTF8.GetString(bytes);
-                        }
-                        else if (type.IsSubclassOf(typeof(CREACOINSHAREDDATA)))
-                        {
-                            CREACOINSHAREDDATA ccsd = Activator.CreateInstance(type) as CREACOINSHAREDDATA;
-                            if (ccsd.IsVersioned)
-                                ccsd.version = innerMdi.Version;
-
-                            int length;
-                            if (ccsd.Length == null)
-                            {
-                                byte[] lengthBytes = new byte[4];
-                                innerMs.Read(lengthBytes, 0, 4);
-                                length = BitConverter.ToInt32(lengthBytes, 0);
-                            }
-                            else
-                            {
-                                length = (int)ccsd.Length;
-                                if (ccsd.IsVersioned)
-                                    length += 4;
-                                if (ccsd.IsCorruptionChecked)
-                                    length += 4;
-                            }
-
-                            byte[] bytes = new byte[length];
-                            innerMs.Read(bytes, 0, length);
-
-                            ccsd.FromBinary(bytes);
-
-                            return ccsd;
+                            ms.Read(lengthBytes, 0, 4);
+                            length = BitConverter.ToInt32(lengthBytes, 0);
                         }
                         else
-                            throw new NotSupportedException("from_binary_not_supported");
-                    };
+                        {
+                            length = (int)ccsd.Length;
+                            if (ccsd.IsVersioned)
+                                length += 4;
+                            if (ccsd.IsCorruptionChecked)
+                                length += 4;
+                        }
 
+                        byte[] bytes = new byte[length];
+                        ms.Read(bytes, 0, length);
+
+                        ccsd.FromBinary(bytes);
+
+                        return ccsd;
+                    }
+                    else
+                        throw new NotSupportedException("from_binary_not_supported");
+                };
+
+                foreach (var mdi in MainDataInfo(new MemoryStreamReaderWriter(ms, MemoryStreamReaderWriter.MsrwMode.read)))
+                {
                     if (mdi.Type == typeof(byte[]))
                     {
                         int length;
@@ -480,12 +488,12 @@ namespace CREA2014
 
                         object[] os = Array.CreateInstance(elementType, length) as object[];
                         for (int i = 0; i < os.Length; i++)
-                            os[i] = _Read(elementType, mdi, ms);
+                            os[i] = _Read(elementType, mdi);
 
                         mdi.Setter(os);
                     }
                     else
-                        mdi.Setter(_Read(mdi.Type, mdi, ms));
+                        mdi.Setter(_Read(mdi.Type, mdi));
                 }
             }
         }
@@ -715,11 +723,11 @@ namespace CREA2014
 
         public Sha256Hash() { }
 
-        protected override MainDataInfomation[] MainDataInfo
+        protected override Func<MemoryStreamReaderWriter, IEnumerable<MainDataInfomation>> MainDataInfo
         {
             get
             {
-                return new MainDataInfomation[]{
+                return (msrw) => new MainDataInfomation[]{
                     new MainDataInfomation(typeof(byte[]), 32, () => bytes, (o) => bytes = (byte[])o), 
                 };
             }
@@ -811,11 +819,11 @@ namespace CREA2014
 
         public Ripemd160Hash() { }
 
-        protected override MainDataInfomation[] MainDataInfo
+        protected override Func<MemoryStreamReaderWriter, IEnumerable<MainDataInfomation>> MainDataInfo
         {
             get
             {
-                return new MainDataInfomation[]{
+                return (msrw) => new MainDataInfomation[]{
                     new MainDataInfomation(typeof(byte[]), 20, () => bytes, (o) => bytes = (byte[])o), 
                 };
             }
@@ -931,13 +939,13 @@ namespace CREA2014
 
         public EcdsaKey() : this(EcdsaKeyLength.Ecdsa256) { }
 
-        protected override MainDataInfomation[] MainDataInfo
+        protected override Func<MemoryStreamReaderWriter, IEnumerable<MainDataInfomation>> MainDataInfo
         {
             get
             {
                 if (Version == 0)
                 {
-                    return new MainDataInfomation[]{
+                    return (msrw) => new MainDataInfomation[]{
                         new MainDataInfomation(typeof(int), () => (int)keyLength, (o) => keyLength = (EcdsaKeyLength)o), 
                         new MainDataInfomation(typeof(byte[]), null, () => publicKey, (o) => publicKey = (byte[])o), 
                         new MainDataInfomation(typeof(byte[]), null, () => privateKey, (o) => privateKey = (byte[])o), 
@@ -1098,12 +1106,12 @@ namespace CREA2014
             public override string ToString() { return Base58; }
         }
 
-        protected override MainDataInfomation[] MainDataInfo
+        protected override Func<MemoryStreamReaderWriter, IEnumerable<MainDataInfomation>> MainDataInfo
         {
             get
             {
                 if (Version == 0)
-                    return new MainDataInfomation[]{
+                    return (msrw) => new MainDataInfomation[]{
                         new MainDataInfomation(typeof(string), () => name, (o) => name = (string)o), 
                         new MainDataInfomation(typeof(string), () => description, (o) => description = (string)o), 
                         new MainDataInfomation(typeof(EcdsaKey), 0, () => key, (o) => key = (EcdsaKey)o), 
@@ -1158,11 +1166,11 @@ namespace CREA2014
 
         public AccountHolder() : this(null) { }
 
-        protected override MainDataInfomation[] MainDataInfo
+        protected override Func<MemoryStreamReaderWriter, IEnumerable<MainDataInfomation>> MainDataInfo
         {
             get
             {
-                return new MainDataInfomation[]{
+                return (msrw) => new MainDataInfomation[]{
                     new MainDataInfomation(typeof(Account[]), 0, null, () => accounts.ToArray(), (o) => 
                     {
                         accounts = ((Account[])o).ToList();
@@ -1230,7 +1238,7 @@ namespace CREA2014
     {
         public AnonymousAccountHolder() : base(0) { }
 
-        protected override MainDataInfomation[] MainDataInfo
+        protected override Func<MemoryStreamReaderWriter, IEnumerable<MainDataInfomation>> MainDataInfo
         {
             get
             {
@@ -1286,12 +1294,12 @@ namespace CREA2014
 
         public PseudonymousAccountHolder() : this(string.Empty, EcdsaKey.EcdsaKeyLength.Ecdsa256) { }
 
-        protected override MainDataInfomation[] MainDataInfo
+        protected override Func<MemoryStreamReaderWriter, IEnumerable<MainDataInfomation>> MainDataInfo
         {
             get
             {
                 if (Version == 0)
-                    return base.MainDataInfo.Combine(new MainDataInfomation[]{
+                    return (msrw) => base.MainDataInfo(msrw).Concat(new MainDataInfomation[]{
                         new MainDataInfomation(typeof(string), () => name, (o) => name = (string)o), 
                         new MainDataInfomation(typeof(EcdsaKey), 0, () => key, (o) => key = (EcdsaKey)o), 
                     });
@@ -1361,12 +1369,12 @@ namespace CREA2014
             accountHolders_changed = (sender, e) => AccountHoldersChanged(this, EventArgs.Empty);
         }
 
-        protected override MainDataInfomation[] MainDataInfo
+        protected override Func<MemoryStreamReaderWriter, IEnumerable<MainDataInfomation>> MainDataInfo
         {
             get
             {
                 if (Version == 0)
-                    return new MainDataInfomation[]{
+                    return (mswr) => new MainDataInfomation[]{
                         new MainDataInfomation(typeof(AnonymousAccountHolder), 0, () => anonymousAccountHolder, (o) => 
                         {
                             anonymousAccountHolder = (AnonymousAccountHolder)o;
