@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -1717,6 +1718,126 @@ namespace CREA2014
     #endregion
 
     #region Ethereum
+
+    #endregion
+
+    #region 自作データ構造
+
+    //使わないと思うが勉強がてら作ってしまった
+
+    public class MyArrayList<T> : IEnumerable<T>
+    {
+        private T[] data;
+        private int count;
+
+        public MyArrayList(int capacity)
+        {
+            data = new T[capacity];
+            count = 0;
+        }
+
+        public MyArrayList() : this(256) { }
+
+        public int Count
+        {
+            get { return count; }
+        }
+
+        //O(1)
+        public T this[int index]
+        {
+            get { return data[index]; }
+            set { data[index] = value; }
+        }
+
+        //O(n)
+        public void Insert(int index, T element)
+        {
+            if (count >= data.Length)
+            {
+                T[] newData = new T[data.Length * 2];
+                for (int i = 0; i < data.Length; i++)
+                    newData[i] = data[i];
+                data = newData;
+            }
+
+            for (int i = count; i > index; i--)
+                data[i] = data[i - 1];
+            data[index] = element;
+
+            count++;
+        }
+
+        //O(1)
+        public void Add(T element) { Insert(count, element); }
+
+        //O(n)
+        public void Delete(int index)
+        {
+            count--;
+
+            for (int i = index; index < count; i++)
+                data[i] = data[i + 1];
+        }
+
+        //O(1)
+        public void DeleteLast() { count--; }
+
+        public IEnumerator<T> GetEnumerator()
+        {
+            for (int i = 0; i < count; i++)
+                yield return data[i];
+        }
+
+        IEnumerator IEnumerable.GetEnumerator() { return GetEnumerator(); }
+    }
+
+    public class RingBuffer<T> : IEnumerable<T>
+    {
+        private T[] data;
+        private int top;
+        private int bottom;
+
+        public RingBuffer(int capacity)
+        {
+            data = new T[capacity];
+            top = 0;
+            bottom = 0;
+        }
+
+        public RingBuffer() : this(256) { }
+
+        public int Count
+        {
+            //負数の剰余は正しく計算できない
+            get { return (bottom - top + data.Length) % data.Length; }
+        }
+
+        //O(1)
+        public T this[int index]
+        {
+            get { return data[(index + top) % data.Length]; }
+            set { data[(index + top) % data.Length] = value; }
+        }
+
+        public void Insert(int index, T element)
+        {
+        }
+
+        public void InsertFirst(T element)
+        {
+        }
+
+        public IEnumerator<T> GetEnumerator()
+        {
+            throw new NotImplementedException();
+        }
+
+        IEnumerator IEnumerable.GetEnumerator()
+        {
+            throw new NotImplementedException();
+        }
+    }
 
     #endregion
 }
