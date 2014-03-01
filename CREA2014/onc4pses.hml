@@ -1,0 +1,746 @@
+﻿using Microsoft.Win32;
+using System;
+using System.Collections.Generic;
+using System.Diagnostics;
+using System.Globalization;
+using System.IO;
+using System.Linq;
+using System.Management;
+using System.Reflection;
+using System.Runtime.InteropServices;
+using System.Security.AccessControl;
+using System.Security.Cryptography;
+using System.Text;
+using System.Threading;
+using System.Windows;
+
+namespace CREA2014
+{
+    #region 汎用
+
+    public static class OneTime
+    {
+        public static Action GetOneTime()
+        {
+            object o = null;
+            return () =>
+            {
+                if (o != null)
+                    throw new InvalidOperationException();
+                o = new object();
+            };
+        }
+    }
+
+    public class EventArgs<T> : EventArgs
+    {
+        public EventArgs(T _value1)
+        {
+            value1 = _value1;
+        }
+
+        private T value1;
+        public T Value1
+        {
+            get { return value1; }
+        }
+    }
+
+    public class EventArgs<T, U> : EventArgs<T>
+    {
+        public EventArgs(T _value1, U _value2)
+            : base(_value1)
+        {
+            value2 = _value2;
+        }
+
+        private U value2;
+        public U Value2
+        {
+            get { return value2; }
+        }
+    }
+
+    public class EventArgs<T, U, V> : EventArgs<T, U>
+    {
+        public EventArgs(T _value1, U _value2, V _value3)
+            : base(_value1, _value2)
+        {
+            value3 = _value3;
+        }
+
+        private V value3;
+        public V Value3
+        {
+            get { return value3; }
+        }
+    }
+
+    #endregion
+
+    #region 拡張メソッド
+
+    public static class Extension
+    {
+        //バイト配列から16進文字列に変換する（拡張：バイト配列型）
+        public static string ToHexstring(this byte[] bytes)
+        {
+            StringBuilder sb = new StringBuilder(bytes.Length * 2);
+            foreach (byte b in bytes)
+            {
+                if (b < 16)
+                    sb.Append('0'); // 2桁になるよう0を追加
+                sb.Append(Convert.ToString(b, 16));
+            }
+            return sb.ToString();
+        }
+
+        //16進文字列からバイト配列に変換する（拡張：文字列型）
+        public static byte[] FromHexstring(this string str)
+        {
+            if (str.Length % 2 != 0)
+                throw new ArgumentException("hexstring_length");
+
+            int length = str.Length / 2;
+            byte[] bytes = new byte[length];
+            string[] strs = str.SplitEqually(2);
+            for (int i = 0; i < length; i++)
+                bytes[i] = Convert.ToByte(strs[i], 16);
+
+            return bytes;
+        }
+
+        //文字列を等間隔に分解する（拡張：文字列型）
+        public static string[] SplitEqually(this string str, int interval)
+        {
+            if (str.Length % interval != 0)
+                throw new ArgumentException("string_split_length");
+
+            int length = str.Length / interval;
+            string[] strs = new string[length];
+            for (int i = 0; i < length; i++)
+                strs[i] = str.Substring(i * interval, interval);
+
+            return strs;
+        }
+
+        //二つのバイト配列の内容が等しいか判定する（拡張：バイト配列型）
+        public static bool BytesEquals(this byte[] byte1, byte[] byte2)
+        {
+            if (byte1.Length != byte2.Length)
+                return false;
+            for (int i = 0; i < byte1.Length; i++)
+                if (byte1[i] != byte2[i])
+                    return false;
+            return true;
+        }
+
+        //自分自身がnullか確認する（拡張：任意型）
+        public static bool IsNull<T>(this T self)
+        {
+            return self == null;
+        }
+
+        //自分自身がnullでないか確認する（拡張：任意型）
+        public static bool IsNotNull<T>(this T self)
+        {
+            return self != null;
+        }
+
+        //全ての真偽値配列型の要素が真であるか確認する（拡張：真偽値配列型）
+        public static bool And(this bool[] conditions)
+        {
+            foreach (var condition in conditions)
+                if (!condition)
+                    return false;
+            return true;
+        }
+
+        //自分自身を関数に渡してから返す（拡張：任意型）
+        public static T Operate<T>(this T self, Action<T> operation)
+        {
+            operation(self);
+            return self;
+        }
+
+        //自分自身を関数に渡した結果を返す（拡張：任意型）
+        public static S Operate<T, S>(this T self, Func<T, S> operation)
+        {
+            return operation(self);
+        }
+
+        //自分自身を関数に渡した結果を永遠に返す（拡張：任意型）
+        public static IEnumerable<S> SelfProcess<T, S>(this T self, Func<T, S> operation)
+        {
+            while (true)
+                yield return operation(self);
+        }
+
+        private static Random random = new Random();
+
+        //0からiまでの整数が1回ずつ無作為な順番で含まれる配列を作成する（拡張：整数型）
+        public static int[] RandomNum(this int i)
+        {
+            return random.SelfProcess((r => r.Next(i))).Distinct().Take(i).ToArray();
+        }
+
+        //バイト配列の要素を無作為な順番で並べ直した新たなバイト配列を作成する（拡張：バイト配列型）
+        public static byte[] BytesRandom(this byte[] bytes)
+        {
+            byte[] newbytes = new byte[bytes.Length];
+            int[] ramdomNum = bytes.Length.RandomNum();
+            for (int i = 0; i < bytes.Length; i++)
+                newbytes[i] = bytes[ramdomNum[i]];
+            return newbytes;
+        }
+
+        //バイト配列のSHA256ハッシュ値を計算する（拡張：バイト配列型）
+        public static byte[] ComputeSha256(this byte[] bytes)
+        {
+            using (HashAlgorithm ha = HashAlgorithm.Create("SHA-256"))
+                return ha.ComputeHash(bytes);
+        }
+
+        //バイト配列のRIPEMD160ハッシュ値を計算する（拡張：バイト配列型）
+        public static byte[] ComputeRipemd160(this byte[] bytes)
+        {
+            using (HashAlgorithm ha = HashAlgorithm.Create("RIPEMD-160"))
+                return ha.ComputeHash(bytes);
+        }
+
+        //配列を結合する（拡張：任意の配列型）
+        public static T[] Combine<T>(this T[] self, params T[][] array)
+        {
+            T[] combined = new T[self.Length + array.Sum((a) => a.Length)];
+
+            Array.Copy(self, 0, combined, 0, self.Length);
+            for (int i = 0, index = self.Length; i < array.Length; index += array[i].Length, i++)
+                Array.Copy(array[i], 0, combined, index, array[i].Length);
+
+            return combined;
+        }
+
+        //繰り返し文字列を作る（拡張：文字列型）
+        public static string Repeat(this string str, int count)
+        {
+            return string.Concat(Enumerable.Repeat(str, count).ToArray());
+        }
+
+        //例外メッセージを作る（拡張：例外型）
+        public static string CreateMessage(this Exception ex, int level)
+        {
+            string space = " ".Repeat(level * 4);
+            string exception = "Exception: " + ex.GetType().ToString();
+            string message = "Message: " + ex.Message;
+            string stacktrace = "StackTrace: " + Environment.NewLine + ex.StackTrace;
+
+            exception = space + exception;
+            message = space + message;
+            stacktrace = space + stacktrace;
+
+            string thisException = string.Join(Environment.NewLine, exception, message, stacktrace);
+
+            if (ex.InnerException == null)
+                return thisException;
+            else
+            {
+                string splitter = "-".Repeat(80);
+                string innerexception = ex.InnerException.CreateMessage(level + 1);
+
+                return string.Join(Environment.NewLine, thisException, splitter, innerexception);
+            }
+        }
+
+        //拡張子データを作る（拡張：文字列型）
+        public static string ExtensionsData(this string type)
+        {
+            string data = string.Empty;
+            string name = string.Empty;
+            string extensions = string.Empty;
+            if (type == "all")
+            {
+                name = "すべてのファイル".Multilanguage(13);
+                extensions = "*.*";
+            }
+            else if (type == "image")
+            {
+                name = "画像ファイル".Multilanguage(14);
+                extensions = "*.bmp;*.gif;*.jpg;*.jpeg;*.png;*.tif;*.tiff";
+            }
+            else
+                return data;
+
+            data = name + "(" + extensions + ")" + "|" + extensions;
+
+            return data;
+        }
+
+
+        public class ErrorInfomation
+        {
+            private Type type;
+            public Type Type
+            {
+                get { return type; }
+            }
+
+            private string error;
+            public string Error
+            {
+                get { return error; }
+            }
+
+            private int level;
+            public int Level
+            {
+                get { return level; }
+            }
+
+            public ErrorInfomation(Type _type, string _error, int _level)
+            {
+                type = _type;
+                error = _error;
+                level = _level;
+            }
+        }
+
+        //エラーイベントはこのクラス内でより具体的なイベントに変換して、具体的なイベントをUIで処理する
+        private static event EventHandler<ErrorInfomation> ErrorEvent;
+
+        //エラーイベントを発生させる（拡張：型表現型）
+        public static void RaiseError(this Type type, string error, int level)
+        {
+            if (ErrorEvent != null)
+                ErrorEvent(null, new ErrorInfomation(type, error, level));
+        }
+
+        //真偽値が真のときのみエラーイベントを発生させ、真偽値をそのまま返す（拡張：真偽型）
+        public static bool RaiseError(this bool flag, Type type, string error, int level)
+        {
+            if (flag)
+                type.RaiseError(error, level);
+
+            return flag;
+        }
+
+        //真偽値が偽のときのみエラーイベントを発生させ、真偽値をそのまま返す（拡張：真偽型）
+        public static bool NotRaiseError(this bool flag, Type type, string error, int level)
+        {
+            if (!flag)
+                type.RaiseError(error, level);
+
+            return flag;
+        }
+
+        //多言語化対応（拡張：文字列型）
+        public static string Multilanguage(this string text, int id)
+        {
+            return Program.Multilanguage(text, id);
+        }
+    }
+
+    #endregion
+
+    #region WIN32API
+
+    public static class WIN32API
+    {
+        [DllImport("user32.dll")]
+        public static extern bool SetForegroundWindow(IntPtr hWnd);
+        [DllImport("user32.dll")]
+        public static extern bool ShowWindowAsync(IntPtr hWnd, int nCmdShow);
+        [DllImport("user32.dll")]
+        public static extern bool IsIconic(IntPtr hWnd);
+        public const int SW_RESTORE = 9;
+    }
+
+    #endregion
+
+    public static class Program
+    {
+        public static string Multilanguage(string text, int id)
+        {
+            //<未実装>機械翻訳への対応
+            return langResource == null || id >= langResource.Length ? text : langResource[id];
+        }
+
+        public enum ExceptionKind { wpf, unhandled }
+
+        public class ProgramSettings
+        {
+            public class Setter
+            {
+                public Setter(Action<string> _cultureSetter, Action<string> _errorLogSetter, Action<string> _errorReportSetter)
+                {
+                    cultureSetter = _cultureSetter;
+                    errorLogSetter = _errorLogSetter;
+                    errorReportSetter = _errorReportSetter;
+                }
+
+                private Action<string> cultureSetter;
+                public string Culture
+                {
+                    set { cultureSetter(value); }
+                }
+
+                private Action<string> errorLogSetter;
+                public string ErrorLog
+                {
+                    set { errorLogSetter(value); }
+                }
+
+                private Action<string> errorReportSetter;
+                public string ErrorReport
+                {
+                    set { errorReportSetter(value); }
+                }
+            }
+
+            private string culture = "ja-JP";
+            public string Culture
+            {
+                get { return culture; }
+            }
+
+            private string errorLog = "Error.txt";
+            public string ErrorLog
+            {
+                get { return errorLog; }
+            }
+
+            private string errorReport = "ErrorReport.txt";
+            public string ErrorReport
+            {
+                get { return errorReport; }
+            }
+        }
+
+        public class ProgramStatus
+        {
+            private bool isFirst = true;
+            public bool IsFirst
+            {
+                get { return isFirst; }
+                set { isFirst = value; }
+            }
+
+            private bool isWrong = false;
+            public bool IsWrong
+            {
+                get { return isWrong; }
+                set { isWrong = value; }
+            }
+        }
+
+        private static string[] langResource;
+
+        [STAThread]
+        public static void Main()
+        {
+            string appname = "CREA2014";
+            int verMaj = 0;
+            int verMin = 0;
+            int verMMin = 1;
+            string verS = "α";
+            int verR = 1; //リリース番号（リリース毎に増やす番号）
+            int verC = 11; //コミット番号（コミット毎に増やす番号）
+            string version = string.Join(".", verMaj.ToString(), verMin.ToString(), verMMin.ToString()) + "(" + verS + ")" + "(" + verR.ToString() + ")" + "(" + verC.ToString() + ")";
+            string appnameWithVersion = string.Join(" ", appname, version);
+
+            string lisenceTextFilename = "Lisence.txt";
+
+            ProgramSettings psettings = new ProgramSettings();
+            ProgramStatus pstatus = new ProgramStatus();
+
+            Assembly assembly = Assembly.GetEntryAssembly();
+            string basepath = new FileInfo(assembly.Location).DirectoryName;
+
+            Mutex mutex;
+
+            CREACOINCore core = null;
+
+
+            if (psettings.Culture == "ja-JP")
+            {
+                using (Stream stream = assembly.GetManifestResourceStream(@"CREA2014.Resources.langResouece_ja-JP.txt"))
+                using (StreamReader sr = new StreamReader(stream))
+                    langResource = sr.ReadToEnd().Split(new string[] { Environment.NewLine }, StringSplitOptions.None);
+            }
+            else
+            {
+                string path = Path.Combine(basepath, "lang", "langResource_" + psettings.Culture + ".txt");
+                if (File.Exists(path))
+                    langResource = File.ReadAllLines(path);
+                else
+                    langResource = new string[] { };
+            }
+
+
+            Action<Exception, ExceptionKind> _OnException = (ex, exKind) =>
+            {
+                Dictionary<string, string> errMessages = new Dictionary<string, string>(){
+                    {"already_starting", string.Format("{0}は既に起動しています。".Multilanguage(0), appname)}, 
+                    {"ie_not_exsiting", string.Format("{0}の動作には Internet Explorer 10 以上が必要です。".Multilanguage(1), appname)}, 
+                    {"ie_too_old", string.Format("{0}の動作には Internet Explorer 10 以上が必要です。".Multilanguage(2), appname)}, 
+                    {"require_administrator", string.Format("{0}は管理者として実行する必要があります。".Multilanguage(3), appname)}, 
+                };
+
+                if (errMessages.ContainsKey(ex.Message))
+                    MessageBox.Show(errMessages[ex.Message], appname);
+                else
+                {
+                    string kind = "Kind: " + (exKind == ExceptionKind.wpf ? "ThreadException" : "UnhandledException");
+                    string message = ex.CreateMessage(0);
+
+                    message = string.Join(Environment.NewLine, kind, message);
+
+
+                    string errlogPath = Path.Combine(basepath, psettings.ErrorLog);
+
+                    using (FileStream fs = new FileStream(errlogPath, FileMode.Append))
+                    using (StreamWriter sr = new StreamWriter(fs))
+                    {
+                        string date = DateTime.Now.ToString("yyyy/MM/dd HH:mm:ss.fff");
+                        string log = string.Join(Environment.NewLine, date, message);
+
+                        sr.Write(log);
+                        sr.Write(Environment.NewLine.Repeat(2));
+                    }
+
+
+                    string messageText = "未知の問題が発生しました。この問題を開発者に報告しますか？".Multilanguage(4);
+                    if (MessageBox.Show(messageText, appname, MessageBoxButton.YesNo) == MessageBoxResult.Yes)
+                    {
+                        string cpu = string.Empty;
+                        try
+                        {
+                            ManagementClass mc = new ManagementClass("Win32_Processor");
+                            ManagementObjectCollection moc = mc.GetInstances();
+                            foreach (ManagementObject mo in moc)
+                                if (mo["Name"] != null)
+                                    cpu = mo["Name"].ToString();
+                        }
+                        catch (Exception) { }
+
+                        string videoCard = string.Empty;
+                        try
+                        {
+                            ManagementClass mc = new ManagementClass("Win32_VideoController");
+                            ManagementObjectCollection moc = mc.GetInstances();
+                            foreach (ManagementObject mo in moc)
+                                if (mo["Name"] != null)
+                                    videoCard = mo["Name"].ToString();
+                        }
+                        catch (Exception) { }
+
+                        string memory = string.Empty;
+                        string architecture = string.Empty;
+                        try
+                        {
+                            ManagementClass mc = new ManagementClass("Win32_OperatingSystem");
+                            ManagementObjectCollection moc = mc.GetInstances();
+                            foreach (ManagementObject mo in moc)
+                            {
+                                if (mo["TotalVisibleMemorySize"] != null)
+                                    memory = mo["TotalVisibleMemorySize"].ToString();
+                                if (mo["OSArchitecture"] != null)
+                                    architecture = mo["OSArchitecture"].ToString() == "" ? "x86" : mo["OSArchitecture"].ToString();
+                            }
+                        }
+                        catch (Exception) { }
+
+                        string dotnetVerAll = string.Empty;
+                        List<string> versions = new List<string>();
+                        string dotnetRegPath = @"SOFTWARE\Microsoft\NET Framework Setup\NDP";
+                        string dotnetRegPath2 = Path.Combine(dotnetRegPath, @"v4\Full");
+                        using (RegistryKey dotnetKey = Registry.LocalMachine.OpenSubKey(dotnetRegPath, false))
+                        {
+                            if (dotnetKey != null)
+                                foreach (var subkey in dotnetKey.GetSubKeyNames())
+                                    if (subkey.StartsWith("v"))
+                                        versions.Add(subkey.Substring(1));
+                        }
+                        using (RegistryKey dotnetKey = Registry.LocalMachine.OpenSubKey(dotnetRegPath2, false))
+                        {
+                            if (dotnetKey != null)
+                            {
+                                object release = dotnetKey.GetValue("Release");
+                                if (release != null)
+                                {
+                                    int dotnetver;
+                                    if (int.TryParse(release.ToString(), out dotnetver))
+                                        if (dotnetver >= 378389)
+                                            versions.Add("4.5");
+                                        else if (dotnetver >= 378681)
+                                            versions.AddRange(new string[] { "4.5", "4.5.1" });
+                                }
+                            }
+                        }
+                        dotnetVerAll = string.Join(" ", versions);
+
+                        string ver = "【バージョン】".Multilanguage(5) + version;
+                        string winVer = "【Windowsのバージョン】".Multilanguage(6) + Environment.OSVersion.ToString() + " (" + architecture + ")";
+                        string dotnetVerRun = "【.NET Frameworkのバージョン（実行中）】".Multilanguage(7) + Environment.Version;
+                        string dotnetVerAll2 = "【.NET Frameworkのバージョン（全て）】".Multilanguage(8) + dotnetVerAll;
+                        string cpu2 = "【CPU】".Multilanguage(9) + cpu;
+                        string videoCard2 = "【ビデオカード】".Multilanguage(10) + videoCard;
+                        string memory2 = "【メモリ】".Multilanguage(11) + memory + "KB";
+
+                        string text = string.Join(Environment.NewLine, ver, winVer, dotnetVerRun, dotnetVerAll2, cpu2, videoCard2, memory2, message);
+
+                        //<未改良>ExceptionWindow
+                        //<未改良>pizyumi.com内のWebサービスに送信
+                        string setumei = "以下の内容を開発者に報告してください。".Multilanguage(12);
+                        string splitter = "-".Repeat(80);
+
+                        text = string.Join(Environment.NewLine, setumei, splitter, text);
+
+                        string errreportPath = Path.Combine(basepath, psettings.ErrorReport);
+                        File.WriteAllText(errreportPath, text);
+                        Process.Start("notepad.exe", errreportPath);
+                    }
+                }
+
+                if (core != null)
+                    core.EndSystem();
+
+                Environment.Exit(0);
+            };
+
+
+            AppDomain.CurrentDomain.UnhandledException += (sender, e) =>
+            {
+                Exception ex = e.ExceptionObject as Exception;
+                if (ex != null)
+                    _OnException(ex, ExceptionKind.unhandled);
+            };
+
+
+            Thread.CurrentThread.CurrentCulture = new CultureInfo(psettings.Culture);
+            Thread.CurrentThread.CurrentUICulture = new CultureInfo(psettings.Culture);
+
+
+            // Windows 2000（NT 5.0）以降のみグローバル・ミューテックス利用可
+            string appNameMutex = appname + " by Piz Yumina";
+            OperatingSystem os = Environment.OSVersion;
+            if ((os.Platform == PlatformID.Win32NT) && (os.Version.Major >= 5))
+                appNameMutex = @"Global\" + appNameMutex;
+
+            try
+            {
+                mutex = new Mutex(false, appNameMutex);
+            }
+            catch (ApplicationException)
+            {
+                throw new ApplicationException("already_starting");
+            }
+
+            if (mutex.WaitOne(0, false))
+            {
+                string ieRegPath = @"SOFTWARE\Microsoft\Internet Explorer";
+                int ieVersion;
+                using (RegistryKey ieKey = Registry.LocalMachine.OpenSubKey(ieRegPath, RegistryKeyPermissionCheck.ReadSubTree, RegistryRights.QueryValues))
+                {
+                    object v = ieKey.GetValue("svcVersion");
+                    if (v == null)
+                    {
+                        v = ieKey.GetValue("Version");
+                        if (v == null)
+                            throw new ApplicationException("ie_not_existing");
+                    }
+                    int.TryParse(v.ToString().Split('.')[0], out ieVersion);
+                }
+                if (ieVersion < 10)
+                    throw new ApplicationException("ie_too_old");
+
+                Process process = Process.GetCurrentProcess();
+                string fileName = Path.GetFileName(process.MainModule.FileName);
+                if (String.Compare(fileName, "devenv.exe", true) != 0 && String.Compare(fileName, "XDesProc.exe", true) != 0)
+                {
+                    string basepathFC = @"Software\Microsoft\Internet Explorer\Main\FeatureControl";
+
+                    Action<string, uint> _FeatureControl = (feature, value) =>
+                    {
+                        string path = Path.Combine(basepathFC, feature);
+
+                        using (RegistryKey key = Registry.CurrentUser.CreateSubKey(path, RegistryKeyPermissionCheck.ReadWriteSubTree))
+                            key.SetValue(fileName, (UInt32)value, RegistryValueKind.DWord);
+                    };
+
+                    _FeatureControl("FEATURE_BROWSER_EMULATION", (uint)(ieVersion == 10 ? 10000 : 11001));
+                    _FeatureControl("FEATURE_AJAX_CONNECTIONEVENTS", 1);
+                    _FeatureControl("FEATURE_ENABLE_CLIPCHILDREN_OPTIMIZATION", 1);
+                    _FeatureControl("FEATURE_MANAGE_SCRIPT_CIRCULAR_REFS", 1);
+                    _FeatureControl("FEATURE_DOMSTORAGE ", 1);
+                    _FeatureControl("FEATURE_GPU_RENDERING ", 1);
+                    _FeatureControl("FEATURE_IVIEWOBJECTDRAW_DMLT9_WITH_GDI  ", 0);
+                    _FeatureControl("FEATURE_NINPUT_LEGACYMODE", 0);
+                    _FeatureControl("FEATURE_DISABLE_LEGACY_COMPRESSION", 1);
+                    _FeatureControl("FEATURE_LOCALMACHINE_LOCKDOWN", 0);
+                    _FeatureControl("FEATURE_BLOCK_LMZ_OBJECT", 0);
+                    _FeatureControl("FEATURE_BLOCK_LMZ_SCRIPT", 0);
+                    _FeatureControl("FEATURE_DISABLE_NAVIGATION_SOUNDS", 1);
+                    _FeatureControl("FEATURE_SCRIPTURL_MITIGATION", 1);
+                    _FeatureControl("FEATURE_SPELLCHECKING", 0);
+                    _FeatureControl("FEATURE_STATUS_BAR_THROTTLING", 1);
+                    _FeatureControl("FEATURE_TABBED_BROWSING", 1);
+                    _FeatureControl("FEATURE_VALIDATE_NAVIGATE_URL", 1);
+                    _FeatureControl("FEATURE_WEBOC_DOCUMENT_ZOOM", 1);
+                    _FeatureControl("FEATURE_WEBOC_POPUPMANAGEMENT", 0);
+                    _FeatureControl("FEATURE_WEBOC_MOVESIZECHILD", 1);
+                    _FeatureControl("FEATURE_ADDON_MANAGEMENT", 0);
+                    _FeatureControl("FEATURE_WEBSOCKET", 1);
+                    _FeatureControl("FEATURE_WINDOW_RESTRICTIONS ", 0);
+                    _FeatureControl("FEATURE_XMLHTTP", 1);
+                }
+
+
+                core = new CREACOINCore(basepath);
+                core.StartSystem();
+
+                App app = new App();
+                app.DispatcherUnhandledException += (sender, e) =>
+                {
+                    _OnException(e.Exception, ExceptionKind.wpf);
+                };
+                app.Startup += (sender, e) =>
+                {
+                    MainWindow mw = new MainWindow(core, psettings, pstatus, appname, version, appnameWithVersion, lisenceTextFilename, assembly, basepath);
+                    mw.Show();
+                };
+                app.InitializeComponent();
+                app.Run();
+
+                core.EndSystem();
+
+
+                mutex.ReleaseMutex();
+            }
+            else
+            {
+                Process prevProcess = null;
+                Process currentProcess = Process.GetCurrentProcess();
+                Process[] allProcesses = Process.GetProcessesByName(currentProcess.ProcessName);
+
+                foreach (var p in allProcesses)
+                    if (p.Id != currentProcess.Id && string.Compare(p.MainModule.FileName, currentProcess.MainModule.FileName, true) == 0)
+                    {
+                        prevProcess = p;
+                        break;
+                    }
+
+                if (prevProcess != null && prevProcess.MainWindowHandle != IntPtr.Zero)
+                {
+                    if (WIN32API.IsIconic(prevProcess.MainWindowHandle))
+                        WIN32API.ShowWindowAsync(prevProcess.MainWindowHandle, WIN32API.SW_RESTORE);
+
+                    WIN32API.SetForegroundWindow(prevProcess.MainWindowHandle);
+                }
+                else
+                    throw new ApplicationException("already_starting");
+            }
+
+            mutex.Close();
+        }
+    }
+}

@@ -4,643 +4,10 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Security.Cryptography;
-using System.Text;
-using System.Xml.Linq;
 
 namespace CREA2014
 {
-    #region 基底クラス
-
-    public abstract class CREACOINDATA { }
-    public abstract class CREACOININTERNALDATA : CREACOINDATA { }
-    public abstract class CREACOINSHAREDDATA : CREACOINDATA
-    {
-        //<未実装>圧縮機能
-        //<未実装>ジャグ配列に対応
-
-        private int? version;
-        public int Version
-        {
-            get
-            {
-                if (!IsVersioned)
-                    throw new NotSupportedException("version");
-                else
-                    return (int)version;
-            }
-        }
-
-        public CREACOINSHAREDDATA(int? _version)
-        {
-            if ((IsVersioned && _version == null) || (!IsVersioned && _version != null))
-                throw new ArgumentException("is_versioned_and_version");
-
-            version = _version;
-        }
-
-        public CREACOINSHAREDDATA() : this(null) { }
-
-        public class MainDataInfomation
-        {
-            //2014/02/23
-            //抽象クラスには対応しない
-            //抽象クラスの変数に格納されている具象クラスを保存する場合には具象クラスとしてMainDataInfomationを作成する
-            //具象クラスが複数ある場合には具象クラス別にMainDataInfomationを作成する
-
-            //CREACOINSHAREDDATA（の派生クラス）の配列専用
-            public MainDataInfomation(Type _type, int? _version, int? _length, Func<object> _getter, Action<object> _setter)
-            {
-                if (!_type.IsArray)
-                    throw new ArgumentException("main_data_info_not_array");
-
-                Type elementType = _type.GetElementType();
-                if (!elementType.IsSubclassOf(typeof(CREACOINSHAREDDATA)))
-                    throw new ArgumentException("main_data_info_not_ccsd_array");
-                else if (elementType.IsAbstract)
-                    throw new ArgumentException("main_data_info_ccsd_array_abstract");
-
-                CREACOINSHAREDDATA ccsd = Activator.CreateInstance(elementType) as CREACOINSHAREDDATA;
-                if ((!ccsd.IsVersioned && _version != null) || (ccsd.IsVersioned && _version == null))
-                    throw new ArgumentException("main_data_info_not_is_versioned");
-
-                version = _version;
-                length = _length;
-
-                Type = _type;
-                Getter = _getter;
-                Setter = _setter;
-            }
-
-            //CREACOINSHAREDDATA（の派生クラス）の配列以外の配列またはCREACOINSHAREDDATA（の派生クラス）専用
-            public MainDataInfomation(Type _type, int? _lengthOrVersion, Func<object> _getter, Action<object> _setter)
-            {
-                if (_type.IsArray)
-                {
-                    Type elementType = _type.GetElementType();
-                    if (elementType.IsSubclassOf(typeof(CREACOINSHAREDDATA)))
-                        throw new ArgumentException("main_data_info_ccsd_array");
-                    else if (elementType.IsAbstract)
-                        throw new ArgumentException("main_data_info_array_abstract");
-                    else
-                        length = _lengthOrVersion;
-                }
-                else if (_type.IsSubclassOf(typeof(CREACOINSHAREDDATA)))
-                {
-                    if (_type.IsAbstract)
-                        throw new ArgumentException("main_data_info_ccsd_abstract");
-
-                    CREACOINSHAREDDATA ccsd = Activator.CreateInstance(_type) as CREACOINSHAREDDATA;
-                    if ((!ccsd.IsVersioned && _lengthOrVersion != null) || (ccsd.IsVersioned && _lengthOrVersion == null))
-                        throw new ArgumentException("main_data_info_not_is_versioned");
-
-                    version = _lengthOrVersion;
-                }
-                else
-                    throw new ArgumentException("main_data_info_not_bytes_ccsd");
-
-                Type = _type;
-                Getter = _getter;
-                Setter = _setter;
-            }
-
-            public MainDataInfomation(Type _type, Func<object> _getter, Action<object> _setter)
-            {
-                if (_type.IsArray)
-                    throw new ArgumentException("main_data_info_array");
-                else if (_type.IsSubclassOf(typeof(CREACOINSHAREDDATA)))
-                    throw new ArgumentException("main_data_info_ccsd");
-                else if (_type.IsAbstract)
-                    throw new ArgumentException("main_data_info_abstract");
-
-                Type = _type;
-                Getter = _getter;
-                Setter = _setter;
-            }
-
-            public readonly Type Type;
-            private readonly int? length;
-            public int? Length
-            {
-                get
-                {
-                    if (Type.IsArray)
-                        return length;
-                    else
-                        throw new NotSupportedException("main_data_info_length");
-                }
-            }
-            private readonly int? version;
-            public int Version
-            {
-                get
-                {
-                    CREACOINSHAREDDATA ccsd;
-                    if (Type.IsSubclassOf(typeof(CREACOINSHAREDDATA)))
-                        ccsd = Activator.CreateInstance(Type) as CREACOINSHAREDDATA;
-                    else if (Type.IsArray)
-                    {
-                        Type elementType = Type.GetElementType();
-                        if (elementType.IsSubclassOf(typeof(CREACOINSHAREDDATA)))
-                            ccsd = Activator.CreateInstance(elementType) as CREACOINSHAREDDATA;
-                        else
-                            throw new NotSupportedException("main_data_info_version");
-                    }
-                    else
-                        throw new NotSupportedException("main_data_info_version");
-
-                    if (!ccsd.IsVersioned)
-                        throw new NotSupportedException("main_data_info_is_versioned");
-                    else
-                        return (int)version;
-                }
-            }
-            public readonly Func<object> Getter;
-            public readonly Action<object> Setter;
-        }
-
-        public class MemoryStreamReaderWriter
-        {
-            private readonly MemoryStream ms;
-            private readonly MsrwMode mode;
-
-            public MemoryStreamReaderWriter(MemoryStream _ms, MsrwMode _mode)
-            {
-                ms = _ms;
-                mode = _mode;
-            }
-
-            public byte[] ReadOrWrite(byte[] input, int length)
-            {
-                if (mode == MsrwMode.read)
-                {
-                    byte[] output = new byte[length];
-                    ms.Read(output, 0, length);
-                    return output;
-                }
-                else if (mode == MsrwMode.write)
-                {
-                    ms.Write(input, 0, length);
-                    return null;
-                }
-                else
-                    throw new MsrwCantReadOrWriteException();
-            }
-
-            public enum MsrwMode { read, write, neither }
-            public class MsrwCantReadOrWriteException : Exception { }
-        }
-
-        protected abstract Func<MemoryStreamReaderWriter, IEnumerable<MainDataInfomation>> MainDataInfo { get; }
-        protected abstract bool IsVersioned { get; }
-        protected abstract bool IsCorruptionChecked { get; }
-
-        public int? Length
-        {
-            get
-            {
-                Func<Type, MainDataInfomation, int?> _GetLength = (type, mdi) =>
-                {
-                    if (type == typeof(bool) || type == typeof(byte))
-                        return 1;
-                    else if (type == typeof(int) || type == typeof(float))
-                        return 4;
-                    else if (type == typeof(long) || type == typeof(double) || type == typeof(DateTime))
-                        return 8;
-                    else if (type == typeof(string))
-                        return null;
-                    else if (type.IsSubclassOf(typeof(CREACOINSHAREDDATA)))
-                    {
-                        CREACOINSHAREDDATA ccsd = Activator.CreateInstance(type) as CREACOINSHAREDDATA;
-                        if (ccsd.IsVersioned)
-                            ccsd.version = mdi.Version;
-
-                        if (ccsd.Length == null)
-                            return null;
-                        else
-                        {
-                            int innerLength = 0;
-
-                            if (ccsd.IsVersioned)
-                                innerLength += 4;
-                            if (ccsd.IsCorruptionChecked)
-                                innerLength += 4;
-
-                            return innerLength + (int)ccsd.Length;
-                        }
-                    }
-                    else
-                        throw new NotSupportedException("length_not_supported");
-                };
-
-                int length = 0;
-                try
-                {
-                    foreach (var mdi in MainDataInfo(new MemoryStreamReaderWriter(null, MemoryStreamReaderWriter.MsrwMode.neither)))
-                        if (mdi.Type.IsArray)
-                        {
-                            if (mdi.Length == null)
-                                return null;
-                            else
-                            {
-                                int? innerLength = _GetLength(mdi.Type.GetElementType(), mdi);
-                                if (innerLength == null)
-                                    return null;
-                                else
-                                    length += (int)mdi.Length * (int)innerLength;
-                            }
-                        }
-                        else
-                        {
-                            int? innerLength = _GetLength(mdi.Type, mdi);
-                            if (innerLength == null)
-                                return null;
-                            else
-                                length += (int)innerLength;
-                        }
-                }
-                catch (MemoryStreamReaderWriter.MsrwCantReadOrWriteException)
-                {
-                    return null;
-                }
-                return length;
-            }
-        }
-
-        public byte[] ToBinary()
-        {
-            byte[] mainDataBytes;
-            using (MemoryStream ms = new MemoryStream())
-            {
-                Action<Type, MainDataInfomation, object> _Write = (type, mdi, o) =>
-                {
-                    if (type == typeof(bool))
-                        ms.Write(BitConverter.GetBytes((bool)o), 0, 1);
-                    else if (type == typeof(int))
-                        ms.Write(BitConverter.GetBytes((int)o), 0, 4);
-                    else if (type == typeof(float))
-                        ms.Write(BitConverter.GetBytes((float)o), 0, 4);
-                    else if (type == typeof(long))
-                        ms.Write(BitConverter.GetBytes((long)o), 0, 8);
-                    else if (type == typeof(double))
-                        ms.Write(BitConverter.GetBytes((double)o), 0, 8);
-                    else if (type == typeof(DateTime))
-                        ms.Write(BitConverter.GetBytes(((DateTime)o).ToBinary()), 0, 8);
-                    else if (type == typeof(string))
-                    {
-                        byte[] bytes = Encoding.UTF8.GetBytes((string)o);
-                        ms.Write(BitConverter.GetBytes(bytes.Length), 0, 4);
-                        ms.Write(bytes, 0, bytes.Length);
-                    }
-                    else if (type.IsSubclassOf(typeof(CREACOINSHAREDDATA)))
-                    {
-                        CREACOINSHAREDDATA ccsd = o as CREACOINSHAREDDATA;
-                        if (ccsd.IsVersioned)
-                            ccsd.version = mdi.Version;
-
-                        byte[] bytes = ccsd.ToBinary();
-                        if (ccsd.Length == null)
-                            ms.Write(BitConverter.GetBytes(bytes.Length), 0, 4);
-                        ms.Write(bytes, 0, bytes.Length);
-                    }
-                    else
-                        throw new NotSupportedException("to_binary_not_supported");
-                };
-
-                foreach (var mdi in MainDataInfo(new MemoryStreamReaderWriter(ms, MemoryStreamReaderWriter.MsrwMode.write)))
-                {
-                    object o = mdi.Getter();
-
-                    if (mdi.Type == typeof(byte[]))
-                    {
-                        if (mdi.Length == null)
-                            ms.Write(BitConverter.GetBytes(((byte[])o).Length), 0, 4);
-                        ms.Write((byte[])o, 0, ((byte[])o).Length);
-                    }
-                    else if (mdi.Type.IsArray)
-                    {
-                        object[] os = o as object[];
-                        Type elementType = mdi.Type.GetElementType();
-
-                        if (mdi.Length == null)
-                            ms.Write(BitConverter.GetBytes(os.Length), 0, 4);
-                        foreach (var innerObj in o as object[])
-                            _Write(elementType, mdi, innerObj);
-                    }
-                    else
-                        _Write(mdi.Type, mdi, o);
-                }
-
-                mainDataBytes = ms.ToArray();
-            }
-            using (MemoryStream ms = new MemoryStream())
-            {
-                if (IsVersioned)
-                    ms.Write(BitConverter.GetBytes((int)version), 0, 4);
-                //破損検査のためのデータ（主データのハッシュ値の先頭4バイト）
-                if (IsCorruptionChecked)
-                    ms.Write(mainDataBytes.ComputeSha256(), 0, 4);
-                ms.Write(mainDataBytes, 0, mainDataBytes.Length);
-
-                return ms.ToArray();
-            }
-        }
-
-        public void FromBinary(byte[] binary)
-        {
-            byte[] mainDataBytes;
-            using (MemoryStream ms = new MemoryStream(binary))
-            {
-                if (IsVersioned)
-                {
-                    byte[] versionBytes = new byte[4];
-                    ms.Read(versionBytes, 0, 4);
-                    version = BitConverter.ToInt32(versionBytes, 0);
-                }
-
-                int? check = null;
-                if (IsCorruptionChecked)
-                {
-                    byte[] checkBytes = new byte[4];
-                    ms.Read(checkBytes, 0, 4);
-                    check = BitConverter.ToInt32(checkBytes, 0);
-                }
-
-                int length = (int)(ms.Length - ms.Position);
-                mainDataBytes = new byte[length];
-                ms.Read(mainDataBytes, 0, length);
-
-                if (IsCorruptionChecked && check != BitConverter.ToInt32(mainDataBytes.ComputeSha256(), 0))
-                    throw new InvalidDataException("from_binary_check_inaccurate");
-            }
-            using (MemoryStream ms = new MemoryStream(mainDataBytes))
-            {
-                Func<Type, MainDataInfomation, object> _Read = (type, mdi) =>
-                {
-                    if (type == typeof(bool))
-                    {
-                        byte[] bytes = new byte[1];
-                        ms.Read(bytes, 0, 1);
-                        return BitConverter.ToBoolean(bytes, 0);
-                    }
-                    else if (type == typeof(int))
-                    {
-                        byte[] bytes = new byte[4];
-                        ms.Read(bytes, 0, 4);
-                        return BitConverter.ToInt32(bytes, 0);
-                    }
-                    else if (type == typeof(float))
-                    {
-                        byte[] bytes = new byte[4];
-                        ms.Read(bytes, 0, 4);
-                        return BitConverter.ToSingle(bytes, 0);
-                    }
-                    else if (type == typeof(long))
-                    {
-                        byte[] bytes = new byte[8];
-                        ms.Read(bytes, 0, 8);
-                        return BitConverter.ToInt64(bytes, 0);
-                    }
-                    else if (type == typeof(double))
-                    {
-                        byte[] bytes = new byte[8];
-                        ms.Read(bytes, 0, 8);
-                        return BitConverter.ToDouble(bytes, 0);
-                    }
-                    else if (type == typeof(DateTime))
-                    {
-                        byte[] bytes = new byte[8];
-                        ms.Read(bytes, 0, 8);
-                        return DateTime.FromBinary(BitConverter.ToInt64(bytes, 0));
-                    }
-                    else if (type == typeof(string))
-                    {
-                        byte[] lengthBytes = new byte[4];
-                        ms.Read(lengthBytes, 0, 4);
-                        int length = BitConverter.ToInt32(lengthBytes, 0);
-
-                        byte[] bytes = new byte[length];
-                        ms.Read(bytes, 0, length);
-                        return Encoding.UTF8.GetString(bytes);
-                    }
-                    else if (type.IsSubclassOf(typeof(CREACOINSHAREDDATA)))
-                    {
-                        CREACOINSHAREDDATA ccsd = Activator.CreateInstance(type) as CREACOINSHAREDDATA;
-                        if (ccsd.IsVersioned)
-                            ccsd.version = mdi.Version;
-
-                        int length;
-                        if (ccsd.Length == null)
-                        {
-                            byte[] lengthBytes = new byte[4];
-                            ms.Read(lengthBytes, 0, 4);
-                            length = BitConverter.ToInt32(lengthBytes, 0);
-                        }
-                        else
-                        {
-                            length = (int)ccsd.Length;
-                            if (ccsd.IsVersioned)
-                                length += 4;
-                            if (ccsd.IsCorruptionChecked)
-                                length += 4;
-                        }
-
-                        byte[] bytes = new byte[length];
-                        ms.Read(bytes, 0, length);
-
-                        ccsd.FromBinary(bytes);
-
-                        return ccsd;
-                    }
-                    else
-                        throw new NotSupportedException("from_binary_not_supported");
-                };
-
-                foreach (var mdi in MainDataInfo(new MemoryStreamReaderWriter(ms, MemoryStreamReaderWriter.MsrwMode.read)))
-                {
-                    if (mdi.Type == typeof(byte[]))
-                    {
-                        int length;
-                        if (mdi.Length == null)
-                        {
-                            byte[] lengthBytes = new byte[4];
-                            ms.Read(lengthBytes, 0, 4);
-                            length = BitConverter.ToInt32(lengthBytes, 0);
-                        }
-                        else
-                            length = (int)mdi.Length;
-
-                        byte[] bytes = new byte[length];
-                        ms.Read(bytes, 0, length);
-                        mdi.Setter(bytes);
-                    }
-                    else if (mdi.Type.IsArray)
-                    {
-                        Type elementType = mdi.Type.GetElementType();
-
-                        int length;
-                        if (mdi.Length == null)
-                        {
-                            byte[] lengthBytes = new byte[4];
-                            ms.Read(lengthBytes, 0, 4);
-                            length = BitConverter.ToInt32(lengthBytes, 0);
-                        }
-                        else
-                            length = (int)mdi.Length;
-
-                        object[] os = Array.CreateInstance(elementType, length) as object[];
-                        for (int i = 0; i < os.Length; i++)
-                            os[i] = _Read(elementType, mdi);
-
-                        mdi.Setter(os);
-                    }
-                    else
-                        mdi.Setter(_Read(mdi.Type, mdi));
-                }
-            }
-        }
-    }
-    public abstract class CREACOINSETTINGSDATA : CREACOINDATA
-    {
-        //<未実装>ジャグ配列に対応
-        //<未改良>SetAndSaveの抽象化 結構難しいので後回し
-
-        private string filename;
-        public string Filename
-        {
-            get { return filename; }
-        }
-
-        public CREACOINSETTINGSDATA(string _filename)
-        {
-            filename = _filename;
-        }
-
-        public class MainDataInfomation
-        {
-            public MainDataInfomation(Type _type, string _xmlName, Func<object> _getter, Action<object> _setter)
-            {
-                Type = _type;
-                XmlName = _xmlName;
-                Getter = _getter;
-                Setter = _setter;
-            }
-
-            public readonly Type Type;
-            public readonly string XmlName;
-            public readonly Func<object> Getter;
-            public readonly Action<object> Setter;
-        }
-
-        protected abstract string XmlName { get; }
-        protected abstract MainDataInfomation[] MainDataInfo { get; }
-
-        public XElement ToXml()
-        {
-            XElement xElement = new XElement(XmlName);
-            foreach (var mdi in MainDataInfo)
-            {
-                Action<Type, MainDataInfomation, object, XElement> _Write = (type, innerMdi, innerObj, innerXElement) =>
-                {
-                    if (type == typeof(bool))
-                        innerXElement.Add(new XElement(innerMdi.XmlName, ((bool)innerObj).ToString()));
-                    else if (type == typeof(int))
-                        innerXElement.Add(new XElement(innerMdi.XmlName, ((int)innerObj).ToString()));
-                    else if (type == typeof(float))
-                        innerXElement.Add(new XElement(innerMdi.XmlName, ((float)innerObj).ToString()));
-                    else if (type == typeof(long))
-                        innerXElement.Add(new XElement(innerMdi.XmlName, ((long)innerObj).ToString()));
-                    else if (type == typeof(double))
-                        innerXElement.Add(new XElement(innerMdi.XmlName, ((double)innerObj).ToString()));
-                    else if (type == typeof(DateTime))
-                        innerXElement.Add(new XElement(innerMdi.XmlName, ((DateTime)innerObj).ToString()));
-                    else if (type == typeof(string))
-                        innerXElement.Add(new XElement(innerMdi.XmlName, (string)innerObj));
-                    else if (type.IsSubclassOf(typeof(CREACOINSETTINGSDATA)))
-                        innerXElement.Add(new XElement(innerMdi.XmlName, (innerObj as CREACOINSETTINGSDATA).ToXml()));
-                    else
-                        throw new NotSupportedException("to_xml_not_supported");
-                };
-
-                object o = mdi.Getter();
-
-                if (mdi.Type.IsArray)
-                {
-                    Type elementType = mdi.Type.GetElementType();
-
-                    XElement xElementArray = new XElement(XmlName + "s");
-                    foreach (var innerObj in o as object[])
-                        _Write(elementType, mdi, innerObj, xElementArray);
-
-                    xElement.Add(xElementArray);
-                }
-                else
-                    _Write(mdi.Type, mdi, o, xElement);
-            }
-            return xElement;
-        }
-
-        public void FromXml(XElement xElement)
-        {
-            if (xElement.Name.LocalName != XmlName)
-                throw new ArgumentException("xml_name");
-
-            foreach (var mdi in MainDataInfo)
-            {
-                Func<Type, MainDataInfomation, XElement, object> _Read = (type, innerMdi, innerXElement) =>
-                {
-                    if (type == typeof(bool))
-                        return bool.Parse(innerXElement.Element(mdi.XmlName).Value);
-                    else if (type == typeof(int))
-                        return int.Parse(innerXElement.Element(mdi.XmlName).Value);
-                    else if (type == typeof(float))
-                        return float.Parse(innerXElement.Element(mdi.XmlName).Value);
-                    else if (type == typeof(long))
-                        return long.Parse(innerXElement.Element(mdi.XmlName).Value);
-                    else if (type == typeof(double))
-                        return double.Parse(innerXElement.Element(mdi.XmlName).Value);
-                    else if (type == typeof(DateTime))
-                        return DateTime.Parse(innerXElement.Element(mdi.XmlName).Value);
-                    else if (type == typeof(string))
-                        return innerXElement.Element(mdi.XmlName).Value;
-                    else if (type.IsSubclassOf(typeof(CREACOINSETTINGSDATA)))
-                    {
-                        CREACOINSETTINGSDATA ccsd = Activator.CreateInstance(type) as CREACOINSETTINGSDATA;
-                        ccsd.FromXml(innerXElement.Element(mdi.XmlName).Element(ccsd.XmlName));
-                        return ccsd;
-                    }
-                    else
-                        throw new NotSupportedException("from_xml_not_supported");
-                };
-
-                if (mdi.Type.IsArray)
-                {
-                    Type elementType = mdi.Type.GetElementType();
-
-                    XElement[] xElements = xElement.Element(mdi.XmlName + "s").Elements(mdi.XmlName).ToArray();
-
-                    object[] os = Array.CreateInstance(elementType, xElements.Length) as object[];
-                    for (int i = 0; i < os.Length; i++)
-                        os[i] = _Read(elementType, mdi, xElements[i]);
-
-                    mdi.Setter(os);
-                }
-                else
-                    mdi.Setter(_Read(mdi.Type, mdi, xElement));
-            }
-        }
-
-        public void Load()
-        {
-            if (File.Exists(filename))
-                FromXml(XElement.Load(filename));
-        }
-
-        public void Save() { ToXml().Save(filename); }
-    }
-
-    #endregion
-
-    public class CREACOINCore
+    public class Core
     {
         private AccountHolderDatabase accountHolderDatabase;
         public AccountHolderDatabase AccountHolderDatabase
@@ -648,7 +15,7 @@ namespace CREA2014
             get { return accountHolderDatabase; }
         }
 
-        public CREACOINCore(string _basepath)
+        public Core(string _basepath)
         {
             string ahdFileName = "ahs.dat";
 
@@ -672,8 +39,8 @@ namespace CREA2014
         {
             lock (coreLock)
             {
-                if (isSystemStarted.RaiseError(this.GetType(), "core_started", 5))
-                    return;
+                if (isSystemStarted)
+                    throw new InvalidOperationException("core_started"); //対応済
 
                 accountHolderDatabase = new AccountHolderDatabase();
 
@@ -688,8 +55,8 @@ namespace CREA2014
         {
             lock (coreLock)
             {
-                if (!isSystemStarted.NotRaiseError(this.GetType(), "core_not_started", 5))
-                    return;
+                if (!isSystemStarted)
+                    throw new InvalidOperationException("core_not_started"); //対応済
 
                 File.WriteAllBytes(accountHolderDatabasePath, accountHolderDatabase.ToBinary());
 
@@ -703,7 +70,7 @@ namespace CREA2014
         public static readonly int ProtocolVersion = 0;
     }
 
-    public class Sha256Hash : CREACOINSHAREDDATA, IComparable<Sha256Hash>, IEquatable<Sha256Hash>, IComparable
+    public class Sha256Hash : SHAREDDATA, IComparable<Sha256Hash>, IEquatable<Sha256Hash>, IComparable
     {
         private byte[] bytes;
         public byte[] Bytes
@@ -715,7 +82,7 @@ namespace CREA2014
         public Sha256Hash(byte[] _bytes)
         {
             if (_bytes.Length != 32)
-                throw new ArgumentException("Sha256_bytes_length");
+                throw new ArgumentException("Sha256_bytes_length"); //対応済
 
             bytes = _bytes;
         }
@@ -799,7 +166,7 @@ namespace CREA2014
         #endregion
     }
 
-    public class Ripemd160Hash : CREACOINSHAREDDATA, IComparable<Ripemd160Hash>, IEquatable<Ripemd160Hash>, IComparable
+    public class Ripemd160Hash : SHAREDDATA, IComparable<Ripemd160Hash>, IEquatable<Ripemd160Hash>, IComparable
     {
         private byte[] bytes;
         public byte[] Bytes
@@ -811,7 +178,7 @@ namespace CREA2014
         public Ripemd160Hash(byte[] _bytes)
         {
             if (_bytes.Length != 20)
-                throw new ArgumentException("Ripemd160_bytes_length");
+                throw new ArgumentException("Ripemd160_bytes_length"); //対応済
 
             bytes = _bytes;
         }
@@ -895,7 +262,7 @@ namespace CREA2014
         #endregion
     }
 
-    public class EcdsaKey : CREACOINSHAREDDATA
+    public class EcdsaKey : SHAREDDATA
     {
         private EcdsaKeyLength keyLength;
         public EcdsaKeyLength KeyLength
@@ -930,7 +297,7 @@ namespace CREA2014
             else if (keyLength == EcdsaKeyLength.Ecdsa521)
                 ca = CngAlgorithm.ECDsaP521;
             else
-                throw new NotSupportedException("ecdsa_key_length_not_suppoeted");
+                throw new NotSupportedException("ecdsa_key_length_not_suppoeted"); //対応済
 
             CngKey ck = CngKey.Create(ca, null, new CngKeyCreationParameters { ExportPolicy = CngExportPolicies.AllowPlaintextExport });
 
@@ -953,7 +320,7 @@ namespace CREA2014
                     };
                 }
                 else
-                    throw new NotSupportedException("ecdsa_key_main_data_info");
+                    throw new NotSupportedException("ecdsa_key_main_data_info"); //対応済
 
             }
         }
@@ -970,12 +337,12 @@ namespace CREA2014
                 if (Version <= 0)
                     return true;
                 else
-                    throw new NotSupportedException("ecdsa_key_check");
+                    throw new NotSupportedException("ecdsa_key_check"); //対応済
             }
         }
     }
 
-    public class Account : CREACOINSHAREDDATA
+    public class Account : SHAREDDATA
     {
         private string name;
         public string Name
@@ -1032,7 +399,7 @@ namespace CREA2014
                         int check1 = BitConverter.ToInt32(checkBytes, 0);
                         int check2 = BitConverter.ToInt32(mergedBytes.ComputeSha256().ComputeSha256(), 0);
                         if (check1 != check2)
-                            throw new InvalidDataException("base58_check");
+                            throw new InvalidDataException("base58_check"); //対応済
 
                         byte[] identifierBytes = new byte[3];
                         Array.Copy(mergedBytes, 0, identifierBytes, 0, identifierBytes.Length);
@@ -1043,7 +410,7 @@ namespace CREA2014
                         byte[] correctIdentifierBytes = new byte[] { 84, 122, 143 };
 
                         if (!identifierBytes.BytesEquals(correctIdentifierBytes))
-                            throw new InvalidDataException("base58_identifier");
+                            throw new InvalidDataException("base58_identifier"); //対応済
 
                         return hash = new Ripemd160Hash(hashBytes);
                     }
@@ -1118,7 +485,7 @@ namespace CREA2014
                         new MainDataInfomation(typeof(EcdsaKey), 0, () => key, (o) => key = (EcdsaKey)o), 
                     };
                 else
-                    throw new NotSupportedException("account_main_data_info");
+                    throw new NotSupportedException("account_main_data_info"); //対応済
             }
         }
 
@@ -1134,7 +501,7 @@ namespace CREA2014
                 if (Version <= 0)
                     return true;
                 else
-                    throw new NotSupportedException("account_check");
+                    throw new NotSupportedException("account_check"); //対応済
             }
         }
 
@@ -1148,7 +515,7 @@ namespace CREA2014
         public override string ToString() { return Address.Base58; }
     }
 
-    public abstract class AccountHolder : CREACOINSHAREDDATA
+    public abstract class AccountHolder : SHAREDDATA
     {
         private readonly object accountsLock = new object();
         private List<Account> accounts;
@@ -1215,23 +582,31 @@ namespace CREA2014
         public void AddAccount(Account account)
         {
             lock (accountsLock)
-                if (!accounts.Contains(account).RaiseError(this.GetType(), "exist_account", 5))
-                    this.ExecuteBeforeEvent(() =>
-                    {
-                        accounts.Add(account);
-                        account.AccountChanged += account_changed;
-                    }, AccountAdded, AccountHolderChanged);
+            {
+                if (accounts.Contains(account))
+                    throw new InvalidOperationException("exist_account");
+
+                this.ExecuteBeforeEvent(() =>
+                {
+                    accounts.Add(account);
+                    account.AccountChanged += account_changed;
+                }, AccountAdded, AccountHolderChanged);
+            }
         }
 
         public void RemoveAccount(Account account)
         {
             lock (accountsLock)
-                if (accounts.Contains(account).NotRaiseError(this.GetType(), "not_exist_account", 5))
-                    this.ExecuteBeforeEvent(() =>
-                    {
-                        accounts.Remove(account);
-                        account.AccountChanged -= account_changed;
-                    }, AccountRemoved, AccountHolderChanged);
+            {
+                if (!accounts.Contains(account))
+                    throw new InvalidOperationException("not_exist_account");
+
+                this.ExecuteBeforeEvent(() =>
+                {
+                    accounts.Remove(account);
+                    account.AccountChanged -= account_changed;
+                }, AccountRemoved, AccountHolderChanged);
+            }
         }
     }
 
@@ -1246,7 +621,7 @@ namespace CREA2014
                 if (Version == 0)
                     return base.MainDataInfo;
                 else
-                    throw new NotSupportedException("aah_main_data_info");
+                    throw new NotSupportedException("aah_main_data_info"); //対応済
             }
         }
 
@@ -1262,7 +637,7 @@ namespace CREA2014
                 if (Version <= 0)
                     return true;
                 else
-                    throw new NotSupportedException("aah_check");
+                    throw new NotSupportedException("aah_check"); //対応済
             }
         }
     }
@@ -1305,7 +680,7 @@ namespace CREA2014
                         new MainDataInfomation(typeof(EcdsaKey), 0, () => key, (o) => key = (EcdsaKey)o), 
                     });
                 else
-                    throw new NotSupportedException("pch_main_data_info");
+                    throw new NotSupportedException("pah_main_data_info"); //対応済
             }
         }
 
@@ -1321,7 +696,7 @@ namespace CREA2014
                 if (Version <= 0)
                     return true;
                 else
-                    throw new NotSupportedException("pch_check");
+                    throw new NotSupportedException("pah_check"); //対応済
             }
         }
 
@@ -1338,7 +713,7 @@ namespace CREA2014
         public override string ToString() { return Sign; }
     }
 
-    public class AccountHolderDatabase : CREACOINSHAREDDATA
+    public class AccountHolderDatabase : SHAREDDATA
     {
         private AnonymousAccountHolder anonymousAccountHolder;
         public AnonymousAccountHolder AnonymousAccountHolder
@@ -1390,7 +765,7 @@ namespace CREA2014
                         new MainDataInfomation(typeof(PseudonymousAccountHolder[]), 0, null, () => candidateAccountHolders.ToArray(), (o) => candidateAccountHolders = ((PseudonymousAccountHolder[])o).ToList()), 
                     };
                 else
-                    throw new NotSupportedException("account_holder_database_main_data_info");
+                    throw new NotSupportedException("account_holder_database_main_data_info"); //対応済
             }
         }
 
@@ -1406,7 +781,7 @@ namespace CREA2014
                 if (Version <= 0)
                     return true;
                 else
-                    throw new NotSupportedException("account_holder_database_check");
+                    throw new NotSupportedException("account_holder_database_check"); //対応済
             }
         }
 
@@ -1420,12 +795,10 @@ namespace CREA2014
         {
             lock (pahsLock)
             {
-                bool[] conditions = new bool[]{
-                    pseudonymousAccountHolders.Contains(ah).RaiseError(this.GetType(), "exist_account_holder", 5), 
-                    pseudonymousAccountHolders.Where((e) => e.Name == ah.Name).FirstOrDefault().IsNotNull().RaiseError(this.GetType(), "exist_same_name_account_holder", 5)
-                };
+                if (pseudonymousAccountHolders.Contains(ah))
+                    throw new InvalidOperationException("exist_account_holder"); //対応済
 
-                if (!conditions.And())
+                if (!pseudonymousAccountHolders.Where((e) => e.Name == ah.Name).FirstOrDefault().IsNotNull().RaiseError(this.GetType(), "exist_same_name_account_holder".GetLogMessage(), 5))
                     this.ExecuteBeforeEvent(() =>
                     {
                         pseudonymousAccountHolders.Add(ah);
@@ -1437,26 +810,38 @@ namespace CREA2014
         public void DeleteAccountHolder(PseudonymousAccountHolder ah)
         {
             lock (pahsLock)
-                if (pseudonymousAccountHolders.Contains(ah).NotRaiseError(this.GetType(), "not_exist_account_holder", 5))
-                    this.ExecuteBeforeEvent(() =>
-                    {
-                        pseudonymousAccountHolders.Remove(ah);
-                        ah.AccountHolderChanged -= accountHolders_changed;
-                    }, AccountHolderRemoved, AccountHoldersChanged);
+            {
+                if (!pseudonymousAccountHolders.Contains(ah))
+                    throw new InvalidOperationException("not_exist_account_holder"); //対応済
+
+                this.ExecuteBeforeEvent(() =>
+                {
+                    pseudonymousAccountHolders.Remove(ah);
+                    ah.AccountHolderChanged -= accountHolders_changed;
+                }, AccountHolderRemoved, AccountHoldersChanged);
+            }
         }
 
         public void AddCandidateAccountHolder(PseudonymousAccountHolder ah)
         {
             lock (cahsLock)
-                if (!candidateAccountHolders.Contains(ah).RaiseError(this.GetType(), "exist_candidate_account_holder", 5))
-                    candidateAccountHolders.Add(ah);
+            {
+                if (candidateAccountHolders.Contains(ah))
+                    throw new InvalidOperationException("exist_candidate_account_holder"); //対応済
+
+                candidateAccountHolders.Add(ah);
+            }
         }
 
         public void DeleteCandidateAccountHolder(PseudonymousAccountHolder ah)
         {
             lock (cahsLock)
-                if (candidateAccountHolders.Contains(ah).NotRaiseError(this.GetType(), "not_exist_candidate_account_holder", 5))
-                    candidateAccountHolders.Remove(ah);
+            {
+                if (!candidateAccountHolders.Contains(ah))
+                    throw new InvalidOperationException("not_exist_candidate_account_holder"); //対応済
+
+                candidateAccountHolders.Remove(ah);
+            }
         }
 
         public void ClearCandidateAccountHolders()
@@ -1724,6 +1109,246 @@ namespace CREA2014
     #region 自作データ構造
 
     //使わないと思うが勉強がてら作ってしまった
+
+    public class ForwardLinkedList<T> : IEnumerable<T>
+    {
+        private Node first;
+        public Node First
+        {
+            get { return first; }
+        }
+
+        public class Node
+        {
+            private T val;
+            public T Value
+            {
+                get { return val; }
+                set { val = value; }
+            }
+
+            private Node next;
+            public Node Next
+            {
+                get { return next; }
+                internal set { next = value; }
+            }
+
+            internal Node(T _val, Node _next)
+            {
+                val = _val;
+                next = _next;
+            }
+        }
+
+        public ForwardLinkedList()
+        {
+            first = null;
+        }
+
+        //O(n)
+        public int Count
+        {
+            get { return first.CountLoop((p) => p != null, (p) => p.Next); }
+        }
+
+        //O(1)
+        public Node InsertFirst(T element)
+        {
+            return first = new Node(element, first);
+        }
+
+        //O(1)
+        public void DeleteFirst()
+        {
+            if (first != null)
+                first = first.Next;
+        }
+
+        //O(1)
+        public Node InsertAfter(Node node, T element)
+        {
+            return node.Next = new Node(element, node.Next);
+        }
+
+        //O(1)
+        public void DeleteAfter(Node node)
+        {
+            if (node.Next != null)
+                node.Next = node.Next.Next;
+        }
+
+        //O(n)
+        public Node Delete(Node node)
+        {
+            if (first == null)
+                return null;
+            else if (first == node)
+                return first = null;
+
+            for (Node p = first; p.Next != null; p = p.Next)
+                if (p.Next == node)
+                    return p.Next = p.Next.Next;
+
+            return null;
+        }
+
+        public IEnumerator<T> GetEnumerator()
+        {
+            for (Node p = first; p != null; p = p.Next)
+                yield return p.Value;
+        }
+
+        IEnumerator IEnumerable.GetEnumerator() { return GetEnumerator(); }
+    }
+
+    public class LinkedList<T> : IEnumerable<T>
+    {
+        private Node first;
+        public Node First
+        {
+            get { return first; }
+        }
+
+        private Node last;
+        public Node Last
+        {
+            get { return last; }
+        }
+
+        public class Node
+        {
+            private T val;
+            public T Value
+            {
+                get { return val; }
+                set { val = value; }
+            }
+
+            private Node previous;
+            public Node Previous
+            {
+                get { return previous; }
+                internal set { previous = value; }
+            }
+
+            private Node next;
+            public Node Next
+            {
+                get { return next; }
+                internal set { next = value; }
+            }
+
+            internal Node(T _val, Node _previous, Node _next)
+            {
+                val = _val;
+                previous = _previous;
+                next = _next;
+            }
+        }
+
+        public LinkedList()
+        {
+            first = null;
+            last = null;
+        }
+
+        //O(n)
+        public int Count
+        {
+            get { return first.CountLoop((p) => p != null, (p) => p.Next); }
+        }
+
+        //O(1)
+        public Node InsertAfter(Node node, T element)
+        {
+            return node.Next = node.Next.Previous = new Node(element, node, node.Next);
+        }
+
+        //O(1)
+        public Node InsertBefore(Node node, T element)
+        {
+            return node.Previous = node.Previous.Next = new Node(element, node.Previous, node);
+        }
+
+        //O(1)
+        public Node InsertFirst(T element)
+        {
+            Node node = new Node(element, null, first);
+            if (first == null)
+                first = last = node;
+            else
+            {
+                first.Previous = node;
+                first = node;
+            }
+            return node;
+        }
+
+        //O(1)
+        public Node InsertLast(T element)
+        {
+            Node node = new Node(element, last, null);
+            if (last == null)
+                first = last = node;
+            else
+            {
+                last.Next = node;
+                last = node;
+            }
+            return node;
+        }
+
+        //O(1)
+        public Node Delete(Node node)
+        {
+            if (node != first)
+                node.Previous.Next = node.Next;
+            else
+                first = node.Next;
+
+            if (node != last)
+                node.Next.Previous = node.Previous;
+            else
+                last = node.Previous;
+
+            return node.Next;
+        }
+
+        //O(1)
+        public void DeleteFirst()
+        {
+            if (first == last)
+                first = last = null;
+            else
+            {
+                first = first.Next;
+                if (first != null)
+                    first.Previous = null;
+            }
+        }
+
+        //O(1)
+        public void DeleteLast()
+        {
+            if (first == last)
+                first = last = null;
+            else
+            {
+                last = last.Previous;
+                if (last != null)
+                    last.Next = null;
+            }
+        }
+
+        public IEnumerator<T> GetEnumerator()
+        {
+            for (Node p = first; p != null; p = p.Next)
+                yield return p.Value;
+        }
+
+        IEnumerator IEnumerable.GetEnumerator() { return GetEnumerator(); }
+    }
 
     public class MyArrayList<T> : IEnumerable<T>
     {

@@ -18,7 +18,7 @@ namespace CREA2014
 {
     public partial class MainWindow : Window
     {
-        public class MainWindowSettings : CREACOINSETTINGSDATA
+        public class MainWindowSettings : SAVEABLESETTINGSDATA<MainWindowSettings.Setter>
         {
             public class Setter
             {
@@ -32,37 +32,37 @@ namespace CREA2014
                     isConfirmAtExitSetter = _isConfirmAtExitSetter;
                 }
 
-                private Action<int> portWebSocketSetter;
+                private readonly Action<int> portWebSocketSetter;
                 public int PortWebSocket
                 {
                     set { portWebSocketSetter(value); }
                 }
 
-                private Action<int> portWebServerSetter;
+                private readonly Action<int> portWebServerSetter;
                 public int PortWebServer
                 {
                     set { portWebServerSetter(value); }
                 }
 
-                private Action<bool> isWallpaperSetter;
+                private readonly Action<bool> isWallpaperSetter;
                 public bool IsWallpaper
                 {
                     set { isWallpaperSetter(value); }
                 }
 
-                private Action<string> wallpaperSetter;
+                private readonly Action<string> wallpaperSetter;
                 public string Wallpaper
                 {
                     set { wallpaperSetter(value); }
                 }
 
-                private Action<float> wallpaperOpacitySetter;
+                private readonly Action<float> wallpaperOpacitySetter;
                 public float WallpaperOpacity
                 {
                     set { wallpaperOpacitySetter(value); }
                 }
 
-                private Action<bool> isConfirmAtExitSetter;
+                private readonly Action<bool> isConfirmAtExitSetter;
                 public bool IsConfirmAtExit
                 {
                     set { isConfirmAtExitSetter(value); }
@@ -182,7 +182,7 @@ namespace CREA2014
                 get { return "MainWindowSettings"; }
             }
 
-            protected override CREACOINSETTINGSDATA.MainDataInfomation[] MainDataInfo
+            protected override MainDataInfomation[] MainDataInfo
             {
                 get
                 {
@@ -197,12 +197,11 @@ namespace CREA2014
                 }
             }
 
-            private readonly object setAndSaveLock = new object();
-            public void SetAndSave(Action<Setter> setAction)
+            protected override Setter Setters
             {
-                lock (setAndSaveLock)
+                get
                 {
-                    setAction(new Setter(
+                    return new Setter(
                         (_portWebSocket) =>
                         {
                             if (portWebSocket != _portWebSocket)
@@ -250,7 +249,16 @@ namespace CREA2014
                                 isConfirmAtExit = _isConfirmAtExit;
                                 isIsConfirmAtExitAltered = true;
                             }
-                        }));
+                        });
+                }
+            }
+
+            private readonly object setAndSaveLock = new object();
+            public override void SetAndSave(Action<Setter> setAction)
+            {
+                lock (setAndSaveLock)
+                {
+                    setAction(Setters);
                     Save();
 
                     if (isPortWebSocketAltered)
@@ -286,7 +294,7 @@ namespace CREA2014
         private WebSocketServer wss;
         private MainWindowSettings mws;
 
-        private CREACOINCore core;
+        private Core core;
         private Program.ProgramSettings psettings;
         private Program.ProgramStatus pstatus;
         private string appname;
@@ -297,7 +305,7 @@ namespace CREA2014
 
         private Action<Exception, Program.ExceptionKind> OnException;
 
-        public MainWindow(CREACOINCore _core, Program.ProgramSettings _psettings, Program.ProgramStatus _pstatus, string _appname, string _version, string _appnameWithVersion, string _lisenceTextFilename, Assembly _assembly, string _basepath, Action<Exception, Program.ExceptionKind> _OnException)
+        public MainWindow(Core _core, Program.ProgramSettings _psettings, Program.ProgramStatus _pstatus, string _appname, string _version, string _appnameWithVersion, string _lisenceTextFilename, Assembly _assembly, string _basepath, Action<Exception, Program.ExceptionKind> _OnException)
         {
             core = _core;
             psettings = _psettings;
@@ -327,7 +335,7 @@ namespace CREA2014
             if (pstatus.IsFirst)
             {
                 if (!File.Exists(lisenceTextFilePath))
-                    throw new FileNotFoundException("lisence_text_not_found");
+                    throw new FileNotFoundException("lisence_text_not_found"); //対応済
 
                 LisenceWindow lw = new LisenceWindow(File.ReadAllText(lisenceTextFilePath));
                 lw.Owner = this;
@@ -425,7 +433,7 @@ namespace CREA2014
                 }
                 catch (HttpListenerException ex)
                 {
-                    throw new HttpListenerException(ex.ErrorCode, "require_administrator");
+                    throw new HttpListenerException(ex.ErrorCode, "require_administrator"); //対応済
                 }
 
                 Thread thread = new Thread(() =>
@@ -448,7 +456,7 @@ namespace CREA2014
                             if (webServerData.Keys.Contains(hlc.Request.RawUrl) && webServerData[hlc.Request.RawUrl] != null)
                                 hlres.OutputStream.Write(webServerData[hlc.Request.RawUrl], 0, webServerData[hlc.Request.RawUrl].Length);
                             else
-                                throw new KeyNotFoundException("web_server_data");
+                                throw new KeyNotFoundException("web_server_data"); //対応済
                     }
                 });
                 thread.Start();
@@ -492,18 +500,22 @@ namespace CREA2014
 
                             if (naw.ShowDialog() == true)
                             {
+                                AccountHolder ahTarget = null;
                                 if (naw.rbAnonymous.IsChecked == true)
-                                    core.AccountHolderDatabase.AnonymousAccountHolder.AddAccount(new Account(naw.tbName.Text, naw.tbDescription.Text, naw.rb256bit.IsChecked == true ? EcdsaKey.EcdsaKeyLength.Ecdsa256 : naw.rb384bit.IsChecked == true ? EcdsaKey.EcdsaKeyLength.Ecdsa384 : EcdsaKey.EcdsaKeyLength.Ecdsa521));
+                                    ahTarget = core.AccountHolderDatabase.AnonymousAccountHolder;
                                 else
                                     foreach (var ah in core.AccountHolderDatabase.PseudonymousAccountHolders)
                                         if (ah == naw.cbAccountHolder.SelectedItem)
-                                            ah.AddAccount(new Account(naw.tbName.Text, naw.tbDescription.Text, naw.rb256bit.IsChecked == true ? EcdsaKey.EcdsaKeyLength.Ecdsa256 : naw.rb384bit.IsChecked == true ? EcdsaKey.EcdsaKeyLength.Ecdsa384 : EcdsaKey.EcdsaKeyLength.Ecdsa521));
+                                            ahTarget = ah;
+
+                                if (ahTarget != null)
+                                    ahTarget.AddAccount(new Account(naw.tbName.Text, naw.tbDescription.Text, naw.rb256bit.IsChecked == true ? EcdsaKey.EcdsaKeyLength.Ecdsa256 : naw.rb384bit.IsChecked == true ? EcdsaKey.EcdsaKeyLength.Ecdsa384 : EcdsaKey.EcdsaKeyLength.Ecdsa521));
                             }
 
                             core.AccountHolderDatabase.AccountHolderAdded -= accountHolderAdded;
                         }
                         else
-                            throw new NotSupportedException("wss_command");
+                            throw new NotSupportedException("wss_command"); //対応済
                     })).ExecuteInUIThread();
                 }
                 catch (Exception ex)

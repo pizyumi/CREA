@@ -13,6 +13,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Threading;
 using System.Windows;
+using System.Xml.Linq;
 
 namespace CREA2014
 {
@@ -26,7 +27,7 @@ namespace CREA2014
             return () =>
             {
                 if (o != null)
-                    throw new InvalidOperationException();
+                    throw new InvalidOperationException("one_time"); //対応済
                 o = new object();
             };
         }
@@ -82,6 +83,8 @@ namespace CREA2014
 
     public static class Extension
     {
+        #region 一般
+
         //UIスレッドで処理を同期的に実行する（拡張：操作型）
         public static void ExecuteInUIThread(this Action action)
         {
@@ -155,7 +158,7 @@ namespace CREA2014
         public static byte[] FromHexstring(this string str)
         {
             if (str.Length % 2 != 0)
-                throw new ArgumentException("hexstring_length");
+                throw new ArgumentException("hexstring_length"); //対応済
 
             int length = str.Length / 2;
             byte[] bytes = new byte[length];
@@ -170,7 +173,7 @@ namespace CREA2014
         public static string[] SplitEqually(this string str, int interval)
         {
             if (str.Length % interval != 0)
-                throw new ArgumentException("string_split_length");
+                throw new ArgumentException("string_split_length"); //対応済
 
             int length = str.Length / interval;
             string[] strs = new string[length];
@@ -178,6 +181,14 @@ namespace CREA2014
                 strs[i] = str.Substring(i * interval, interval);
 
             return strs;
+        }
+
+        //辞書に鍵が含まれている場合にはその値を返し、含まれていない場合には既定値を返す（拡張：辞書型）
+        public static U GetValue<T, U>(this Dictionary<T, U> dict, T key, U def)
+        {
+            if (dict.ContainsKey(key))
+                return dict[key];
+            return def;
         }
 
         //二つのバイト配列の内容が等しいか判定する（拡張：バイト配列型）
@@ -189,6 +200,15 @@ namespace CREA2014
                 if (byte1[i] != byte2[i])
                     return false;
             return true;
+        }
+
+        //ループの回数を数える（拡張：任意型）
+        public static int CountLoop<T>(this T first, Func<T, bool> condition, Func<T, T> next)
+        {
+            int i = 0;
+            for (T p = first; condition(p); p = next(p))
+                i++;
+            return i;
         }
 
         //自分自身がnullか確認する（拡張：任意型）
@@ -358,59 +378,79 @@ namespace CREA2014
             return data;
         }
 
+        #endregion
 
-        public class ErrorInfomation
+        public class LogInfomation : INTERNALDATA
         {
-            private Type type;
-            public Type Type
-            {
-                get { return type; }
-            }
+            public readonly Type Type;
+            public readonly string Message;
+            public readonly int Level;
 
-            private string error;
-            public string Error
+            public LogInfomation(Type _type, string _message, int _level)
             {
-                get { return error; }
-            }
-
-            private int level;
-            public int Level
-            {
-                get { return level; }
-            }
-
-            public ErrorInfomation(Type _type, string _error, int _level)
-            {
-                type = _type;
-                error = _error;
-                level = _level;
+                Type = _type;
+                Message = _message;
+                Level = _level;
             }
         }
 
-        //エラーイベントはこのクラス内でより具体的なイベントに変換して、具体的なイベントをUIで処理する
-        private static event EventHandler<ErrorInfomation> ErrorEvent;
+        //ログイベントはProgram静的クラスのログ機能を介してより具体的なイベントに変換して、具体的なイベントをUIで処理する
+        private static event EventHandler<LogInfomation> Tested = delegate { };
+        private static event EventHandler<LogInfomation> Notified = delegate { };
+        private static event EventHandler<LogInfomation> Resulted = delegate { };
+        private static event EventHandler<LogInfomation> Warned = delegate { };
+        private static event EventHandler<LogInfomation> Errored = delegate { };
 
-        //エラーイベントを発生させる（拡張：型表現型）
-        public static void RaiseError(this Type type, string error, int level)
+        //試験ログイベントを発生させる（拡張：型表現型）
+        public static void RaiseTest(this Type type, string message, int level)
         {
-            if (ErrorEvent != null)
-                ErrorEvent(null, new ErrorInfomation(type, error, level));
+            Tested(type, new LogInfomation(type, message, level));
+        }
+
+        //通知ログイベントを発生させる（拡張：型表現型）
+        public static void RaiseNotification(this Type type, string message, int level)
+        {
+            Notified(type, new LogInfomation(type, message, level));
+        }
+
+        //結果ログイベントを発生させる（拡張：型表現型）
+        public static void RaiseResult(this Type type, string message, int level)
+        {
+            Resulted(type, new LogInfomation(type, message, level));
+        }
+
+        //警告ログイベントを発生させる（拡張：型表現型）
+        public static void RaiseWarning(this Type type, string message, int level)
+        {
+            Warned(type, new LogInfomation(type, message, level));
+        }
+
+        //エラーログイベントを発生させる（拡張：型表現型）
+        public static void RaiseError(this Type type, string message, int level)
+        {
+            Errored(type, new LogInfomation(type, message, level));
+        }
+
+        //例外エラーログイベントを発生させる（拡張：型表現型）
+        public static void RaiseError(this Type type, string message, int level, Exception ex)
+        {
+            Errored(type, new LogInfomation(type, string.Join(Environment.NewLine, message, ex.CreateMessage(0)), level));
         }
 
         //真偽値が真のときのみエラーイベントを発生させ、真偽値をそのまま返す（拡張：真偽型）
-        public static bool RaiseError(this bool flag, Type type, string error, int level)
+        public static bool RaiseError(this bool flag, Type type, string message, int level)
         {
             if (flag)
-                type.RaiseError(error, level);
+                type.RaiseError(message, level);
 
             return flag;
         }
 
         //真偽値が偽のときのみエラーイベントを発生させ、真偽値をそのまま返す（拡張：真偽型）
-        public static bool NotRaiseError(this bool flag, Type type, string error, int level)
+        public static bool NotRaiseError(this bool flag, Type type, string message, int level)
         {
             if (!flag)
-                type.RaiseError(error, level);
+                type.RaiseError(message, level);
 
             return flag;
         }
@@ -419,6 +459,24 @@ namespace CREA2014
         public static string Multilanguage(this string text, int id)
         {
             return Program.Multilanguage(text, id);
+        }
+
+        //ログが発生した領域を取得する（拡張：型型）
+        public static Program.LogData.LogGround GetLogGround(this Type type)
+        {
+            return Program.GetLogGround(type);
+        }
+
+        //ログの文章を取得する（拡張：文字列型）
+        public static string GetLogMessage(this string rawMessage)
+        {
+            return Program.GetLogMessage(rawMessage);
+        }
+
+        //例外の説明を取得する（拡張：文字列型）
+        public static string GetExceptionMessage(this string rawMessage)
+        {
+            return Program.GetExceptionMessage(rawMessage);
         }
     }
 
@@ -439,17 +497,739 @@ namespace CREA2014
 
     #endregion
 
-    public static class Program
+    #region 基底クラス
+
+    public abstract class DATA { }
+    public abstract class INTERNALDATA : DATA { }
+    public abstract class SHAREDDATA : DATA
     {
-        public static string Multilanguage(string text, int id)
+        //<未実装>圧縮機能
+        //<未実装>ジャグ配列に対応
+
+        private int? version;
+        public int Version
         {
-            //<未実装>機械翻訳への対応
-            return langResource == null || id >= langResource.Length ? text : langResource[id];
+            get
+            {
+                if (!IsVersioned)
+                    throw new NotSupportedException("sd_version"); //対応済
+                else
+                    return (int)version;
+            }
         }
 
+        public SHAREDDATA(int? _version)
+        {
+            if ((IsVersioned && _version == null) || (!IsVersioned && _version != null))
+                throw new ArgumentException("sd_is_versioned_and_version"); //対応済
+
+            version = _version;
+        }
+
+        public SHAREDDATA() : this(null) { }
+
+        public class MainDataInfomation
+        {
+            //2014/02/23
+            //抽象クラスには対応しない
+            //抽象クラスの変数に格納されている具象クラスを保存する場合には具象クラスとしてMainDataInfomationを作成する
+            //具象クラスが複数ある場合には具象クラス別にMainDataInfomationを作成する
+
+            //CREACOINSHAREDDATA（の派生クラス）の配列専用
+            public MainDataInfomation(Type _type, int? _version, int? _length, Func<object> _getter, Action<object> _setter)
+            {
+                if (!_type.IsArray)
+                    throw new ArgumentException("sd_main_data_info_not_array"); //対応済
+
+                Type elementType = _type.GetElementType();
+                if (!elementType.IsSubclassOf(typeof(SHAREDDATA)))
+                    throw new ArgumentException("sd_main_data_info_not_ccsd_array"); //対応済
+                else if (elementType.IsAbstract)
+                    throw new ArgumentException("sd_main_data_info_ccsd_array_abstract"); //対応済
+
+                SHAREDDATA ccsd = Activator.CreateInstance(elementType) as SHAREDDATA;
+                if ((!ccsd.IsVersioned && _version != null) || (ccsd.IsVersioned && _version == null))
+                    throw new ArgumentException("sd_main_data_info_not_is_versioned"); //対応済
+
+                version = _version;
+                length = _length;
+
+                Type = _type;
+                Getter = _getter;
+                Setter = _setter;
+            }
+
+            //CREACOINSHAREDDATA（の派生クラス）の配列以外の配列またはCREACOINSHAREDDATA（の派生クラス）専用
+            public MainDataInfomation(Type _type, int? _lengthOrVersion, Func<object> _getter, Action<object> _setter)
+            {
+                if (_type.IsArray)
+                {
+                    Type elementType = _type.GetElementType();
+                    if (elementType.IsSubclassOf(typeof(SHAREDDATA)))
+                        throw new ArgumentException("sd_main_data_info_ccsd_array"); //対応済
+                    else if (elementType.IsAbstract)
+                        throw new ArgumentException("sd_main_data_info_array_abstract"); //対応済
+                    else
+                        length = _lengthOrVersion;
+                }
+                else if (_type.IsSubclassOf(typeof(SHAREDDATA)))
+                {
+                    if (_type.IsAbstract)
+                        throw new ArgumentException("sd_main_data_info_ccsd_abstract"); //対応済
+
+                    SHAREDDATA ccsd = Activator.CreateInstance(_type) as SHAREDDATA;
+                    if ((!ccsd.IsVersioned && _lengthOrVersion != null) || (ccsd.IsVersioned && _lengthOrVersion == null))
+                        throw new ArgumentException("sd_main_data_info_not_is_versioned"); //対応済
+
+                    version = _lengthOrVersion;
+                }
+                else
+                    throw new ArgumentException("sd_main_data_info_not_bytes_ccsd"); //対応済
+
+                Type = _type;
+                Getter = _getter;
+                Setter = _setter;
+            }
+
+            public MainDataInfomation(Type _type, Func<object> _getter, Action<object> _setter)
+            {
+                if (_type.IsArray)
+                    throw new ArgumentException("sd_main_data_info_array"); //対応済
+                else if (_type.IsSubclassOf(typeof(SHAREDDATA)))
+                    throw new ArgumentException("sd_main_data_info_ccsd"); //対応済
+                else if (_type.IsAbstract)
+                    throw new ArgumentException("sd_main_data_info_abstract"); //対応済
+
+                Type = _type;
+                Getter = _getter;
+                Setter = _setter;
+            }
+
+            public readonly Type Type;
+            private readonly int? length;
+            public int? Length
+            {
+                get
+                {
+                    if (Type.IsArray)
+                        return length;
+                    else
+                        throw new NotSupportedException("sd_main_data_info_length"); //対応済
+                }
+            }
+            private readonly int? version;
+            public int Version
+            {
+                get
+                {
+                    SHAREDDATA ccsd;
+                    if (Type.IsSubclassOf(typeof(SHAREDDATA)))
+                        ccsd = Activator.CreateInstance(Type) as SHAREDDATA;
+                    else if (Type.IsArray)
+                    {
+                        Type elementType = Type.GetElementType();
+                        if (elementType.IsSubclassOf(typeof(SHAREDDATA)))
+                            ccsd = Activator.CreateInstance(elementType) as SHAREDDATA;
+                        else
+                            throw new NotSupportedException("sd_main_data_info_version"); //対応済
+                    }
+                    else
+                        throw new NotSupportedException("sd_main_data_info_version"); //対応済
+
+                    if (!ccsd.IsVersioned)
+                        throw new NotSupportedException("sd_main_data_info_is_versioned"); //対応済
+                    else
+                        return (int)version;
+                }
+            }
+            public readonly Func<object> Getter;
+            public readonly Action<object> Setter;
+        }
+
+        public class MemoryStreamReaderWriter
+        {
+            private readonly MemoryStream ms;
+            private readonly MsrwMode mode;
+
+            public MemoryStreamReaderWriter(MemoryStream _ms, MsrwMode _mode)
+            {
+                ms = _ms;
+                mode = _mode;
+            }
+
+            public byte[] ReadOrWrite(byte[] input, int length)
+            {
+                if (mode == MsrwMode.read)
+                {
+                    byte[] output = new byte[length];
+                    ms.Read(output, 0, length);
+                    return output;
+                }
+                else if (mode == MsrwMode.write)
+                {
+                    ms.Write(input, 0, length);
+                    return null;
+                }
+                else
+                    throw new MsrwCantReadOrWriteException();
+            }
+
+            public enum MsrwMode { read, write, neither }
+            public class MsrwCantReadOrWriteException : Exception { }
+        }
+
+        protected abstract Func<MemoryStreamReaderWriter, IEnumerable<MainDataInfomation>> MainDataInfo { get; }
+        protected abstract bool IsVersioned { get; }
+        protected abstract bool IsCorruptionChecked { get; }
+
+        public int? Length
+        {
+            get
+            {
+                Func<Type, MainDataInfomation, int?> _GetLength = (type, mdi) =>
+                {
+                    if (type == typeof(bool) || type == typeof(byte))
+                        return 1;
+                    else if (type == typeof(int) || type == typeof(float))
+                        return 4;
+                    else if (type == typeof(long) || type == typeof(double) || type == typeof(DateTime))
+                        return 8;
+                    else if (type == typeof(string))
+                        return null;
+                    else if (type.IsSubclassOf(typeof(SHAREDDATA)))
+                    {
+                        SHAREDDATA ccsd = Activator.CreateInstance(type) as SHAREDDATA;
+                        if (ccsd.IsVersioned)
+                            ccsd.version = mdi.Version;
+
+                        if (ccsd.Length == null)
+                            return null;
+                        else
+                        {
+                            int innerLength = 0;
+
+                            if (ccsd.IsVersioned)
+                                innerLength += 4;
+                            if (ccsd.IsCorruptionChecked)
+                                innerLength += 4;
+
+                            return innerLength + (int)ccsd.Length;
+                        }
+                    }
+                    else
+                        throw new NotSupportedException("sd_length_not_supported"); //対応済
+                };
+
+                int length = 0;
+                try
+                {
+                    foreach (var mdi in MainDataInfo(new MemoryStreamReaderWriter(null, MemoryStreamReaderWriter.MsrwMode.neither)))
+                        if (mdi.Type.IsArray)
+                        {
+                            if (mdi.Length == null)
+                                return null;
+                            else
+                            {
+                                int? innerLength = _GetLength(mdi.Type.GetElementType(), mdi);
+                                if (innerLength == null)
+                                    return null;
+                                else
+                                    length += (int)mdi.Length * (int)innerLength;
+                            }
+                        }
+                        else
+                        {
+                            int? innerLength = _GetLength(mdi.Type, mdi);
+                            if (innerLength == null)
+                                return null;
+                            else
+                                length += (int)innerLength;
+                        }
+                }
+                catch (MemoryStreamReaderWriter.MsrwCantReadOrWriteException)
+                {
+                    return null;
+                }
+                return length;
+            }
+        }
+
+        public byte[] ToBinary()
+        {
+            byte[] mainDataBytes;
+            using (MemoryStream ms = new MemoryStream())
+            {
+                Action<Type, MainDataInfomation, object> _Write = (type, mdi, o) =>
+                {
+                    if (type == typeof(bool))
+                        ms.Write(BitConverter.GetBytes((bool)o), 0, 1);
+                    else if (type == typeof(int))
+                        ms.Write(BitConverter.GetBytes((int)o), 0, 4);
+                    else if (type == typeof(float))
+                        ms.Write(BitConverter.GetBytes((float)o), 0, 4);
+                    else if (type == typeof(long))
+                        ms.Write(BitConverter.GetBytes((long)o), 0, 8);
+                    else if (type == typeof(double))
+                        ms.Write(BitConverter.GetBytes((double)o), 0, 8);
+                    else if (type == typeof(DateTime))
+                        ms.Write(BitConverter.GetBytes(((DateTime)o).ToBinary()), 0, 8);
+                    else if (type == typeof(string))
+                    {
+                        byte[] bytes = Encoding.UTF8.GetBytes((string)o);
+                        ms.Write(BitConverter.GetBytes(bytes.Length), 0, 4);
+                        ms.Write(bytes, 0, bytes.Length);
+                    }
+                    else if (type.IsSubclassOf(typeof(SHAREDDATA)))
+                    {
+                        SHAREDDATA ccsd = o as SHAREDDATA;
+                        if (ccsd.IsVersioned)
+                            ccsd.version = mdi.Version;
+
+                        byte[] bytes = ccsd.ToBinary();
+                        if (ccsd.Length == null)
+                            ms.Write(BitConverter.GetBytes(bytes.Length), 0, 4);
+                        ms.Write(bytes, 0, bytes.Length);
+                    }
+                    else
+                        throw new NotSupportedException("to_binary_not_supported"); //対応済
+                };
+
+                foreach (var mdi in MainDataInfo(new MemoryStreamReaderWriter(ms, MemoryStreamReaderWriter.MsrwMode.write)))
+                {
+                    object o = mdi.Getter();
+
+                    if (mdi.Type == typeof(byte[]))
+                    {
+                        if (mdi.Length == null)
+                            ms.Write(BitConverter.GetBytes(((byte[])o).Length), 0, 4);
+                        ms.Write((byte[])o, 0, ((byte[])o).Length);
+                    }
+                    else if (mdi.Type.IsArray)
+                    {
+                        object[] os = o as object[];
+                        Type elementType = mdi.Type.GetElementType();
+
+                        if (mdi.Length == null)
+                            ms.Write(BitConverter.GetBytes(os.Length), 0, 4);
+                        foreach (var innerObj in o as object[])
+                            _Write(elementType, mdi, innerObj);
+                    }
+                    else
+                        _Write(mdi.Type, mdi, o);
+                }
+
+                mainDataBytes = ms.ToArray();
+            }
+            using (MemoryStream ms = new MemoryStream())
+            {
+                if (IsVersioned)
+                    ms.Write(BitConverter.GetBytes((int)version), 0, 4);
+                //破損検査のためのデータ（主データのハッシュ値の先頭4バイト）
+                if (IsCorruptionChecked)
+                    ms.Write(mainDataBytes.ComputeSha256(), 0, 4);
+                ms.Write(mainDataBytes, 0, mainDataBytes.Length);
+
+                return ms.ToArray();
+            }
+        }
+
+        public void FromBinary(byte[] binary)
+        {
+            byte[] mainDataBytes;
+            using (MemoryStream ms = new MemoryStream(binary))
+            {
+                if (IsVersioned)
+                {
+                    byte[] versionBytes = new byte[4];
+                    ms.Read(versionBytes, 0, 4);
+                    version = BitConverter.ToInt32(versionBytes, 0);
+                }
+
+                int? check = null;
+                if (IsCorruptionChecked)
+                {
+                    byte[] checkBytes = new byte[4];
+                    ms.Read(checkBytes, 0, 4);
+                    check = BitConverter.ToInt32(checkBytes, 0);
+                }
+
+                int length = (int)(ms.Length - ms.Position);
+                mainDataBytes = new byte[length];
+                ms.Read(mainDataBytes, 0, length);
+
+                if (IsCorruptionChecked && check != BitConverter.ToInt32(mainDataBytes.ComputeSha256(), 0))
+                    throw new InvalidDataException("from_binary_check_inaccurate"); //対応済
+            }
+            using (MemoryStream ms = new MemoryStream(mainDataBytes))
+            {
+                Func<Type, MainDataInfomation, object> _Read = (type, mdi) =>
+                {
+                    if (type == typeof(bool))
+                    {
+                        byte[] bytes = new byte[1];
+                        ms.Read(bytes, 0, 1);
+                        return BitConverter.ToBoolean(bytes, 0);
+                    }
+                    else if (type == typeof(int))
+                    {
+                        byte[] bytes = new byte[4];
+                        ms.Read(bytes, 0, 4);
+                        return BitConverter.ToInt32(bytes, 0);
+                    }
+                    else if (type == typeof(float))
+                    {
+                        byte[] bytes = new byte[4];
+                        ms.Read(bytes, 0, 4);
+                        return BitConverter.ToSingle(bytes, 0);
+                    }
+                    else if (type == typeof(long))
+                    {
+                        byte[] bytes = new byte[8];
+                        ms.Read(bytes, 0, 8);
+                        return BitConverter.ToInt64(bytes, 0);
+                    }
+                    else if (type == typeof(double))
+                    {
+                        byte[] bytes = new byte[8];
+                        ms.Read(bytes, 0, 8);
+                        return BitConverter.ToDouble(bytes, 0);
+                    }
+                    else if (type == typeof(DateTime))
+                    {
+                        byte[] bytes = new byte[8];
+                        ms.Read(bytes, 0, 8);
+                        return DateTime.FromBinary(BitConverter.ToInt64(bytes, 0));
+                    }
+                    else if (type == typeof(string))
+                    {
+                        byte[] lengthBytes = new byte[4];
+                        ms.Read(lengthBytes, 0, 4);
+                        int length = BitConverter.ToInt32(lengthBytes, 0);
+
+                        byte[] bytes = new byte[length];
+                        ms.Read(bytes, 0, length);
+                        return Encoding.UTF8.GetString(bytes);
+                    }
+                    else if (type.IsSubclassOf(typeof(SHAREDDATA)))
+                    {
+                        SHAREDDATA ccsd = Activator.CreateInstance(type) as SHAREDDATA;
+                        if (ccsd.IsVersioned)
+                            ccsd.version = mdi.Version;
+
+                        int length;
+                        if (ccsd.Length == null)
+                        {
+                            byte[] lengthBytes = new byte[4];
+                            ms.Read(lengthBytes, 0, 4);
+                            length = BitConverter.ToInt32(lengthBytes, 0);
+                        }
+                        else
+                        {
+                            length = (int)ccsd.Length;
+                            if (ccsd.IsVersioned)
+                                length += 4;
+                            if (ccsd.IsCorruptionChecked)
+                                length += 4;
+                        }
+
+                        byte[] bytes = new byte[length];
+                        ms.Read(bytes, 0, length);
+
+                        ccsd.FromBinary(bytes);
+
+                        return ccsd;
+                    }
+                    else
+                        throw new NotSupportedException("from_binary_not_supported"); //対応済
+                };
+
+                foreach (var mdi in MainDataInfo(new MemoryStreamReaderWriter(ms, MemoryStreamReaderWriter.MsrwMode.read)))
+                {
+                    if (mdi.Type == typeof(byte[]))
+                    {
+                        int length;
+                        if (mdi.Length == null)
+                        {
+                            byte[] lengthBytes = new byte[4];
+                            ms.Read(lengthBytes, 0, 4);
+                            length = BitConverter.ToInt32(lengthBytes, 0);
+                        }
+                        else
+                            length = (int)mdi.Length;
+
+                        byte[] bytes = new byte[length];
+                        ms.Read(bytes, 0, length);
+                        mdi.Setter(bytes);
+                    }
+                    else if (mdi.Type.IsArray)
+                    {
+                        Type elementType = mdi.Type.GetElementType();
+
+                        int length;
+                        if (mdi.Length == null)
+                        {
+                            byte[] lengthBytes = new byte[4];
+                            ms.Read(lengthBytes, 0, 4);
+                            length = BitConverter.ToInt32(lengthBytes, 0);
+                        }
+                        else
+                            length = (int)mdi.Length;
+
+                        object[] os = Array.CreateInstance(elementType, length) as object[];
+                        for (int i = 0; i < os.Length; i++)
+                            os[i] = _Read(elementType, mdi);
+
+                        mdi.Setter(os);
+                    }
+                    else
+                        mdi.Setter(_Read(mdi.Type, mdi));
+                }
+            }
+        }
+    }
+    public abstract class SETTINGSDATA : DATA
+    {
+        //<未実装>ジャグ配列に対応
+
+        public class MainDataInfomation
+        {
+            public MainDataInfomation(Type _type, string _xmlName, Func<object> _getter, Action<object> _setter)
+            {
+                Type = _type;
+                XmlName = _xmlName;
+                Getter = _getter;
+                Setter = _setter;
+            }
+
+            public readonly Type Type;
+            public readonly string XmlName;
+            public readonly Func<object> Getter;
+            public readonly Action<object> Setter;
+        }
+
+        protected abstract string XmlName { get; }
+        protected abstract MainDataInfomation[] MainDataInfo { get; }
+
+        public XElement ToXml()
+        {
+            XElement xElement = new XElement(XmlName);
+            foreach (var mdi in MainDataInfo)
+            {
+                Action<Type, MainDataInfomation, object, XElement> _Write = (type, innerMdi, innerObj, innerXElement) =>
+                {
+                    if (type == typeof(bool))
+                        innerXElement.Add(new XElement(innerMdi.XmlName, ((bool)innerObj).ToString()));
+                    else if (type == typeof(int))
+                        innerXElement.Add(new XElement(innerMdi.XmlName, ((int)innerObj).ToString()));
+                    else if (type == typeof(float))
+                        innerXElement.Add(new XElement(innerMdi.XmlName, ((float)innerObj).ToString()));
+                    else if (type == typeof(long))
+                        innerXElement.Add(new XElement(innerMdi.XmlName, ((long)innerObj).ToString()));
+                    else if (type == typeof(double))
+                        innerXElement.Add(new XElement(innerMdi.XmlName, ((double)innerObj).ToString()));
+                    else if (type == typeof(DateTime))
+                        innerXElement.Add(new XElement(innerMdi.XmlName, ((DateTime)innerObj).ToString()));
+                    else if (type == typeof(string))
+                        innerXElement.Add(new XElement(innerMdi.XmlName, (string)innerObj));
+                    else if (type.IsSubclassOf(typeof(SETTINGSDATA)))
+                        innerXElement.Add(new XElement(innerMdi.XmlName, (innerObj as SETTINGSDATA).ToXml()));
+                    else
+                        throw new NotSupportedException("to_xml_not_supported"); //対応済
+                };
+
+                object o = mdi.Getter();
+
+                if (mdi.Type.IsArray)
+                {
+                    Type elementType = mdi.Type.GetElementType();
+
+                    XElement xElementArray = new XElement(XmlName + "s");
+                    foreach (var innerObj in o as object[])
+                        _Write(elementType, mdi, innerObj, xElementArray);
+
+                    xElement.Add(xElementArray);
+                }
+                else
+                    _Write(mdi.Type, mdi, o, xElement);
+            }
+            return xElement;
+        }
+
+        public void FromXml(XElement xElement)
+        {
+            if (xElement.Name.LocalName != XmlName)
+                throw new ArgumentException("xml_name"); //対応済
+
+            foreach (var mdi in MainDataInfo)
+            {
+                Func<Type, MainDataInfomation, XElement, object> _Read = (type, innerMdi, innerXElement) =>
+                {
+                    if (type == typeof(bool))
+                        return bool.Parse(innerXElement.Element(mdi.XmlName).Value);
+                    else if (type == typeof(int))
+                        return int.Parse(innerXElement.Element(mdi.XmlName).Value);
+                    else if (type == typeof(float))
+                        return float.Parse(innerXElement.Element(mdi.XmlName).Value);
+                    else if (type == typeof(long))
+                        return long.Parse(innerXElement.Element(mdi.XmlName).Value);
+                    else if (type == typeof(double))
+                        return double.Parse(innerXElement.Element(mdi.XmlName).Value);
+                    else if (type == typeof(DateTime))
+                        return DateTime.Parse(innerXElement.Element(mdi.XmlName).Value);
+                    else if (type == typeof(string))
+                        return innerXElement.Element(mdi.XmlName).Value;
+                    else if (type.IsSubclassOf(typeof(SETTINGSDATA)))
+                    {
+                        SETTINGSDATA ccsd = Activator.CreateInstance(type) as SETTINGSDATA;
+                        ccsd.FromXml(innerXElement.Element(mdi.XmlName).Element(ccsd.XmlName));
+                        return ccsd;
+                    }
+                    else
+                        throw new NotSupportedException("from_xml_not_supported"); //対応済
+                };
+
+                if (mdi.Type.IsArray)
+                {
+                    Type elementType = mdi.Type.GetElementType();
+
+                    XElement[] xElements = xElement.Element(mdi.XmlName + "s").Elements(mdi.XmlName).ToArray();
+
+                    object[] os = Array.CreateInstance(elementType, xElements.Length) as object[];
+                    for (int i = 0; i < os.Length; i++)
+                        os[i] = _Read(elementType, mdi, xElements[i]);
+
+                    mdi.Setter(os);
+                }
+                else
+                    mdi.Setter(_Read(mdi.Type, mdi, xElement));
+            }
+        }
+    }
+    public abstract class SETTABLESETTINGSDATA<T> : SETTINGSDATA
+    {
+        protected abstract T Setters { get; }
+
+        private readonly object setLock = new object();
+        public virtual void Set(Action<T> setAction)
+        {
+            lock (setLock)
+                setAction(Setters);
+        }
+    }
+    public abstract class SAVEABLESETTINGSDATA<T> : SETTABLESETTINGSDATA<T>
+    {
+        private readonly string filename;
+        public string Filename
+        {
+            get { return filename; }
+        }
+
+        public SAVEABLESETTINGSDATA(string _filename)
+        {
+            filename = _filename;
+
+            Load();
+        }
+
+        public void Load()
+        {
+            if (File.Exists(filename))
+                FromXml(XElement.Load(filename));
+        }
+
+        public void Save() { ToXml().Save(filename); }
+
+        //基底クラスのSetと同時に実行される可能性はある
+        private readonly object setAndSaveLock = new object();
+        public virtual void SetAndSave(Action<T> setAction)
+        {
+            lock (setAndSaveLock)
+            {
+                setAction(Setters);
+                Save();
+            }
+        }
+    }
+
+    #endregion
+
+    public static class Program
+    {
         public enum ExceptionKind { wpf, unhandled }
 
-        public class ProgramSettings : CREACOINSETTINGSDATA
+        public class LogData : Extension.LogInfomation
+        {
+            public readonly DateTime Time;
+            public readonly LogKind Kind;
+
+            public LogData(Extension.LogInfomation _logInfo, LogKind _kind)
+                : base(_logInfo.Type, _logInfo.Message, _logInfo.Level)
+            {
+                Time = DateTime.Now;
+                Kind = _kind;
+            }
+
+            public enum LogKind { test, notification, result, warning, error }
+            public enum LogGround { foundation, core, common, networkBase, creaNetworkBase, cremlia, creaNetwork, signData, ui, other }
+
+            public LogGround Ground
+            {
+                get { return Type.GetLogGround(); }
+            }
+
+            public string FriendlyKind
+            {
+                get
+                {
+                    if (Kind == LogKind.test)
+                        return "試験".Multilanguage(75);
+                    else if (Kind == LogKind.notification)
+                        return "通知".Multilanguage(76);
+                    else if (Kind == LogKind.result)
+                        return "結果".Multilanguage(77);
+                    else if (Kind == LogKind.warning)
+                        return "警告".Multilanguage(78);
+                    else
+                        return "エラー".Multilanguage(79);
+                }
+            }
+
+            public string FriendlyGround
+            {
+                get
+                {
+                    if (Ground == LogGround.foundation)
+                        return "基礎".Multilanguage(89);
+                    else if (Ground == LogGround.core)
+                        return "核".Multilanguage(80);
+                    else if (Ground == LogGround.common)
+                        return "共通".Multilanguage(81);
+                    else if (Ground == LogGround.networkBase)
+                        return "ネットワーク基礎".Multilanguage(82);
+                    else if (Ground == LogGround.creaNetworkBase)
+                        return "CREAネットワーク基礎".Multilanguage(83);
+                    else if (Ground == LogGround.cremlia)
+                        return "Cremlia".Multilanguage(84);
+                    else if (Ground == LogGround.creaNetwork)
+                        return "CREAネットワーク".Multilanguage(85);
+                    else if (Ground == LogGround.signData)
+                        return "署名データ".Multilanguage(86);
+                    else if (Ground == LogGround.ui)
+                        return "UI".Multilanguage(87);
+                    else
+                        return "その他".Multilanguage(88);
+                }
+            }
+
+            public string Text
+            {
+                get { return FriendlyKind + "[" + FriendlyGround + "]: " + Time.ToString() + " " + Message; }
+            }
+
+            public override string ToString() { return Text; }
+        }
+
+        public class ProgramSettings : SAVEABLESETTINGSDATA<ProgramSettings.Setter>
         {
             public class Setter
             {
@@ -460,19 +1240,19 @@ namespace CREA2014
                     errorReportSetter = _errorReportSetter;
                 }
 
-                private Action<string> cultureSetter;
+                private readonly Action<string> cultureSetter;
                 public string Culture
                 {
                     set { cultureSetter(value); }
                 }
 
-                private Action<string> errorLogSetter;
+                private readonly Action<string> errorLogSetter;
                 public string ErrorLog
                 {
                     set { errorLogSetter(value); }
                 }
 
-                private Action<string> errorReportSetter;
+                private readonly Action<string> errorReportSetter;
                 public string ErrorReport
                 {
                     set { errorReportSetter(value); }
@@ -497,18 +1277,14 @@ namespace CREA2014
                 get { return errorReport; }
             }
 
-            public ProgramSettings()
-                : base("ProgramSettings.xml")
-            {
-                Load();
-            }
+            public ProgramSettings() : base("ProgramSettings.xml") { }
 
             protected override string XmlName
             {
                 get { return "ProgramSettings"; }
             }
 
-            protected override CREACOINSETTINGSDATA.MainDataInfomation[] MainDataInfo
+            protected override MainDataInfomation[] MainDataInfo
             {
                 get
                 {
@@ -520,16 +1296,367 @@ namespace CREA2014
                 }
             }
 
-            private readonly object setAndSaveLock = new object();
-            public void SetAndSave(Action<Setter> setAction)
+            protected override Setter Setters
             {
-                lock (setAndSaveLock)
+                get
                 {
-                    setAction(new Setter(
+                    return new Setter(
                         (_culture) => culture = _culture,
                         (_errorLog) => errorLog = _errorLog,
-                        (_errorReport) => errorReport = _errorReport));
-                    Save();
+                        (_errorReport) => errorReport = _errorReport);
+                }
+            }
+        }
+
+        public class LogSettings : SETTABLESETTINGSDATA<LogSettings.Setter>
+        {
+            public enum SaveMethod { allInOne, monthByMonth, dayByDay }
+
+            public class Setter
+            {
+                public Setter(Action<int> _minimalLevel, Action<int> _maximalHoldingCount, Action<bool> _isSave, Action<string> _savePath, Action<SaveMethod> _saveMeth, Action<string> _expression)
+                {
+                    minimalLevel = _minimalLevel;
+                    maximalholdingCount = _maximalHoldingCount;
+                    isSave = _isSave;
+                    savePath = _savePath;
+                    saveMeth = _saveMeth;
+                    expression = _expression;
+                }
+
+                private readonly Action<int> minimalLevel;
+                public int MinimalLevel
+                {
+                    set { minimalLevel(value); }
+                }
+
+                private readonly Action<int> maximalholdingCount;
+                public int MaximalHoldingCount
+                {
+                    set { maximalholdingCount(value); }
+                }
+
+                private readonly Action<bool> isSave;
+                public bool IsSave
+                {
+                    set { isSave(value); }
+                }
+
+                private readonly Action<string> savePath;
+                public string SavePath
+                {
+                    set { savePath(value); }
+                }
+
+                private readonly Action<SaveMethod> saveMeth;
+                public SaveMethod SaveMeth
+                {
+                    set { saveMeth(value); }
+                }
+
+                private readonly Action<string> expression;
+                public string Expression
+                {
+                    set { expression(value); }
+                }
+            }
+
+            private int minimalLevel = 0;
+            public int MinimalLevel
+            {
+                get { return minimalLevel; }
+            }
+
+            private int maximalHoldingCount = 64;
+            public int MaximalHoldingCount
+            {
+                get { return maximalHoldingCount; }
+            }
+
+            private bool isSave = false;
+            public bool IsSave
+            {
+                get { return isSave; }
+            }
+
+            private string savePath = "ErrorLog.log";
+            public string SavePath
+            {
+                get { return savePath; }
+            }
+
+            private SaveMethod saveMeth = SaveMethod.allInOne;
+            public SaveMethod SaveMeth
+            {
+                get { return saveMeth; }
+            }
+
+            private string expression = string.Empty;
+            public string Expression
+            {
+                get { return expression; }
+            }
+
+            protected override string XmlName
+            {
+                get { return "LogSettings"; }
+            }
+
+            protected override SETTINGSDATA.MainDataInfomation[] MainDataInfo
+            {
+                get
+                {
+                    return new MainDataInfomation[]{
+                        new MainDataInfomation(typeof(int), "MinimalLevel", () => minimalLevel, (o) => minimalLevel = (int)o), 
+                        new MainDataInfomation(typeof(int), "MaximalHoldingCount", () => maximalHoldingCount, (o) => maximalHoldingCount = (int)o), 
+                        new MainDataInfomation(typeof(bool), "IsSave", () => isSave, (o) => isSave = (bool)o), 
+                        new MainDataInfomation(typeof(string), "SavePath", () => savePath, (o) => savePath = (string)o), 
+                        new MainDataInfomation(typeof(int), "SaveMeth", () => (int)saveMeth, (o) => saveMeth = (SaveMethod)o), 
+                        new MainDataInfomation(typeof(string), "Expression", () => expression, (o) => expression = (string)o), 
+                    };
+                }
+            }
+
+            protected override LogSettings.Setter Setters
+            {
+                get
+                {
+                    return new Setter(
+                        (_minimalLevel) => minimalLevel = _minimalLevel,
+                        (_maximalHoldingCount) => maximalHoldingCount = _maximalHoldingCount,
+                        (_isSave) => isSave = _isSave,
+                        (_savePath) => savePath = _savePath,
+                        (_saveMeth) => saveMeth = _saveMeth,
+                        (_expression) => expression = _expression);
+                }
+            }
+        }
+
+        public class LogFilter : SETTABLESETTINGSDATA<LogFilter.Setter>
+        {
+            public class Setter
+            {
+                public Setter(Action<string> _name, Action<bool> _isEnabled, Action<bool> _isWordEnabled, Action<string> _word, Action<bool> _isRegularExpressionEnabled, Action<string> _regularExpression, Action<bool> _isLevelEnabled, Action<int> _minimalLevel, Action<int> _maximalLevel, Action<bool> _isKindEnabled, Action<LogData.LogKind> _kind, Action<bool> _isGroundEnabled, Action<LogData.LogGround> _ground)
+                {
+                    name = _name;
+                    isEnabled = _isEnabled;
+                    isWordEnabled = _isWordEnabled;
+                    word = _word;
+                    isRegularExpressionEnabled = _isRegularExpressionEnabled;
+                    regularExpression = _regularExpression;
+                    isLevelEnabled = _isLevelEnabled;
+                    minimalLevel = _minimalLevel;
+                    maximalLevel = _maximalLevel;
+                    isKindEnabled = _isKindEnabled;
+                    kind = _kind;
+                    isGroundEnabled = _isGroundEnabled;
+                    ground = _ground;
+                }
+
+                private readonly Action<string> name;
+                public string Name
+                {
+                    set { name(value); }
+                }
+
+                private readonly Action<bool> isEnabled;
+                public bool IsEnabled
+                {
+                    set { isEnabled(value); }
+                }
+
+                private readonly Action<bool> isWordEnabled;
+                public bool IsWordEnabled
+                {
+                    set { isWordEnabled(value); }
+                }
+
+                private readonly Action<string> word;
+                public string Word
+                {
+                    set { word(value); }
+                }
+
+                private readonly Action<bool> isRegularExpressionEnabled;
+                public bool IsRegularExpressionEnabled
+                {
+                    set { isRegularExpressionEnabled(value); }
+                }
+
+                private readonly Action<string> regularExpression;
+                public string RegularExpression
+                {
+                    set { regularExpression(value); }
+                }
+
+                private readonly Action<bool> isLevelEnabled;
+                public bool IsLevelEnabled
+                {
+                    set { isLevelEnabled(value); }
+                }
+
+                private readonly Action<int> minimalLevel;
+                public int MinimalLevel
+                {
+                    set { minimalLevel(value); }
+                }
+
+                private readonly Action<int> maximalLevel;
+                public int MaximalLevel
+                {
+                    set { maximalLevel(value); }
+                }
+
+                private readonly Action<bool> isKindEnabled;
+                public bool IsKindEnabled
+                {
+                    set { isKindEnabled(value); }
+                }
+
+                private readonly Action<LogData.LogKind> kind;
+                public LogData.LogKind Kind
+                {
+                    set { kind(value); }
+                }
+
+                private readonly Action<bool> isGroundEnabled;
+                public bool IsGroundEnabled
+                {
+                    set { isGroundEnabled(value); }
+                }
+
+                private readonly Action<LogData.LogGround> ground;
+                public LogData.LogGround Ground
+                {
+                    set { ground(value); }
+                }
+            }
+
+            private string name = string.Empty;
+            public string Name
+            {
+                get { return name; }
+            }
+
+            private bool isEnabled = false;
+            public bool IsEnabled
+            {
+                get { return isEnabled; }
+            }
+
+            private bool isWordEnabled = false;
+            public bool IsWordEnabled
+            {
+                get { return isWordEnabled; }
+            }
+
+            private string word = string.Empty;
+            public string Word
+            {
+                get { return word; }
+            }
+
+            private bool isRegularExpressionEnabled = false;
+            public bool IsRegularExpressionEnabled
+            {
+                get { return isRegularExpressionEnabled; }
+            }
+
+            private string regularExpression = string.Empty;
+            public string RegularExpression
+            {
+                get { return regularExpression; }
+            }
+
+            private bool isLevelEnabled = false;
+            public bool IsLevelEnabled
+            {
+                get { return isLevelEnabled; }
+            }
+
+            private int minimalLevel = 0;
+            public int MinimalLevel
+            {
+                get { return minimalLevel; }
+            }
+
+            private int maximalLevel = 5;
+            public int MaximalLevel
+            {
+                get { return maximalLevel; }
+            }
+
+            private bool isKindEnabled = false;
+            public bool IsKindEnabled
+            {
+                get { return isKindEnabled; }
+            }
+
+            //<未改良>複数指定
+            private LogData.LogKind kind = LogData.LogKind.error;
+            public LogData.LogKind Kind
+            {
+                get { return kind; }
+            }
+
+            private bool isGroundEnabled = false;
+            public bool IsGroundEnabled
+            {
+                get { return isGroundEnabled; }
+            }
+
+            //<未改良>複数指定
+            private LogData.LogGround ground = LogData.LogGround.core;
+            public LogData.LogGround Ground
+            {
+                get { return ground; }
+            }
+
+            protected override string XmlName
+            {
+                get { return "LogFilter"; }
+            }
+
+            protected override MainDataInfomation[] MainDataInfo
+            {
+                get
+                {
+                    return new MainDataInfomation[]{
+                        new MainDataInfomation(typeof(string), "Name", () => name, (o) => name = (string)o), 
+                        new MainDataInfomation(typeof(bool), "IsEnabled", () => isEnabled, (o) => isEnabled = (bool)o), 
+                        new MainDataInfomation(typeof(bool), "IsWordEnabled", () => isWordEnabled, (o) => isWordEnabled = (bool)o), 
+                        new MainDataInfomation(typeof(string), "Word", () => word, (o) => word = (string)o), 
+                        new MainDataInfomation(typeof(bool), "IsRegularExpressionEnabled", () => isRegularExpressionEnabled, (o) => isRegularExpressionEnabled = (bool)o), 
+                        new MainDataInfomation(typeof(string), "RegularExpression", () => regularExpression, (o) => regularExpression = (string)o), 
+                        new MainDataInfomation(typeof(bool), "IsLevelEnabled", () => isLevelEnabled, (o) => isLevelEnabled = (bool)o), 
+                        new MainDataInfomation(typeof(int), "MinimalLevel", () => minimalLevel, (o) => minimalLevel = (int)o), 
+                        new MainDataInfomation(typeof(int), "MaximalLevel", () => maximalLevel, (o) => maximalLevel = (int)o), 
+                        new MainDataInfomation(typeof(bool), "IsKindEnabled", () => isKindEnabled, (o) => isKindEnabled = (bool)o), 
+                        new MainDataInfomation(typeof(int), "Kind", () => (int)kind, (o) => kind = (LogData.LogKind)o), 
+                        new MainDataInfomation(typeof(bool), "IsGroundEnabled", () => isGroundEnabled, (o) => isGroundEnabled = (bool)o), 
+                        new MainDataInfomation(typeof(int), "Ground", () => (int)ground, (o) => ground = (LogData.LogGround)o), 
+                    };
+                }
+            }
+
+            protected override LogFilter.Setter Setters
+            {
+                get
+                {
+                    return new Setter(
+                        (_name) => name = _name,
+                        (_isEnabled) => isEnabled = _isEnabled,
+                        (_isWordEnabled) => isWordEnabled = _isWordEnabled,
+                        (_word) => word = _word,
+                        (_isRegularExpressionEnabled) => isRegularExpressionEnabled = _isRegularExpressionEnabled,
+                        (_regularExpression) => regularExpression = _regularExpression,
+                        (_isLevelEnabled) => isLevelEnabled = _isLevelEnabled,
+                        (_minimalLevel) => minimalLevel = _minimalLevel,
+                        (_maximalLevel) => maximalLevel = _maximalLevel,
+                        (_isKindEnabled) => isKindEnabled = _isKindEnabled,
+                        (_kind) => kind = _kind,
+                        (_isGroundEnabled) => isGroundEnabled = _isGroundEnabled,
+                        (_ground) => ground = _ground);
                 }
             }
         }
@@ -552,6 +1679,30 @@ namespace CREA2014
         }
 
         private static string[] langResource;
+        private static Dictionary<Type, LogData.LogGround> logGrounds;
+        private static Dictionary<string, Func<string>> logMessages;
+        private static Dictionary<string, Func<string>> exceptionMessages;
+
+        public static string Multilanguage(string text, int id)
+        {
+            //<未実装>機械翻訳への対応
+            return langResource == null || id >= langResource.Length ? text : langResource[id];
+        }
+
+        public static LogData.LogGround GetLogGround(Type type)
+        {
+            return logGrounds.GetValue(type, LogData.LogGround.other);
+        }
+
+        public static string GetLogMessage(string rawMessage)
+        {
+            return logMessages.GetValue(rawMessage, () => rawMessage)();
+        }
+
+        public static string GetExceptionMessage(string rawMessage)
+        {
+            return exceptionMessages.GetValue(rawMessage, () => rawMessage)();
+        }
 
         [STAThread]
         public static void Main()
@@ -562,7 +1713,7 @@ namespace CREA2014
             int verMMin = 1;
             string verS = "α";
             int verR = 1; //リリース番号（リリース毎に増やす番号）
-            int verC = 16; //コミット番号（コミット毎に増やす番号）
+            int verC = 21; //コミット番号（コミット毎に増やす番号）
             string version = string.Join(".", verMaj.ToString(), verMin.ToString(), verMMin.ToString()) + "(" + verS + ")" + "(" + verR.ToString() + ")" + "(" + verC.ToString() + ")";
             string appnameWithVersion = string.Join(" ", appname, version);
 
@@ -576,8 +1727,7 @@ namespace CREA2014
 
             Mutex mutex;
 
-            CREACOINCore core = null;
-
+            Core core = null;
 
             if (psettings.Culture == "ja-JP")
             {
@@ -594,18 +1744,30 @@ namespace CREA2014
                     langResource = new string[] { };
             }
 
+            logGrounds = new Dictionary<Type, LogData.LogGround>(){
+                {typeof(AccountHolderDatabase), LogData.LogGround.signData}, 
+            };
+
+            logMessages = new Dictionary<string, Func<string>>() { 
+                {"exist_same_name_account_holder", () => "同名の口座名義人が存在します。".Multilanguage(93)}, 
+            };
+
+            exceptionMessages = new Dictionary<string, Func<string>>() {
+                {"already_starting", () => string.Format("{0}は既に起動しています。".Multilanguage(0), appname)}, 
+                {"ie_not_existing", () => string.Format("{0}の動作には Internet Explorer 10 以上が必要です。".Multilanguage(1), appname)}, 
+                {"ie_too_old", () => string.Format("{0}の動作には Internet Explorer 10 以上が必要です。".Multilanguage(2), appname)}, 
+                {"require_administrator", () => string.Format("{0}は管理者として実行する必要があります。".Multilanguage(3), appname)}, 
+                {"lisence_text_not_found", () => "ソフトウェア使用許諾契約書が見付かりません。".Multilanguage(90)}, 
+                {"web_server_data", () => "内部ウェブサーバデータが存在しません。".Multilanguage(91)}, 
+                {"wss_command", () => "内部ウェブソケット命令が存在しません。".Multilanguage(92)}, 
+            };
 
             Action<Exception, ExceptionKind> _OnException = (ex, exKind) =>
             {
-                Dictionary<string, string> errMessages = new Dictionary<string, string>(){
-                    {"already_starting", string.Format("{0}は既に起動しています。".Multilanguage(0), appname)}, 
-                    {"ie_not_exsiting", string.Format("{0}の動作には Internet Explorer 10 以上が必要です。".Multilanguage(1), appname)}, 
-                    {"ie_too_old", string.Format("{0}の動作には Internet Explorer 10 以上が必要です。".Multilanguage(2), appname)}, 
-                    {"require_administrator", string.Format("{0}は管理者として実行する必要があります。".Multilanguage(3), appname)}, 
-                };
+                string exceptionMessage = ex.Message.GetExceptionMessage();
 
-                if (errMessages.ContainsKey(ex.Message))
-                    MessageBox.Show(errMessages[ex.Message], appname);
+                if (exceptionMessage != ex.Message)
+                    MessageBox.Show(exceptionMessage);
                 else
                 {
                     string kind = "Kind: " + (exKind == ExceptionKind.wpf ? "ThreadException" : "UnhandledException");
@@ -672,15 +1834,14 @@ namespace CREA2014
                         List<string> versions = new List<string>();
                         string dotnetRegPath = @"SOFTWARE\Microsoft\NET Framework Setup\NDP";
                         string dotnetRegPath2 = Path.Combine(dotnetRegPath, @"v4\Full");
+
                         using (RegistryKey dotnetKey = Registry.LocalMachine.OpenSubKey(dotnetRegPath, false))
-                        {
                             if (dotnetKey != null)
                                 foreach (var subkey in dotnetKey.GetSubKeyNames())
                                     if (subkey.StartsWith("v"))
                                         versions.Add(subkey.Substring(1));
-                        }
+
                         using (RegistryKey dotnetKey = Registry.LocalMachine.OpenSubKey(dotnetRegPath2, false))
-                        {
                             if (dotnetKey != null)
                             {
                                 object release = dotnetKey.GetValue("Release");
@@ -694,7 +1855,7 @@ namespace CREA2014
                                             versions.AddRange(new string[] { "4.5", "4.5.1" });
                                 }
                             }
-                        }
+
                         dotnetVerAll = string.Join(" ", versions);
 
                         string ver = "【バージョン】".Multilanguage(5) + version;
@@ -727,7 +1888,6 @@ namespace CREA2014
                 Environment.Exit(0);
             };
 
-
             AppDomain.CurrentDomain.UnhandledException += (sender, e) =>
             {
                 Exception ex = e.ExceptionObject as Exception;
@@ -735,10 +1895,8 @@ namespace CREA2014
                     _OnException(ex, ExceptionKind.unhandled);
             };
 
-
             Thread.CurrentThread.CurrentCulture = new CultureInfo(psettings.Culture);
             Thread.CurrentThread.CurrentUICulture = new CultureInfo(psettings.Culture);
-
 
             // Windows 2000（NT 5.0）以降のみグローバル・ミューテックス利用可
             string appNameMutex = appname + " by Piz Yumina";
@@ -752,7 +1910,7 @@ namespace CREA2014
             }
             catch (ApplicationException)
             {
-                throw new ApplicationException("already_starting");
+                throw new ApplicationException("already_starting"); //対応済
             }
 
             if (mutex.WaitOne(0, false))
@@ -766,12 +1924,12 @@ namespace CREA2014
                     {
                         v = ieKey.GetValue("Version");
                         if (v == null)
-                            throw new ApplicationException("ie_not_existing");
+                            throw new ApplicationException("ie_not_existing"); //対応済
                     }
                     int.TryParse(v.ToString().Split('.')[0], out ieVersion);
                 }
                 if (ieVersion < 10)
-                    throw new ApplicationException("ie_too_old");
+                    throw new ApplicationException("ie_too_old"); //対応済
 
                 Process process = Process.GetCurrentProcess();
                 string fileName = Path.GetFileName(process.MainModule.FileName);
@@ -814,8 +1972,7 @@ namespace CREA2014
                     _FeatureControl("FEATURE_XMLHTTP", 1);
                 }
 
-
-                core = new CREACOINCore(basepath);
+                core = new Core(basepath);
                 core.StartSystem();
 
                 App app = new App();
@@ -833,7 +1990,6 @@ namespace CREA2014
 
                 core.EndSystem();
                 psettings.Save();
-
 
                 mutex.ReleaseMutex();
             }
@@ -858,7 +2014,7 @@ namespace CREA2014
                     WIN32API.SetForegroundWindow(prevProcess.MainWindowHandle);
                 }
                 else
-                    throw new ApplicationException("already_starting");
+                    throw new ApplicationException("already_starting"); //対応済
             }
 
             mutex.Close();
