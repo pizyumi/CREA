@@ -11,6 +11,7 @@ using System.Runtime.InteropServices;
 using System.Security.AccessControl;
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.RegularExpressions;
 using System.Threading;
 using System.Windows;
 using System.Xml.Linq;
@@ -251,11 +252,27 @@ namespace CREA2014
                 eh(obj, EventArgs.Empty);
         }
 
+        //イベントの前に処理を実行する（拡張：物件型）
+        public static void ExecuteBeforeEvent<T>(this object obj, Action action, T parameter, params EventHandler<T>[] ehs)
+        {
+            action();
+            foreach (var eh in ehs)
+                eh(obj, parameter);
+        }
+
         //イベントの後に処理を実行する（拡張：物件型）
         public static void ExecuteAfterEvent(this object obj, Action action, params EventHandler[] ehs)
         {
             foreach (var eh in ehs)
                 eh(obj, EventArgs.Empty);
+            action();
+        }
+
+        //イベントの後に処理を実行する（拡張：物件型）
+        public static void ExecuteAfterEvent<T>(this object obj, Action action, T parameter, params EventHandler<T>[] ehs)
+        {
+            foreach (var eh in ehs)
+                eh(obj, parameter);
             action();
         }
 
@@ -395,11 +412,11 @@ namespace CREA2014
         }
 
         //ログイベントはProgram静的クラスのログ機能を介してより具体的なイベントに変換して、具体的なイベントをUIで処理する
-        private static event EventHandler<LogInfomation> Tested = delegate { };
-        private static event EventHandler<LogInfomation> Notified = delegate { };
-        private static event EventHandler<LogInfomation> Resulted = delegate { };
-        private static event EventHandler<LogInfomation> Warned = delegate { };
-        private static event EventHandler<LogInfomation> Errored = delegate { };
+        public static event EventHandler<LogInfomation> Tested = delegate { };
+        public static event EventHandler<LogInfomation> Notified = delegate { };
+        public static event EventHandler<LogInfomation> Resulted = delegate { };
+        public static event EventHandler<LogInfomation> Warned = delegate { };
+        public static event EventHandler<LogInfomation> Errored = delegate { };
 
         //試験ログイベントを発生させる（拡張：型表現型）
         public static void RaiseTest(this Type type, string message, int level)
@@ -1229,6 +1246,118 @@ namespace CREA2014
             public override string ToString() { return Text; }
         }
 
+        public class Logger
+        {
+            private readonly LogSettings settings;
+            public LogSettings Settings
+            {
+                get { return settings; }
+            }
+
+            private readonly List<LogData> logs;
+            public LogData[] Logs
+            {
+                get { return logs.ToArray(); }
+            }
+
+            private readonly Dictionary<LogFilter, List<LogData>> filteredLogs;
+
+            private readonly object filterLock = new object();
+            public Logger(LogSettings _settings)
+            {
+                settings = _settings;
+                logs = new List<LogData>();
+                filteredLogs = new Dictionary<LogFilter, List<LogData>>();
+
+                foreach (var filter in settings.Filters)
+                    filteredLogs.Add(filter, new List<LogData>());
+
+                settings.FilterAdded += (sender, e) =>
+                {
+                    lock (filterLock)
+                        filteredLogs.Add(e, new List<LogData>());
+                };
+                settings.FilterRemoved += (sender, e) =>
+                {
+                    lock (filterLock)
+                        filteredLogs.Remove(e);
+                };
+            }
+
+            public event EventHandler LogAdded = delegate { };
+            public event EventHandler<LogFilter> FilterLogAdded = delegate { };
+
+            private readonly object addLogLockSave = new object();
+            private readonly object addLogLockFilter = new object();
+            public void AddLog(LogData log)
+            {
+                if (log.Level < settings.MinimalLevel)
+                    return;
+
+                if (settings.MaximalHoldingCount > 0)
+                {
+                    while (logs.Count >= settings.MaximalHoldingCount)
+                        logs.RemoveAt(logs.Count - 1);
+                    logs.Insert(0, log);
+                }
+
+                LogAdded(this, EventArgs.Empty);
+
+                if (settings.IsSave)
+                {
+                    string path;
+                    if (settings.SaveMeth == LogSettings.SaveMethod.allInOne)
+                        path = settings.SavePath;
+                    else
+                    {
+                        string directory = Path.GetDirectoryName(settings.SavePath);
+                        string baseFileName = Path.GetFileNameWithoutExtension(settings.SavePath);
+                        string extension = Path.GetExtension(settings.SavePath);
+
+                        string[] datesM = new[] { DateTime.Now.Year.ToString(), DateTime.Now.Month.ToString() };
+                        string[] datesD = datesM.Combine(new[] { DateTime.Now.Day.ToString() });
+
+                        string date = string.Join("-", settings.SaveMeth == LogSettings.SaveMethod.monthByMonth ? datesM : datesD);
+
+                        path = Path.Combine(directory, baseFileName + date + extension);
+                    }
+
+                    string text;
+                    if (settings.Expression == string.Empty)
+                        text = log.FriendlyKind + "[" + log.FriendlyGround + "]" + ": " + log.Time.ToString() + " " + log.Message;
+                    else
+                        text = settings.Expression.Replace("%%Message%%", log.Message).Replace("%%Datetime%%", log.Time.ToString()).Replace("%%Level%%", log.Level.ToString()).Replace("%%Kind%%", log.FriendlyKind).Replace("%%Ground%%", log.FriendlyGround);
+
+                    lock (addLogLockSave)
+                        File.AppendAllText(path, text + Environment.NewLine);
+                }
+
+                lock (addLogLockFilter)
+                    foreach (var filteredLog in filteredLogs)
+                        if (settings.MaximalHoldingCount > 0)
+                        {
+                            if (!filteredLog.Key.IsEnabled)
+                                continue;
+                            if (filteredLog.Key.IsWordEnabled && !log.Message.Contains(filteredLog.Key.Word))
+                                continue;
+                            if (filteredLog.Key.IsRegularExpressionEnabled && !Regex.Match(log.Message, filteredLog.Key.RegularExpression).Success)
+                                continue;
+                            if (filteredLog.Key.IsLevelEnabled && (log.Level < filteredLog.Key.MinimalLevel || log.Level > filteredLog.Key.MaximalLevel))
+                                continue;
+                            if (filteredLog.Key.IsKindEnabled && log.Kind != filteredLog.Key.Kind)
+                                continue;
+                            if (filteredLog.Key.IsGroundEnabled && log.Ground != filteredLog.Key.Ground)
+                                continue;
+
+                            while (filteredLog.Value.Count >= settings.MaximalHoldingCount)
+                                filteredLog.Value.RemoveAt(filteredLog.Value.Count - 1);
+                            filteredLog.Value.Insert(0, log);
+
+                            FilterLogAdded(this, filteredLog.Key);
+                        }
+            }
+        }
+
         public class ProgramSettings : SAVEABLESETTINGSDATA<ProgramSettings.Setter>
         {
             public class Setter
@@ -1277,6 +1406,12 @@ namespace CREA2014
                 get { return errorReport; }
             }
 
+            private LogSettings logSettings;
+            public LogSettings LogSettings
+            {
+                get { return LogSettings; }
+            }
+
             public ProgramSettings() : base("ProgramSettings.xml") { }
 
             protected override string XmlName
@@ -1292,6 +1427,7 @@ namespace CREA2014
                         new MainDataInfomation(typeof(string), "Culture", () => culture, (o) => culture = (string)o), 
                         new MainDataInfomation(typeof(string), "ErrorLog", () => errorLog, (o) => errorLog = (string)o), 
                         new MainDataInfomation(typeof(string), "ErrorReport", () => errorReport, (o) => errorReport = (string)o), 
+                        new MainDataInfomation(typeof(LogSettings), "LogSettings", () => logSettings, (o) => logSettings = (LogSettings)o), 
                     };
                 }
             }
@@ -1397,6 +1533,18 @@ namespace CREA2014
                 get { return expression; }
             }
 
+            private readonly object filtersLock = new object();
+            private List<LogFilter> filters;
+            public LogFilter[] Filters
+            {
+                get { return filters.ToArray(); }
+            }
+
+            public LogSettings()
+            {
+                filters = new List<LogFilter>();
+            }
+
             protected override string XmlName
             {
                 get { return "LogSettings"; }
@@ -1413,6 +1561,7 @@ namespace CREA2014
                         new MainDataInfomation(typeof(string), "SavePath", () => savePath, (o) => savePath = (string)o), 
                         new MainDataInfomation(typeof(int), "SaveMeth", () => (int)saveMeth, (o) => saveMeth = (SaveMethod)o), 
                         new MainDataInfomation(typeof(string), "Expression", () => expression, (o) => expression = (string)o), 
+                        new MainDataInfomation(typeof(LogFilter[]), "Filters", () => filters.ToArray(), (o) => filters = ((LogFilter[])o).ToList()), 
                     };
                 }
             }
@@ -1428,6 +1577,31 @@ namespace CREA2014
                         (_savePath) => savePath = _savePath,
                         (_saveMeth) => saveMeth = _saveMeth,
                         (_expression) => expression = _expression);
+                }
+            }
+
+            public event EventHandler<LogFilter> FilterAdded = delegate { };
+            public event EventHandler<LogFilter> FilterRemoved = delegate { };
+
+            public void AddFilter(LogFilter filter)
+            {
+                lock (filtersLock)
+                {
+                    if (filters.Contains(filter))
+                        throw new InvalidOperationException("exist_log_filter");
+
+                    this.ExecuteBeforeEvent(() => filters.Add(filter), FilterAdded);
+                }
+            }
+
+            public void RemoveFilter(LogFilter filter)
+            {
+                lock (filtersLock)
+                {
+                    if (!filters.Contains(filter))
+                        throw new InvalidOperationException("not_exist_log_filter");
+
+                    this.ExecuteBeforeEvent(() => filters.Remove(filter), FilterRemoved);
                 }
             }
         }
@@ -1722,6 +1896,8 @@ namespace CREA2014
             ProgramSettings psettings = new ProgramSettings();
             ProgramStatus pstatus = new ProgramStatus();
 
+            Logger logger = new Logger(psettings.LogSettings);
+
             Assembly assembly = Assembly.GetEntryAssembly();
             string basepath = new FileInfo(assembly.Location).DirectoryName;
 
@@ -1730,11 +1906,9 @@ namespace CREA2014
             Core core = null;
 
             if (psettings.Culture == "ja-JP")
-            {
                 using (Stream stream = assembly.GetManifestResourceStream(@"CREA2014.Resources.langResouece_ja-JP.txt"))
                 using (StreamReader sr = new StreamReader(stream))
                     langResource = sr.ReadToEnd().Split(new string[] { Environment.NewLine }, StringSplitOptions.None);
-            }
             else
             {
                 string path = Path.Combine(basepath, "lang", "langResource_" + psettings.Culture + ".txt");
@@ -1761,6 +1935,12 @@ namespace CREA2014
                 {"web_server_data", () => "内部ウェブサーバデータが存在しません。".Multilanguage(91)}, 
                 {"wss_command", () => "内部ウェブソケット命令が存在しません。".Multilanguage(92)}, 
             };
+
+            Extension.Tested += (sender, e) => logger.AddLog(new LogData(e, LogData.LogKind.test));
+            Extension.Notified += (sender, e) => logger.AddLog(new LogData(e, LogData.LogKind.notification));
+            Extension.Resulted += (sender, e) => logger.AddLog(new LogData(e, LogData.LogKind.result));
+            Extension.Warned += (sender, e) => logger.AddLog(new LogData(e, LogData.LogKind.warning));
+            Extension.Errored += (sender, e) => logger.AddLog(new LogData(e, LogData.LogKind.error));
 
             Action<Exception, ExceptionKind> _OnException = (ex, exKind) =>
             {

@@ -560,19 +560,19 @@ namespace CREA2014
         }
 
         public event EventHandler AccountAdded = delegate { };
-        public EventHandler PAccountAdded
+        protected EventHandler PAccountAdded
         {
             get { return AccountAdded; }
         }
 
         public event EventHandler AccountRemoved = delegate { };
-        public EventHandler PAccountRemoved
+        protected EventHandler PAccountRemoved
         {
             get { return AccountRemoved; }
         }
 
         public event EventHandler AccountHolderChanged = delegate { };
-        public EventHandler PAccountHolderChanged
+        protected EventHandler PAccountHolderChanged
         {
             get { return AccountHolderChanged; }
         }
