@@ -2,7 +2,10 @@
 using System.Collections;
 using System.Collections.Generic;
 using System.IO;
+using System.IO.Compression;
 using System.Linq;
+using System.Net;
+using System.Net.Sockets;
 using System.Security.Cryptography;
 
 namespace CREA2014
@@ -65,10 +68,538 @@ namespace CREA2014
         }
     }
 
-    public abstract class NetworkParameter
+    public class CommunicationApparatus
     {
-        public static readonly int ProtocolVersion = 0;
+        private readonly NetworkStream ns;
+        private readonly RijndaelManaged rm;
+
+        public CommunicationApparatus(NetworkStream _ns, RijndaelManaged _rm)
+        {
+            ns = _ns;
+            rm = _rm;
+        }
+
+        public CommunicationApparatus(NetworkStream _ns) : this(_ns, null) { }
+
+        public byte[] ReadBytes()
+        {
+            return ReadBytesInnner(false);
+        }
+
+        public void WriteBytes(byte[] data)
+        {
+            WriteBytesInner(data, false);
+        }
+
+        public byte[] ReadCompressedBytes()
+        {
+            return ReadBytesInnner(true);
+        }
+
+        public void WriteCompreddedBytes(byte[] data)
+        {
+            WriteBytesInner(data, true);
+        }
+
+        private byte[] ReadBytesInnner(bool isCompressed)
+        {
+            //最初の4バイトは本来のデータの長さ
+            byte[] dataLengthBytes = new byte[4];
+            ns.Read(dataLengthBytes, 0, 4);
+            int dataLength = BitConverter.ToInt32(dataLengthBytes, 0);
+
+            if (dataLength == 0)
+                return new byte[] { };
+
+            //次の32バイトは受信データのハッシュ（破損検査用）
+            byte[] hash = new byte[32];
+            ns.Read(hash, 0, 32);
+
+            //次の4バイトは受信データの長さ
+            byte[] readDataLengthBytes = new byte[4];
+            ns.Read(readDataLengthBytes, 0, 4);
+            int readDataLength = BitConverter.ToInt32(readDataLengthBytes, 0);
+
+            byte[] readData = null;
+
+            using (MemoryStream ms = new MemoryStream())
+            {
+                byte[] buffer = new byte[1024];
+
+                while (true)
+                {
+                    int byteSize = ns.Read(buffer, 0, buffer.Length);
+                    ms.Write(buffer, 0, byteSize);
+
+                    if (ms.Length >= readDataLength)
+                        break;
+                }
+
+                readData = ms.ToArray();
+            }
+
+            if (!hash.BytesEquals(new SHA256Managed().ComputeHash(readData)))
+                throw new Exception("receive_data_corrupt"); //対応済
+
+            byte[] data = new byte[dataLength];
+
+            using (MemoryStream ms = new MemoryStream(readData))
+                if (rm != null)
+                {
+                    using (CryptoStream cs = new CryptoStream(ms, rm.CreateDecryptor(rm.Key, rm.IV), CryptoStreamMode.Read))
+                        if (isCompressed)
+                            using (DeflateStream ds = new DeflateStream(cs, CompressionMode.Decompress))
+                                ds.Read(data, 0, data.Length);
+                        else
+                            cs.Read(data, 0, data.Length);
+
+                    return data;
+                }
+                else
+                    if (isCompressed)
+                    {
+                        using (DeflateStream ds = new DeflateStream(ms, CompressionMode.Decompress))
+                            ds.Read(data, 0, data.Length);
+
+                        return data;
+                    }
+                    else
+                        return readData;
+        }
+
+        private void WriteBytesInner(byte[] data, bool isCompressed)
+        {
+            ns.Write(BitConverter.GetBytes(data.Length), 0, 4);
+
+            if (data.Length == 0)
+                return;
+
+            byte[] writeData = null;
+
+            using (MemoryStream ms = new MemoryStream())
+            {
+                if (rm != null)
+                    if (isCompressed)
+                        using (DeflateStream ds = new DeflateStream(ms, CompressionMode.Compress))
+                        using (CryptoStream cs = new CryptoStream(ds, rm.CreateEncryptor(rm.Key, rm.IV), CryptoStreamMode.Write))
+                        {
+                            cs.Write(data, 0, data.Length);
+                            cs.FlushFinalBlock();
+                        }
+                    else
+                        using (CryptoStream cs = new CryptoStream(ms, rm.CreateEncryptor(rm.Key, rm.IV), CryptoStreamMode.Write))
+                        {
+                            cs.Write(data, 0, data.Length);
+                            cs.FlushFinalBlock();
+                        }
+                else
+                    if (isCompressed)
+                        using (DeflateStream ds = new DeflateStream(ms, CompressionMode.Compress))
+                        {
+                            ds.Write(data, 0, data.Length);
+                            ds.Flush();
+                        }
+                    else
+                    {
+                        ms.Write(data, 0, data.Length);
+                        ms.Flush();
+                    }
+
+                writeData = ms.ToArray();
+            }
+
+            ns.Write(new SHA256Managed().ComputeHash(writeData), 0, 32);
+            ns.Write(BitConverter.GetBytes(writeData.Length), 0, 4);
+            ns.Write(writeData, 0, writeData.Length);
+        }
     }
+
+    public class Client
+    {
+        private readonly string ipAddress;
+        private readonly ushort port;
+        private readonly string privateRsaParameter;
+        private readonly Action<CommunicationApparatus, IPEndPoint> protocolProcess;
+        private readonly int receiveTimeout;
+        private readonly int sendTimeout;
+        private readonly int receiveBufferSize;
+        private readonly int sendBufferSize;
+
+        private Socket client;
+
+        public Client(string _ipAddress, ushort _port, string _privateRsaParameter, Action<CommunicationApparatus, IPEndPoint> _protocolProcess, int _receiveTimeout, int _sendTimeout, int _receiveBufferSize, int _sendBufferSize)
+        {
+            ipAddress = _ipAddress;
+            port = _port;
+            privateRsaParameter = _privateRsaParameter;
+            protocolProcess = _protocolProcess;
+            receiveTimeout = _receiveTimeout;
+            sendTimeout = _sendTimeout;
+            receiveBufferSize = _receiveBufferSize;
+            sendBufferSize = _sendBufferSize;
+        }
+
+        public Client(string _ipAddress, ushort _port, string _privateRsaParameter, Action<CommunicationApparatus, IPEndPoint> _protocolProcess) : this(_ipAddress, _port, _privateRsaParameter, _protocolProcess, 30000, 30000, 8192, 8192) { }
+
+        public event EventHandler Connected = delegate { };
+        public event EventHandler<Exception> Errored = delegate { };
+
+        public void StartClient()
+        {
+            if (client != null)
+                throw new InvalidOperationException("client_already_started"); //対応済
+
+            this.StartTask(() =>
+            {
+                try
+                {
+                    client = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
+                    client.Connect(IPAddress.Parse(ipAddress), port);
+                    client.ReceiveTimeout = receiveTimeout;
+                    client.SendTimeout = sendTimeout;
+                    client.ReceiveBufferSize = receiveBufferSize;
+                    client.SendBufferSize = sendBufferSize;
+
+                    using (NetworkStream ns = new NetworkStream(client))
+                    {
+                        RijndaelManaged rm = null;
+
+                        if (privateRsaParameter != null)
+                        {
+                            RSACryptoServiceProvider rsacsp = new RSACryptoServiceProvider();
+                            rsacsp.FromXmlString(privateRsaParameter);
+
+                            RSAParameters rsaParameters = rsacsp.ExportParameters(true);
+                            byte[] modulus = rsaParameters.Modulus;
+                            byte[] exponent = rsaParameters.Exponent;
+
+                            ns.Write(modulus, 0, modulus.Length);
+                            ns.Write(exponent, 0, exponent.Length);
+
+                            RSAPKCS1KeyExchangeDeformatter rsapkcs1ked = new RSAPKCS1KeyExchangeDeformatter(rsacsp);
+
+                            byte[] encryptedKey = new byte[128];
+                            byte[] encryptedIv = new byte[128];
+
+                            ns.Read(encryptedKey, 0, encryptedKey.Length);
+                            ns.Read(encryptedIv, 0, encryptedIv.Length);
+
+                            rm = new RijndaelManaged();
+                            rm.Padding = PaddingMode.Zeros;
+                            rm.Key = rsapkcs1ked.DecryptKeyExchange(encryptedKey);
+                            rm.IV = rsapkcs1ked.DecryptKeyExchange(encryptedIv);
+                        }
+
+                        Connected(this, EventArgs.Empty);
+
+                        protocolProcess(new CommunicationApparatus(ns, rm), (IPEndPoint)client.RemoteEndPoint);
+
+                        //ConnectionAnalizer.RegisterResult(ipAddress, true);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    this.RaiseError("client_socket".GetLogMessage(), 5, ex);
+
+                    EndClient();
+
+                    Errored(this, ex);
+
+                    //if (ex is SocketException)
+                    //    ConnectionAnalizer.RegisterResult(ipAddress, false);
+                    //else if ((ex.InnerException != null && ex.InnerException is SocketException))
+                    //    ConnectionAnalizer.RegisterResult(ipAddress, false);
+                }
+            }, "client", string.Empty);
+        }
+
+        public void EndClient()
+        {
+            if (client == null)
+                throw new InvalidOperationException("client_not_started"); //対応済
+
+            try
+            {
+                if (client.Connected)
+                    client.Shutdown(SocketShutdown.Both);
+                client.Close();
+            }
+            catch (Exception ex)
+            {
+                this.RaiseError("client_socket".GetLogMessage(), 5, ex);
+            }
+        }
+    }
+
+    public class Listener
+    {
+        private readonly ushort port;
+        private readonly bool isEncrypted;
+        private readonly Action<CommunicationApparatus, IPEndPoint> protocolProcess;
+        private readonly int receiveTimeout;
+        private readonly int sendTimeout;
+        private readonly int receiveBufferSize;
+        private readonly int sendBufferSize;
+        private readonly int backlog;
+
+        private Socket listener = null;
+        private readonly object lobject = new object();
+        private List<Socket> clients = new List<Socket>();
+
+        public Listener(ushort _port, bool _isEncrypted, Action<CommunicationApparatus, IPEndPoint> _protocolProcess, int _receiveTimeout, int _sendTimeout, int _receiveBufferSize, int _sendBufferSize, int _backlog)
+        {
+            port = _port;
+            isEncrypted = _isEncrypted;
+            protocolProcess = _protocolProcess;
+            receiveTimeout = _receiveTimeout;
+            sendTimeout = _sendTimeout;
+            receiveBufferSize = _receiveBufferSize;
+            sendBufferSize = _sendBufferSize;
+            backlog = _backlog;
+        }
+
+        public Listener(ushort _port, bool _isEncrypted, Action<CommunicationApparatus, IPEndPoint> _protocolProcess) : this(_port, _isEncrypted, _protocolProcess, 30000, 30000, 8192, 8192, 100) { }
+
+        public event EventHandler Connected = delegate { };
+        public event EventHandler<Exception> Errored = delegate { };
+        public event EventHandler ClientConnected = delegate { };
+        public event EventHandler<Exception> ClientErrored = delegate { };
+
+        public void StartListener()
+        {
+            if (listener != null)
+                throw new InvalidOperationException("listener_already_started"); //対応済
+
+            this.StartTask(() =>
+            {
+                try
+                {
+                    listener = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
+                    listener.Bind(new IPEndPoint(IPAddress.Any, port));
+                    listener.Listen(backlog);
+
+                    while (true)
+                    {
+                        Socket client = listener.Accept();
+                        lock (lobject)
+                            clients.Add(client);
+
+                        StartClient(client);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    this.RaiseError("listner_socket".GetLogMessage(), 5, ex);
+
+                    EndListener();
+
+                    Errored(this, ex);
+                }
+            }, "listener", string.Empty);
+        }
+
+        public void EndListener()
+        {
+            if (listener == null)
+                throw new InvalidOperationException("listener_not_started"); //対応済
+
+            try
+            {
+                listener.Close();
+
+                lock (lobject)
+                    foreach (var client in clients)
+                    {
+                        if (client.Connected)
+                            client.Shutdown(SocketShutdown.Both);
+                        client.Close();
+                    }
+            }
+            catch (Exception ex)
+            {
+                this.RaiseError("listner_socket".GetLogMessage(), 5, ex);
+            }
+        }
+
+        private void StartClient(Socket client)
+        {
+            this.StartTask(() =>
+            {
+                try
+                {
+                    client.ReceiveTimeout = receiveTimeout;
+                    client.SendTimeout = sendTimeout;
+                    client.ReceiveBufferSize = receiveBufferSize;
+                    client.SendBufferSize = sendBufferSize;
+
+                    using (NetworkStream ns = new NetworkStream(client))
+                    {
+                        RijndaelManaged rm = null;
+
+                        if (isEncrypted)
+                        {
+                            byte[] modulus = new byte[128];
+                            byte[] exponent = new byte[3];
+
+                            ns.Read(modulus, 0, 128);
+                            ns.Read(exponent, 0, 3);
+
+                            RSACryptoServiceProvider rsacsp = new RSACryptoServiceProvider();
+                            RSAParameters rsaParameters = new RSAParameters();
+                            rsaParameters.Modulus = modulus;
+                            rsaParameters.Exponent = exponent;
+                            rsacsp.ImportParameters(rsaParameters);
+
+                            RSAPKCS1KeyExchangeFormatter rsapkcs1kef = new RSAPKCS1KeyExchangeFormatter(rsacsp);
+
+                            rm = new RijndaelManaged();
+                            rm.Padding = PaddingMode.Zeros;
+
+                            byte[] encryptedKey = rsapkcs1kef.CreateKeyExchange(rm.Key);
+                            byte[] encryptedIv = rsapkcs1kef.CreateKeyExchange(rm.IV);
+
+                            ns.Write(encryptedKey, 0, encryptedKey.GetLength(0));
+                            ns.Write(encryptedIv, 0, encryptedIv.GetLength(0));
+                        }
+
+                        ClientConnected(this, EventArgs.Empty);
+
+                        protocolProcess(new CommunicationApparatus(ns, rm), (IPEndPoint)client.RemoteEndPoint);
+
+                        //ConnectionAnalizer.RegisterResult(((IPEndPoint)client.RemoteEndPoint).Address.ToString(), true);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    this.RaiseError("listner_socket".GetLogMessage(), 5, ex);
+
+                    EndClient(client);
+
+                    ClientErrored(this, ex);
+
+                    //if (ex is SocketException)
+                    //    ConnectionAnalizer.RegisterResult(((IPEndPoint)client.RemoteEndPoint).Address.ToString(), false);
+                    //else if ((ex.InnerException != null && ex.InnerException is SocketException))
+                    //    ConnectionAnalizer.RegisterResult(((IPEndPoint)client.RemoteEndPoint).Address.ToString(), false);
+                }
+            }, "listener_client", string.Empty);
+        }
+
+        private void EndClient(Socket client)
+        {
+            try
+            {
+                lock (lobject)
+                    clients.Remove(client);
+
+                if (client.Connected)
+                    client.Shutdown(SocketShutdown.Both);
+                client.Close();
+            }
+            catch (Exception ex)
+            {
+                this.RaiseError("listner_socket".GetLogMessage(), 5, ex);
+            }
+        }
+    }
+
+    public class ConnectionData : INTERNALDATA
+    {
+        private readonly int number;
+        public int Number
+        {
+            get { return number; }
+        }
+
+        private readonly string ipAddress;
+        public string IpAddress
+        {
+            get { return ipAddress; }
+        }
+
+        private readonly ushort port;
+        public ushort Port
+        {
+            get { return port; }
+        }
+
+        private readonly ushort myPort;
+        public ushort MyPort
+        {
+            get { return myPort; }
+        }
+
+        private readonly ConnectionDirection direction;
+        public ConnectionDirection Direction
+        {
+            get { return direction; }
+        }
+
+        private readonly DateTime connectedTime;
+        public DateTime ConnectedTime
+        {
+            get { return connectedTime; }
+        }
+
+        public enum ConnectionDirection { up, down }
+
+        public ConnectionData(int _number, string _ipAddress, ushort _port, ushort _myPort, ConnectionDirection _direction)
+        {
+            number = _number;
+            ipAddress = _ipAddress;
+            port = _port;
+            myPort = _myPort;
+            direction = _direction;
+            connectedTime = DateTime.Now;
+        }
+
+        public TimeSpan Duration
+        {
+            get { return DateTime.Now - connectedTime; }
+        }
+    }
+
+    public class ConnectionDatabase : INTERNALDATA
+    {
+        private readonly object connectionsLock = new object();
+        private List<ConnectionData> connections;
+        public ConnectionData[] Connections
+        {
+            get { return connections.ToArray(); }
+        }
+
+        public ConnectionDatabase()
+        {
+            connections = new List<ConnectionData>();
+        }
+
+        public event EventHandler ConnectionAdded = delegate { };
+        public event EventHandler ConnectionRemoved = delegate { };
+
+        public void AddConnection(ConnectionData connection)
+        {
+            lock (connectionsLock)
+            {
+                if (connections.Contains(connection))
+                    throw new InvalidOperationException("exist_connection"); //対応済
+
+                this.ExecuteBeforeEvent(() => connections.Add(connection), ConnectionAdded);
+            }
+        }
+
+        public void DeleteConnection(ConnectionData connection)
+        {
+            lock (connectionsLock)
+            {
+                if (!connections.Contains(connection))
+                    throw new InvalidOperationException("not_exist_connection"); //対応済
+
+                this.ExecuteBeforeEvent(() => connections.Remove(connection), ConnectionRemoved);
+            }
+        }
+    }
+
+    #region データ
 
     public class Sha256Hash : SHAREDDATA, IComparable<Sha256Hash>, IEquatable<Sha256Hash>, IComparable
     {
@@ -850,6 +1381,8 @@ namespace CREA2014
                 candidateAccountHolders.Clear();
         }
     }
+
+    #endregion
 
     public class TransactionInput
     {

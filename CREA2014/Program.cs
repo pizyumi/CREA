@@ -6,6 +6,7 @@ using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Management;
+using System.Net.Sockets;
 using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Security.AccessControl;
@@ -350,15 +351,22 @@ namespace CREA2014
         public static string CreateMessage(this Exception ex, int level)
         {
             string space = " ".Repeat(level * 4);
-            string exception = "Exception: " + ex.GetType().ToString();
-            string message = "Message: " + ex.Message;
-            string stacktrace = "StackTrace: " + Environment.NewLine + ex.StackTrace;
+            string exception = space + "Exception: " + ex.GetType().ToString();
+            string message = space + "Message: " + ex.Message;
+            string stacktrace = space + "StackTrace: " + Environment.NewLine + ex.StackTrace;
 
-            exception = space + exception;
-            message = space + message;
-            stacktrace = space + stacktrace;
+            string thisException;
+            if (ex is SocketException)
+            {
+                SocketException sex = ex as SocketException;
 
-            string thisException = string.Join(Environment.NewLine, exception, message, stacktrace);
+                string errorCode = "ErrorCode: " + sex.ErrorCode.ToString();
+                string socketErrorCode = "SocketErrorCode: " + sex.SocketErrorCode.ToString();
+
+                thisException = string.Join(Environment.NewLine, exception, message, errorCode, socketErrorCode, stacktrace);
+            }
+            else
+                thisException = string.Join(Environment.NewLine, exception, message, stacktrace);
 
             if (ex.InnerException == null)
                 return thisException;
@@ -397,6 +405,27 @@ namespace CREA2014
 
         #endregion
 
+        public class TaskInformation : INTERNALDATA
+        {
+            public readonly Action Action;
+            public readonly string Name;
+            public readonly string Descption;
+
+            public TaskInformation(Action _action, string _name, string _description)
+            {
+                Action = _action;
+                Name = _name;
+                Descption = _description;
+            }
+        }
+
+        public static event EventHandler<TaskInformation> Tasked = delegate { };
+
+        public static void StartTask<T>(this T self, Action action, string name, string description)
+        {
+            Tasked(self.GetType(), new TaskInformation(action, name, description));
+        }
+
         public class LogInfomation : INTERNALDATA
         {
             public readonly Type Type;
@@ -419,39 +448,39 @@ namespace CREA2014
         public static event EventHandler<LogInfomation> Errored = delegate { };
 
         //試験ログイベントを発生させる（拡張：型表現型）
-        public static void RaiseTest(this Type type, string message, int level)
+        public static void RaiseTest<T>(this T self, string message, int level)
         {
-            Tested(type, new LogInfomation(type, message, level));
+            Tested(self.GetType(), new LogInfomation(self.GetType(), message, level));
         }
 
         //通知ログイベントを発生させる（拡張：型表現型）
-        public static void RaiseNotification(this Type type, string message, int level)
+        public static void RaiseNotification<T>(this T self, string message, int level)
         {
-            Notified(type, new LogInfomation(type, message, level));
+            Notified(self.GetType(), new LogInfomation(self.GetType(), message, level));
         }
 
-        //結果ログイベントを発生させる（拡張：型表現型）
-        public static void RaiseResult(this Type type, string message, int level)
+        //結果ログイベントを発生させる（拡張：任意型）
+        public static void RaiseResult<T>(this T self, string message, int level)
         {
-            Resulted(type, new LogInfomation(type, message, level));
+            Resulted(self.GetType(), new LogInfomation(self.GetType(), message, level));
         }
 
-        //警告ログイベントを発生させる（拡張：型表現型）
-        public static void RaiseWarning(this Type type, string message, int level)
+        //警告ログイベントを発生させる（拡張：任意型）
+        public static void RaiseWarning<T>(this T self, string message, int level)
         {
-            Warned(type, new LogInfomation(type, message, level));
+            Warned(self.GetType(), new LogInfomation(self.GetType(), message, level));
         }
 
-        //エラーログイベントを発生させる（拡張：型表現型）
-        public static void RaiseError(this Type type, string message, int level)
+        //エラーログイベントを発生させる（拡張：任意型）
+        public static void RaiseError<T>(this T self, string message, int level)
         {
-            Errored(type, new LogInfomation(type, message, level));
+            Errored(self.GetType(), new LogInfomation(self.GetType(), message, level));
         }
 
-        //例外エラーログイベントを発生させる（拡張：型表現型）
-        public static void RaiseError(this Type type, string message, int level, Exception ex)
+        //例外エラーログイベントを発生させる（拡張：任意型）
+        public static void RaiseError<T>(this T self, string message, int level, Exception ex)
         {
-            Errored(type, new LogInfomation(type, string.Join(Environment.NewLine, message, ex.CreateMessage(0)), level));
+            Errored(self.GetType(), new LogInfomation(self.GetType(), string.Join(Environment.NewLine, message, ex.CreateMessage(0)), level));
         }
 
         //真偽値が真のときのみエラーイベントを発生させ、真偽値をそのまま返す（拡張：真偽型）
@@ -476,6 +505,18 @@ namespace CREA2014
         public static string Multilanguage(this string text, int id)
         {
             return Program.Multilanguage(text, id);
+        }
+
+        //タスクの名称を取得する（拡張：文字列型）
+        public static string GetTaskName(this string rawName)
+        {
+            return Program.GetTaskName(rawName);
+        }
+
+        //タスクの説明を取得する（拡張：文字列型）
+        public static string GetTaskDescription(this string rawDescription)
+        {
+            return Program.GetTaskDescription(rawDescription);
         }
 
         //ログが発生した領域を取得する（拡張：型型）
@@ -1081,24 +1122,28 @@ namespace CREA2014
             {
                 Func<Type, MainDataInfomation, XElement, object> _Read = (type, innerMdi, innerXElement) =>
                 {
+                    XElement iiXElement = innerXElement.Element(mdi.XmlName);
+                    if (iiXElement == null)
+                        return null;
+
                     if (type == typeof(bool))
-                        return bool.Parse(innerXElement.Element(mdi.XmlName).Value);
+                        return bool.Parse(iiXElement.Value);
                     else if (type == typeof(int))
-                        return int.Parse(innerXElement.Element(mdi.XmlName).Value);
+                        return int.Parse(iiXElement.Value);
                     else if (type == typeof(float))
-                        return float.Parse(innerXElement.Element(mdi.XmlName).Value);
+                        return float.Parse(iiXElement.Value);
                     else if (type == typeof(long))
-                        return long.Parse(innerXElement.Element(mdi.XmlName).Value);
+                        return long.Parse(iiXElement.Value);
                     else if (type == typeof(double))
-                        return double.Parse(innerXElement.Element(mdi.XmlName).Value);
+                        return double.Parse(iiXElement.Value);
                     else if (type == typeof(DateTime))
-                        return DateTime.Parse(innerXElement.Element(mdi.XmlName).Value);
+                        return DateTime.Parse(iiXElement.Value);
                     else if (type == typeof(string))
-                        return innerXElement.Element(mdi.XmlName).Value;
+                        return iiXElement.Value;
                     else if (type.IsSubclassOf(typeof(SETTINGSDATA)))
                     {
                         SETTINGSDATA ccsd = Activator.CreateInstance(type) as SETTINGSDATA;
-                        ccsd.FromXml(innerXElement.Element(mdi.XmlName).Element(ccsd.XmlName));
+                        ccsd.FromXml(iiXElement.Element(ccsd.XmlName));
                         return ccsd;
                     }
                     else
@@ -1118,7 +1163,11 @@ namespace CREA2014
                     mdi.Setter(os);
                 }
                 else
-                    mdi.Setter(_Read(mdi.Type, mdi, xElement));
+                {
+                    object obj = _Read(mdi.Type, mdi, xElement);
+                    if (obj != null)
+                        mdi.Setter(obj);
+                }
             }
         }
     }
@@ -1173,6 +1222,107 @@ namespace CREA2014
     public static class Program
     {
         public enum ExceptionKind { wpf, unhandled }
+
+        public class TaskData : Extension.TaskInformation
+        {
+            public readonly int Number;
+            public readonly DateTime StartedTime;
+
+            public TaskData(Extension.TaskInformation _taskInfo, int _number)
+                : base(_taskInfo.Action, _taskInfo.Name, _taskInfo.Descption)
+            {
+                Number = _number;
+                StartedTime = DateTime.Now;
+            }
+        }
+
+        public class Tasker
+        {
+            private readonly object tasksLock = new object();
+            private readonly List<TaskStatus> tasks;
+            public TaskData[] Tasks
+            {
+                get
+                {
+                    lock (tasksLock)
+                        return tasks.Select((e) => e.Data).ToArray();
+                }
+            }
+
+            public class TaskStatus
+            {
+                public readonly TaskData Data;
+                public readonly Thread Thread;
+
+                public TaskStatus(TaskData _data, Thread _thread)
+                {
+                    Data = _data;
+                    Thread = _thread;
+                }
+            }
+
+            public Tasker()
+            {
+                tasks = new List<TaskStatus>();
+            }
+
+            public event EventHandler TaskStarted = delegate { };
+            public event EventHandler TaskEnded = delegate { };
+
+            public void New(TaskData task)
+            {
+                Thread thread = new Thread(() =>
+                {
+                    try
+                    {
+                        task.Action();
+                    }
+                    catch (Exception ex)
+                    {
+                        this.RaiseError("task".GetLogMessage(), 5, ex);
+                    }
+                    finally
+                    {
+                        TaskEnded(this, EventArgs.Empty);
+                    }
+                });
+                thread.IsBackground = true;
+                thread.Name = task.Name;
+
+                lock (tasksLock)
+                    tasks.Add(new TaskStatus(task, thread));
+
+                TaskStarted(this, EventArgs.Empty);
+
+                thread.Start();
+            }
+
+            public void Abort(TaskData abortTask)
+            {
+                TaskStatus status = null;
+                lock (tasksLock)
+                {
+                    if ((status = tasks.Where((e) => e.Data == abortTask).FirstOrDefault()) == null)
+                        throw new InvalidOperationException("task_not_found"); //対応済
+                    tasks.Remove(status);
+                }
+                status.Thread.Abort();
+
+                this.RaiseNotification("task_aborted".GetLogMessage(), 5);
+            }
+
+            public void AbortAll()
+            {
+                lock (tasksLock)
+                {
+                    foreach (var task in tasks)
+                        task.Thread.Abort();
+                    tasks.Clear();
+                }
+
+                this.RaiseNotification("all_tasks_aborted".GetLogMessage(), 5);
+            }
+        }
 
         public class LogData : Extension.LogInfomation
         {
@@ -1362,11 +1512,12 @@ namespace CREA2014
         {
             public class Setter
             {
-                public Setter(Action<string> _cultureSetter, Action<string> _errorLogSetter, Action<string> _errorReportSetter)
+                public Setter(Action<string> _cultureSetter, Action<string> _errorLogSetter, Action<string> _errorReportSetter, Action<bool> _isLogSetter)
                 {
                     cultureSetter = _cultureSetter;
                     errorLogSetter = _errorLogSetter;
                     errorReportSetter = _errorReportSetter;
+                    isLogSetter = _isLogSetter;
                 }
 
                 private readonly Action<string> cultureSetter;
@@ -1385,6 +1536,12 @@ namespace CREA2014
                 public string ErrorReport
                 {
                     set { errorReportSetter(value); }
+                }
+
+                private readonly Action<bool> isLogSetter;
+                public bool IsLog
+                {
+                    set { isLogSetter(value); }
                 }
             }
 
@@ -1406,13 +1563,23 @@ namespace CREA2014
                 get { return errorReport; }
             }
 
+            private bool isLog = true;
+            public bool IsLog
+            {
+                get { return isLog; }
+            }
+
             private LogSettings logSettings;
             public LogSettings LogSettings
             {
-                get { return LogSettings; }
+                get { return logSettings; }
             }
 
-            public ProgramSettings() : base("ProgramSettings.xml") { }
+            public ProgramSettings()
+                : base("ProgramSettings.xml")
+            {
+                logSettings = new LogSettings();
+            }
 
             protected override string XmlName
             {
@@ -1427,6 +1594,7 @@ namespace CREA2014
                         new MainDataInfomation(typeof(string), "Culture", () => culture, (o) => culture = (string)o), 
                         new MainDataInfomation(typeof(string), "ErrorLog", () => errorLog, (o) => errorLog = (string)o), 
                         new MainDataInfomation(typeof(string), "ErrorReport", () => errorReport, (o) => errorReport = (string)o), 
+                        new MainDataInfomation(typeof(bool), "IsLog", () => isLog, (o) => isLog = (bool)o), 
                         new MainDataInfomation(typeof(LogSettings), "LogSettings", () => logSettings, (o) => logSettings = (LogSettings)o), 
                     };
                 }
@@ -1439,7 +1607,8 @@ namespace CREA2014
                     return new Setter(
                         (_culture) => culture = _culture,
                         (_errorLog) => errorLog = _errorLog,
-                        (_errorReport) => errorReport = _errorReport);
+                        (_errorReport) => errorReport = _errorReport,
+                        (_isLog) => isLog = _isLog);
                 }
             }
         }
@@ -1853,6 +2022,8 @@ namespace CREA2014
         }
 
         private static string[] langResource;
+        private static Dictionary<string, Func<string>> taskNames;
+        private static Dictionary<string, Func<string>> taskDescriptions;
         private static Dictionary<Type, LogData.LogGround> logGrounds;
         private static Dictionary<string, Func<string>> logMessages;
         private static Dictionary<string, Func<string>> exceptionMessages;
@@ -1861,6 +2032,16 @@ namespace CREA2014
         {
             //<未実装>機械翻訳への対応
             return langResource == null || id >= langResource.Length ? text : langResource[id];
+        }
+
+        public static string GetTaskName(string rawName)
+        {
+            return taskNames.GetValue(rawName, () => rawName)();
+        }
+
+        public static string GetTaskDescription(string rawDescription)
+        {
+            return taskDescriptions.GetValue(rawDescription, () => rawDescription)();
         }
 
         public static LogData.LogGround GetLogGround(Type type)
@@ -1896,7 +2077,9 @@ namespace CREA2014
             ProgramSettings psettings = new ProgramSettings();
             ProgramStatus pstatus = new ProgramStatus();
 
-            Logger logger = new Logger(psettings.LogSettings);
+            Logger logger;
+            Tasker tasker = new Tasker();
+            int taskNumber = 0;
 
             Assembly assembly = Assembly.GetEntryAssembly();
             string basepath = new FileInfo(assembly.Location).DirectoryName;
@@ -1918,12 +2101,23 @@ namespace CREA2014
                     langResource = new string[] { };
             }
 
+            taskNames = new Dictionary<string, Func<string>>() { };
+
+            taskDescriptions = new Dictionary<string, Func<string>>() { };
+
             logGrounds = new Dictionary<Type, LogData.LogGround>(){
                 {typeof(AccountHolderDatabase), LogData.LogGround.signData}, 
+                {typeof(Client), LogData.LogGround.networkBase}, 
+                {typeof(Listener), LogData.LogGround.networkBase}, 
             };
 
             logMessages = new Dictionary<string, Func<string>>() { 
                 {"exist_same_name_account_holder", () => "同名の口座名義人が存在します。".Multilanguage(93)}, 
+                {"client_socket", () => "エラーが発生しました。".Multilanguage(94)}, 
+                {"listener_socket", () => "エラーが発生しました。".Multilanguage(95)}, 
+                {"task", () => "エラーが発生しました。".Multilanguage(96)}, 
+                {"task_aborted", () => "作業が強制終了されました。".Multilanguage(97)}, 
+                {"all_tasks_aborted", () => "全ての作業が強制終了されました。".Multilanguage(98)}, 
             };
 
             exceptionMessages = new Dictionary<string, Func<string>>() {
@@ -1936,11 +2130,42 @@ namespace CREA2014
                 {"wss_command", () => "内部ウェブソケット命令が存在しません。".Multilanguage(92)}, 
             };
 
-            Extension.Tested += (sender, e) => logger.AddLog(new LogData(e, LogData.LogKind.test));
-            Extension.Notified += (sender, e) => logger.AddLog(new LogData(e, LogData.LogKind.notification));
-            Extension.Resulted += (sender, e) => logger.AddLog(new LogData(e, LogData.LogKind.result));
-            Extension.Warned += (sender, e) => logger.AddLog(new LogData(e, LogData.LogKind.warning));
-            Extension.Errored += (sender, e) => logger.AddLog(new LogData(e, LogData.LogKind.error));
+            Extension.Tasked += (sender, e) => tasker.New(new TaskData(e, taskNumber++));
+
+            if (psettings.IsLog)
+            {
+                logger = new Logger(psettings.LogSettings);
+
+                Extension.Tested += (sender, e) => logger.AddLog(new LogData(e, LogData.LogKind.test));
+                Extension.Notified += (sender, e) => logger.AddLog(new LogData(e, LogData.LogKind.notification));
+                Extension.Resulted += (sender, e) => logger.AddLog(new LogData(e, LogData.LogKind.result));
+                Extension.Warned += (sender, e) => logger.AddLog(new LogData(e, LogData.LogKind.warning));
+                Extension.Errored += (sender, e) => logger.AddLog(new LogData(e, LogData.LogKind.error));
+            }
+
+            Listener listener = new Listener(7777, true, (ca, ip) =>
+            {
+                string message = Encoding.UTF8.GetString(ca.ReadCompressedBytes());
+
+                MessageBox.Show(message);
+            });
+            listener.StartListener();
+
+            Thread.Sleep(1000);
+
+            string privateRSAParameters;
+            using (RSACryptoServiceProvider rsacsp = new RSACryptoServiceProvider())
+                privateRSAParameters = rsacsp.ToXmlString(true);
+
+            Client client = new Client("127.0.0.1", 7777, privateRSAParameters, (ca, ip) =>
+            {
+                ca.WriteCompreddedBytes(Encoding.UTF8.GetBytes("テストだよ～"));
+            });
+            client.StartClient();
+
+            Thread.Sleep(10000);
+
+            Console.ReadLine();
 
             Action<Exception, ExceptionKind> _OnException = (ex, exKind) =>
             {
