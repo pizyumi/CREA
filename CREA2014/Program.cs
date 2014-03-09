@@ -2143,29 +2143,29 @@ namespace CREA2014
                 Extension.Errored += (sender, e) => logger.AddLog(new LogData(e, LogData.LogKind.error));
             }
 
-            Listener listener = new Listener(7777, true, (ca, ip) =>
-            {
-                string message = Encoding.UTF8.GetString(ca.ReadCompressedBytes());
+            //Listener listener = new Listener(7777, RsaKeySize.rsa2048, (ca, ip) =>
+            //{
+            //    string message = Encoding.UTF8.GetString(ca.ReadCompressedBytes());
 
-                MessageBox.Show(message);
-            });
-            listener.StartListener();
+            //    MessageBox.Show(message);
+            //});
+            //listener.StartListener();
 
-            Thread.Sleep(1000);
+            //Thread.Sleep(1000);
 
-            string privateRSAParameters;
-            using (RSACryptoServiceProvider rsacsp = new RSACryptoServiceProvider())
-                privateRSAParameters = rsacsp.ToXmlString(true);
+            //string privateRSAParameters;
+            //using (RSACryptoServiceProvider rsacsp = new RSACryptoServiceProvider(2048))
+            //    privateRSAParameters = rsacsp.ToXmlString(true);
 
-            Client client = new Client("127.0.0.1", 7777, privateRSAParameters, (ca, ip) =>
-            {
-                ca.WriteCompreddedBytes(Encoding.UTF8.GetBytes("テストだよ～"));
-            });
-            client.StartClient();
+            //Client client = new Client("127.0.0.1", 7777, RsaKeySize.rsa2048, privateRSAParameters, (ca, ip) =>
+            //{
+            //    ca.WriteCompreddedBytes(Encoding.UTF8.GetBytes("テストだよ～"));
+            //});
+            //client.StartClient();
 
-            Thread.Sleep(10000);
+            //Thread.Sleep(10000);
 
-            Console.ReadLine();
+            //Console.ReadLine();
 
             Action<Exception, ExceptionKind> _OnException = (ex, exKind) =>
             {

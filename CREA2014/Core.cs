@@ -68,6 +68,133 @@ namespace CREA2014
         }
     }
 
+    public class P2P
+    {
+        private readonly object connectionsLock = new object();
+        private List<ConnectionData> connections;
+        public ConnectionData[] Connections
+        {
+            get { return connections.ToArray(); }
+        }
+
+        private readonly object connectionHistoriesLock = new object();
+        private List<ConnectionHistory> connectionHistories;
+        public ConnectionHistory[] ConnectionHistories
+        {
+            get { return connectionHistories.ToArray(); }
+        }
+
+        private readonly string privateRsaParameters;
+        private int connectionNumber;
+
+        public P2P()
+        {
+            connections = new List<ConnectionData>();
+            connectionHistories = new List<ConnectionHistory>();
+            connectionNumber = 0;
+
+            using (RSACryptoServiceProvider rsacsp = new RSACryptoServiceProvider(2048))
+                privateRsaParameters = rsacsp.ToXmlString(true);
+        }
+
+        public event EventHandler ConnectionAdded = delegate { };
+        public event EventHandler ConnectionRemoved = delegate { };
+
+        private void NewListener(ushort port, Action<CommunicationApparatus, IPEndPoint> protocolProcess)
+        {
+            Dictionary<SocketData, ConnectionData> listenerConnections = new Dictionary<SocketData, ConnectionData>();
+
+            Listener listener = new Listener(port, RsaKeySize.rsa2048, protocolProcess);
+            listener.ClientConnected += (sender, e) =>
+            {
+                ConnectionData connection = new ConnectionData(connectionNumber++, e.IpAddress, e.Port, e.MyPort, ConnectionData.ConnectionDirection.up);
+
+                lock (listenerConnections)
+                    listenerConnections.Add(e, connection);
+
+                AddConnection(connection);
+            };
+            listener.ClientDisconnected += (sender, e) =>
+            {
+                ConnectionData connection;
+
+                lock (listenerConnections)
+                {
+                    if (!listenerConnections.ContainsKey(e))
+                        throw new InvalidDataException("not_contains_socket_data"); //対応済
+
+                    connection = listenerConnections[e];
+
+                    listenerConnections.Remove(e);
+                }
+
+                RemoveConnection(connection);
+            };
+            listener.ClientSuccessed += (sender, e) => RegisterResult(e.IpAddress, true);
+            listener.ClientErrored += (sender, e) =>
+            {
+                if (e.Value2 is SocketException)
+                    RegisterResult(e.Value1.IpAddress, false);
+            };
+        }
+
+        private void NewClient(string ipAddress, ushort port, Action<CommunicationApparatus, IPEndPoint> protocolProcess)
+        {
+            ConnectionData connection = null;
+
+            Client client = new Client(ipAddress, port, RsaKeySize.rsa2048, privateRsaParameters, protocolProcess);
+            client.Connected += (sender, e) =>
+            {
+                connection = new ConnectionData(connectionNumber++, e.IpAddress, e.Port, e.MyPort, ConnectionData.ConnectionDirection.down);
+
+                AddConnection(connection);
+            };
+            client.Disconnected += (sender, e) => RemoveConnection(connection);
+            client.Successed += (sender, e) => RegisterResult(e.IpAddress, true);
+            client.Errored += (sender, e) =>
+            {
+                if (e.Value2 is SocketException)
+                    RegisterResult(e.Value1.IpAddress, false);
+            };
+            client.StartClient();
+        }
+
+        private void AddConnection(ConnectionData connection)
+        {
+            lock (connectionsLock)
+            {
+                if (connections.Contains(connection))
+                    throw new InvalidOperationException("exist_connection"); //対応済
+
+                this.ExecuteBeforeEvent(() => connections.Add(connection), ConnectionAdded);
+            }
+        }
+
+        private void RemoveConnection(ConnectionData connection)
+        {
+            lock (connectionsLock)
+            {
+                if (!connections.Contains(connection))
+                    throw new InvalidOperationException("not_exist_connection"); //対応済
+
+                this.ExecuteBeforeEvent(() => connections.Remove(connection), ConnectionRemoved);
+            }
+        }
+
+        public void RegisterResult(string ipAddress, bool isSucceeded)
+        {
+            ConnectionHistory connectionHistory;
+            lock (connectionHistoriesLock)
+                if ((connectionHistory = connectionHistories.Where((e) => e.IpAddress == ipAddress).FirstOrDefault()) == null)
+                    connectionHistories.Add(connectionHistory = new ConnectionHistory(ipAddress));
+
+            if (isSucceeded)
+                connectionHistory.IncrementSuccess();
+            else
+                connectionHistory.IncrementFailure();
+        }
+    }
+
     public class CommunicationApparatus
     {
         private readonly NetworkStream ns;
@@ -146,7 +273,8 @@ namespace CREA2014
             using (MemoryStream ms = new MemoryStream(readData))
                 if (rm != null)
                 {
-                    using (CryptoStream cs = new CryptoStream(ms, rm.CreateDecryptor(rm.Key, rm.IV), CryptoStreamMode.Read))
+                    using (ICryptoTransform icf = rm.CreateDecryptor(rm.Key, rm.IV))
+                    using (CryptoStream cs = new CryptoStream(ms, icf, CryptoStreamMode.Read))
                         if (isCompressed)
                             using (DeflateStream ds = new DeflateStream(cs, CompressionMode.Decompress))
                                 ds.Read(data, 0, data.Length);
@@ -179,15 +307,15 @@ namespace CREA2014
             using (MemoryStream ms = new MemoryStream())
             {
                 if (rm != null)
-                    if (isCompressed)
-                        using (DeflateStream ds = new DeflateStream(ms, CompressionMode.Compress))
-                        using (CryptoStream cs = new CryptoStream(ds, rm.CreateEncryptor(rm.Key, rm.IV), CryptoStreamMode.Write))
-                        {
-                            cs.Write(data, 0, data.Length);
-                            cs.FlushFinalBlock();
-                        }
-                    else
-                        using (CryptoStream cs = new CryptoStream(ms, rm.CreateEncryptor(rm.Key, rm.IV), CryptoStreamMode.Write))
+                    using (ICryptoTransform icf = rm.CreateEncryptor(rm.Key, rm.IV))
+                    using (CryptoStream cs = new CryptoStream(ms, icf, CryptoStreamMode.Write))
+                        if (isCompressed)
+                            using (DeflateStream ds = new DeflateStream(cs, CompressionMode.Compress))
+                            {
+                                ds.Write(data, 0, data.Length);
+                                ds.Flush();
+                            }
+                        else
                         {
                             cs.Write(data, 0, data.Length);
                             cs.FlushFinalBlock();
@@ -214,11 +342,28 @@ namespace CREA2014
         }
     }
 
+    public enum RsaKeySize { rsa1024, rsa2048 }
+
+    public class SocketData : INTERNALDATA
+    {
+        public readonly string IpAddress;
+        public readonly ushort Port;
+        public readonly ushort MyPort;
+
+        public SocketData(string _ipAddress, ushort _port, ushort _myPort)
+        {
+            IpAddress = _ipAddress;
+            Port = _port;
+            MyPort = _myPort;
+        }
+    }
+
     public class Client
     {
         private readonly string ipAddress;
         private readonly ushort port;
         private readonly string privateRsaParameter;
+        private readonly RsaKeySize keySize;
         private readonly Action<CommunicationApparatus, IPEndPoint> protocolProcess;
         private readonly int receiveTimeout;
         private readonly int sendTimeout;
@@ -227,10 +372,11 @@ namespace CREA2014
 
         private Socket client;
 
-        public Client(string _ipAddress, ushort _port, string _privateRsaParameter, Action<CommunicationApparatus, IPEndPoint> _protocolProcess, int _receiveTimeout, int _sendTimeout, int _receiveBufferSize, int _sendBufferSize)
+        public Client(string _ipAddress, ushort _port, RsaKeySize _keySize, string _privateRsaParameter, Action<CommunicationApparatus, IPEndPoint> _protocolProcess, int _receiveTimeout, int _sendTimeout, int _receiveBufferSize, int _sendBufferSize)
         {
             ipAddress = _ipAddress;
             port = _port;
+            keySize = _keySize;
             privateRsaParameter = _privateRsaParameter;
             protocolProcess = _protocolProcess;
             receiveTimeout = _receiveTimeout;
@@ -239,10 +385,16 @@ namespace CREA2014
             sendBufferSize = _sendBufferSize;
         }
 
-        public Client(string _ipAddress, ushort _port, string _privateRsaParameter, Action<CommunicationApparatus, IPEndPoint> _protocolProcess) : this(_ipAddress, _port, _privateRsaParameter, _protocolProcess, 30000, 30000, 8192, 8192) { }
+        public Client(string _ipAddress, ushort _port, Action<CommunicationApparatus, IPEndPoint> _protocolProcess, int _receiveTimeout, int _sendTimeout, int _receiveBufferSize, int _sendBufferSize) : this(_ipAddress, _port, RsaKeySize.rsa2048, null, _protocolProcess, _receiveTimeout, _sendTimeout, _receiveBufferSize, _sendBufferSize) { }
 
-        public event EventHandler Connected = delegate { };
-        public event EventHandler<Exception> Errored = delegate { };
+        public Client(string _ipAddress, ushort _port, RsaKeySize _keySize, string _privateRsaParameter, Action<CommunicationApparatus, IPEndPoint> _protocolProcess) : this(_ipAddress, _port, _keySize, _privateRsaParameter, _protocolProcess, 30000, 30000, 8192, 8192) { }
+
+        public Client(string _ipAddress, ushort _port, Action<CommunicationApparatus, IPEndPoint> _protocolProcess) : this(_ipAddress, _port, RsaKeySize.rsa2048, null, _protocolProcess, 30000, 30000, 8192, 8192) { }
+
+        public event EventHandler<SocketData> Connected = delegate { };
+        public event EventHandler<SocketData> Disconnected = delegate { };
+        public event EventHandler<SocketData> Successed = delegate { };
+        public event EventHandler<EventArgs<SocketData, Exception>> Errored = delegate { };
 
         public void StartClient()
         {
@@ -251,6 +403,8 @@ namespace CREA2014
 
             this.StartTask(() =>
             {
+                SocketData socketData = new SocketData(ipAddress, port, (ushort)((IPEndPoint)client.LocalEndPoint).Port);
+
                 try
                 {
                     client = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
@@ -269,6 +423,9 @@ namespace CREA2014
                             RSACryptoServiceProvider rsacsp = new RSACryptoServiceProvider();
                             rsacsp.FromXmlString(privateRsaParameter);
 
+                            if ((keySize == RsaKeySize.rsa1024 && rsacsp.KeySize != 1024) || (keySize == RsaKeySize.rsa2048 && rsacsp.KeySize != 2048))
+                                throw new Exception("client_rsa_key_size");
+
                             RSAParameters rsaParameters = rsacsp.ExportParameters(true);
                             byte[] modulus = rsaParameters.Modulus;
                             byte[] exponent = rsaParameters.Exponent;
@@ -278,8 +435,8 @@ namespace CREA2014
 
                             RSAPKCS1KeyExchangeDeformatter rsapkcs1ked = new RSAPKCS1KeyExchangeDeformatter(rsacsp);
 
-                            byte[] encryptedKey = new byte[128];
-                            byte[] encryptedIv = new byte[128];
+                            byte[] encryptedKey = keySize == RsaKeySize.rsa1024 ? new byte[128] : new byte[256];
+                            byte[] encryptedIv = keySize == RsaKeySize.rsa1024 ? new byte[128] : new byte[256];
 
                             ns.Read(encryptedKey, 0, encryptedKey.Length);
                             ns.Read(encryptedIv, 0, encryptedIv.Length);
@@ -290,11 +447,12 @@ namespace CREA2014
                             rm.IV = rsapkcs1ked.DecryptKeyExchange(encryptedIv);
                         }
 
-                        Connected(this, EventArgs.Empty);
+                        Connected(this, socketData);
 
                         protocolProcess(new CommunicationApparatus(ns, rm), (IPEndPoint)client.RemoteEndPoint);
 
-                        //ConnectionAnalizer.RegisterResult(ipAddress, true);
+                        Disconnected(this, socketData);
+                        Successed(this, socketData);
                     }
                 }
                 catch (Exception ex)
@@ -303,12 +461,8 @@ namespace CREA2014
 
                     EndClient();
 
-                    Errored(this, ex);
-
-                    //if (ex is SocketException)
-                    //    ConnectionAnalizer.RegisterResult(ipAddress, false);
-                    //else if ((ex.InnerException != null && ex.InnerException is SocketException))
-                    //    ConnectionAnalizer.RegisterResult(ipAddress, false);
+                    Disconnected(this, socketData);
+                    Errored(this, new EventArgs<SocketData, Exception>(socketData, ex));
                 }
             }, "client", string.Empty);
         }
@@ -335,6 +489,7 @@ namespace CREA2014
     {
         private readonly ushort port;
         private readonly bool isEncrypted;
+        private readonly RsaKeySize keySize;
         private readonly Action<CommunicationApparatus, IPEndPoint> protocolProcess;
         private readonly int receiveTimeout;
         private readonly int sendTimeout;
@@ -346,10 +501,11 @@ namespace CREA2014
         private readonly object lobject = new object();
         private List<Socket> clients = new List<Socket>();
 
-        public Listener(ushort _port, bool _isEncrypted, Action<CommunicationApparatus, IPEndPoint> _protocolProcess, int _receiveTimeout, int _sendTimeout, int _receiveBufferSize, int _sendBufferSize, int _backlog)
+        private Listener(ushort _port, bool _isEncrypted, RsaKeySize _keySize, Action<CommunicationApparatus, IPEndPoint> _protocolProcess, int _receiveTimeout, int _sendTimeout, int _receiveBufferSize, int _sendBufferSize, int _backlog)
         {
             port = _port;
             isEncrypted = _isEncrypted;
+            keySize = _keySize;
             protocolProcess = _protocolProcess;
             receiveTimeout = _receiveTimeout;
             sendTimeout = _sendTimeout;
@@ -358,12 +514,19 @@ namespace CREA2014
             backlog = _backlog;
         }
 
-        public Listener(ushort _port, bool _isEncrypted, Action<CommunicationApparatus, IPEndPoint> _protocolProcess) : this(_port, _isEncrypted, _protocolProcess, 30000, 30000, 8192, 8192, 100) { }
+        public Listener(ushort _port, RsaKeySize _keySize, Action<CommunicationApparatus, IPEndPoint> _protocolProcess, int _receiveTimeout, int _sendTimeout, int _receiveBufferSize, int _sendBufferSize, int _backlog) : this(_port, true, _keySize, _protocolProcess, _receiveTimeout, _sendTimeout, _receiveBufferSize, _sendBufferSize, _backlog) { }
 
-        public event EventHandler Connected = delegate { };
+        public Listener(ushort _port, Action<CommunicationApparatus, IPEndPoint> _protocolProcess, int _receiveTimeout, int _sendTimeout, int _receiveBufferSize, int _sendBufferSize, int _backlog) : this(_port, false, RsaKeySize.rsa2048, _protocolProcess, _receiveTimeout, _sendTimeout, _receiveBufferSize, _sendBufferSize, _backlog) { }
+
+        public Listener(ushort _port, RsaKeySize _keySize, Action<CommunicationApparatus, IPEndPoint> _protocolProcess) : this(_port, true, _keySize, _protocolProcess, 30000, 30000, 8192, 8192, 100) { }
+
+        public Listener(ushort _port, Action<CommunicationApparatus, IPEndPoint> _protocolProcess) : this(_port, false, RsaKeySize.rsa2048, _protocolProcess, 30000, 30000, 8192, 8192, 100) { }
+
         public event EventHandler<Exception> Errored = delegate { };
-        public event EventHandler ClientConnected = delegate { };
-        public event EventHandler<Exception> ClientErrored = delegate { };
+        public event EventHandler<SocketData> ClientConnected = delegate { };
+        public event EventHandler<SocketData> ClientDisconnected = delegate { };
+        public event EventHandler<SocketData> ClientSuccessed = delegate { };
+        public event EventHandler<EventArgs<SocketData, Exception>> ClientErrored = delegate { };
 
         public void StartListener()
         {
@@ -425,6 +588,8 @@ namespace CREA2014
         {
             this.StartTask(() =>
             {
+                SocketData socketData = new SocketData(((IPEndPoint)client.RemoteEndPoint).Address.ToString(), (ushort)((IPEndPoint)client.RemoteEndPoint).Port, (ushort)((IPEndPoint)client.LocalEndPoint).Port);
+
                 try
                 {
                     client.ReceiveTimeout = receiveTimeout;
@@ -438,11 +603,11 @@ namespace CREA2014
 
                         if (isEncrypted)
                         {
-                            byte[] modulus = new byte[128];
+                            byte[] modulus = keySize == RsaKeySize.rsa1024 ? new byte[128] : new byte[256];
                             byte[] exponent = new byte[3];
 
-                            ns.Read(modulus, 0, 128);
-                            ns.Read(exponent, 0, 3);
+                            ns.Read(modulus, 0, modulus.Length);
+                            ns.Read(exponent, 0, exponent.Length);
 
                             RSACryptoServiceProvider rsacsp = new RSACryptoServiceProvider();
                             RSAParameters rsaParameters = new RSAParameters();
@@ -462,11 +627,12 @@ namespace CREA2014
                             ns.Write(encryptedIv, 0, encryptedIv.GetLength(0));
                         }
 
-                        ClientConnected(this, EventArgs.Empty);
+                        ClientConnected(this, socketData);
 
                         protocolProcess(new CommunicationApparatus(ns, rm), (IPEndPoint)client.RemoteEndPoint);
 
-                        //ConnectionAnalizer.RegisterResult(((IPEndPoint)client.RemoteEndPoint).Address.ToString(), true);
+                        ClientDisconnected(this, socketData);
+                        ClientSuccessed(this, socketData);
                     }
                 }
                 catch (Exception ex)
@@ -475,12 +641,8 @@ namespace CREA2014
 
                     EndClient(client);
 
-                    ClientErrored(this, ex);
-
-                    //if (ex is SocketException)
-                    //    ConnectionAnalizer.RegisterResult(((IPEndPoint)client.RemoteEndPoint).Address.ToString(), false);
-                    //else if ((ex.InnerException != null && ex.InnerException is SocketException))
-                    //    ConnectionAnalizer.RegisterResult(((IPEndPoint)client.RemoteEndPoint).Address.ToString(), false);
+                    ClientDisconnected(this, socketData);
+                    ClientErrored(this, new EventArgs<SocketData, Exception>(socketData, ex));
                 }
             }, "listener_client", string.Empty);
         }
@@ -559,42 +721,87 @@ namespace CREA2014
         }
     }
 
-    public class ConnectionDatabase : INTERNALDATA
+    public class ConnectionHistory
     {
-        private readonly object connectionsLock = new object();
-        private List<ConnectionData> connections;
-        public ConnectionData[] Connections
+        private readonly string ipAddress;
+        public string IpAddress
         {
-            get { return connections.ToArray(); }
+            get { return ipAddress; }
         }
 
-        public ConnectionDatabase()
+        private int success;
+        public int Success
         {
-            connections = new List<ConnectionData>();
+            get { return success; }
         }
 
-        public event EventHandler ConnectionAdded = delegate { };
-        public event EventHandler ConnectionRemoved = delegate { };
-
-        public void AddConnection(ConnectionData connection)
+        private int failure;
+        public int Failure
         {
-            lock (connectionsLock)
+            get { return failure; }
+        }
+
+        private readonly object failureTimeLock = new object();
+        private List<DateTime> failureTime;
+        public DateTime[] FailureTime
+        {
+            get { return failureTime.ToArray(); }
+        }
+
+        public ConnectionHistory(string _ipAddress)
+        {
+            ipAddress = _ipAddress;
+            failureTime = new List<DateTime>();
+        }
+
+        public int Connection
+        {
+            get { return success + failure; }
+        }
+
+        public double SuccessRate
+        {
+            get { return (double)success / (double)Connection; }
+        }
+
+        public double FailureRate
+        {
+            get { return (double)failure / (double)Connection; }
+        }
+
+        public bool IsDead
+        {
+            get
             {
-                if (connections.Contains(connection))
-                    throw new InvalidOperationException("exist_connection"); //対応済
-
-                this.ExecuteBeforeEvent(() => connections.Add(connection), ConnectionAdded);
+                lock (failureTimeLock)
+                    return failureTime.Count >= 2 && failureTime[1] - failureTime[0] <= new TimeSpan(0, 5, 0) && DateTime.Now - failureTime[1] <= new TimeSpan(0, 15, 0);
             }
         }
 
-        public void DeleteConnection(ConnectionData connection)
+        public bool IsBad
         {
-            lock (connectionsLock)
-            {
-                if (!connections.Contains(connection))
-                    throw new InvalidOperationException("not_exist_connection"); //対応済
+            get { return Connection > 10 && FailureRate > 0.9; }
+        }
 
-                this.ExecuteBeforeEvent(() => connections.Remove(connection), ConnectionRemoved);
+        public void IncrementSuccess()
+        {
+            success++;
+
+            lock (failureTime)
+                failureTime.Clear();
+        }
+
+        public void IncrementFailure()
+        {
+            failure++;
+
+            lock (failureTime)
+            {
+                if (failureTime.Count >= 2)
+                    while (failureTime.Count >= 2)
+                        failureTime.RemoveAt(0);
+
+                failureTime.Add(DateTime.Now);
             }
         }
     }
