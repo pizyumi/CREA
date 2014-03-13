@@ -68,6 +68,11 @@ namespace CREA2014
         }
     }
 
+    public abstract class PROTOCOL
+    {
+        public abstract class ProtocolInformation { }
+    }
+
     public class P2P
     {
         private readonly object connectionsLock = new object();
@@ -2202,6 +2207,214 @@ namespace CREA2014
         {
             throw new NotImplementedException();
         }
+    }
+
+    public class BinaryTree<T> : IEnumerable<T> where T : IComparable<T>
+    {
+        private Node root;
+        public Node Root
+        {
+            get { return root; }
+        }
+
+        public class Node
+        {
+            private T val;
+            public T Value
+            {
+                get { return val; }
+                internal set { val = value; }
+            }
+
+            private Node left;
+            public Node Left
+            {
+                get { return left; }
+                internal set { left = value; }
+            }
+
+            private Node right;
+            public Node Right
+            {
+                get { return right; }
+                internal set { right = value; }
+            }
+
+            private Node parent;
+            public Node Parent
+            {
+                get { return parent; }
+                internal set { parent = value; }
+            }
+
+            internal Node(T _val, Node _parent)
+            {
+                val = _val;
+                parent = _parent;
+            }
+
+            internal Node() : this(default(T), null) { }
+
+            public Node Next
+            {
+                get
+                {
+                    Node node = this;
+                    if (node.right != null)
+                        return node.right.Min;
+                    else
+                    {
+                        while (node.parent != null && node.parent.left != node)
+                            node = node.parent;
+                        return node.parent;
+                    }
+                }
+            }
+
+            public Node Previous
+            {
+                get
+                {
+                    Node node = this;
+                    if (node.left != null)
+                        return node.left.Max;
+                    else
+                    {
+                        while (node.parent != null && node.parent.right != node)
+                            node = node.parent;
+                        return node.parent;
+                    }
+                }
+            }
+
+            internal Node Min
+            {
+                get
+                {
+                    Node node = this;
+                    while (node.left != null)
+                        node = node.left;
+                    return node;
+                }
+            }
+
+            internal Node Max
+            {
+                get
+                {
+                    Node node = this;
+                    while (node.right != null)
+                        node = node.right;
+                    return node;
+                }
+            }
+        }
+
+        public int Count
+        {
+            get
+            {
+                Node node = root;
+                if (node == null)
+                    return 0;
+                else
+                {
+                    int count = 0;
+                    for (Node n = node.Min; n != null; n = n.Next)
+                        count++;
+                    return count;
+                }
+            }
+        }
+
+        //O(log n)
+        public bool Contains(T element) { return Find(element) != null; }
+
+        //O(log n)
+        public Node Find(T element)
+        {
+            Node node = root;
+            while (node != null)
+            {
+                if (node.Value.CompareTo(element) > 0)
+                    node = node.Left;
+                else if (node.Value.CompareTo(element) < 0)
+                    node = node.Right;
+                else
+                    break;
+            }
+            return node;
+        }
+
+        //O(log n)
+        public void Insert(T element)
+        {
+            if (root == null)
+                root = new Node(element, null);
+            else
+            {
+                Node node = root;
+                Node parent = null;
+
+                while (node != null)
+                {
+                    parent = node;
+                    if (node.Value.CompareTo(element) > 0)
+                        node = node.Left;
+                    else
+                        node = node.Right;
+                }
+
+                node = new Node(element, parent);
+                if (parent.Value.CompareTo(element) > 0)
+                    parent.Left = node;
+                else
+                    parent.Right = node;
+            }
+        }
+
+        //O(log n)
+        public void Erase(T element) { Erase(Find(element)); }
+
+        public void Erase(Node node)
+        {
+            if (node == null)
+                return;
+
+            if (node.Left == null)
+                Replace(node, node.Right);
+            else if (node.Right == null)
+                Replace(node, node.Left);
+            else
+            {
+                Node min = node.Right.Min;
+                node.Value = min.Value;
+                Replace(min, min.Right);
+            }
+        }
+
+        private void Replace(Node node1, Node node2)
+        {
+            Node parent = node1.Parent;
+            if (node2 != null)
+                node2.Parent = parent;
+            if (node1 == root)
+                root = node2;
+            else if (parent.Left == node1)
+                parent.Left = node2;
+            else
+                parent.Right = node2;
+        }
+
+        public IEnumerator<T> GetEnumerator()
+        {
+            Node node = root;
+            if (node != null)
+                for (Node n = node.Min; n != null; n = n.Next)
+                    yield return n.Value;
+        }
+
+        IEnumerator IEnumerable.GetEnumerator() { return GetEnumerator(); }
     }
 
     #endregion
