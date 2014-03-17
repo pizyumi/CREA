@@ -6,6 +6,7 @@ using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Management;
+using System.Net;
 using System.Net.Sockets;
 using System.Reflection;
 using System.Runtime.InteropServices;
@@ -143,6 +144,69 @@ namespace CREA2014
                 }
         }
 
+        //プライベートIPアドレスか（拡張：IPアドレス型）
+        public static bool IsPrivate(this IPAddress ipAddress)
+        {
+            if (ipAddress.AddressFamily == AddressFamily.InterNetwork)
+            {
+                byte[] ipAddressBytes = ipAddress.GetAddressBytes();
+                if (ipAddressBytes[0] == 10)
+                    return true;
+                else if (ipAddressBytes[0] == 172)
+                    return ipAddressBytes[1] >= 16 && ipAddressBytes[1] <= 31;
+                else if (ipAddressBytes[0] == 192)
+                    return ipAddressBytes[1] == 168;
+                else
+                    return false;
+            }
+            else
+                return false;
+        }
+
+        //グローバルIPアドレスか（拡張：IPアドレス型）
+        public static bool IsGlobal(this IPAddress ipAddress)
+        {
+            if (ipAddress.AddressFamily == AddressFamily.InterNetwork)
+            {
+                byte[] ipAddressBytes = ipAddress.GetAddressBytes();
+                if (ipAddressBytes[0] >= 1 && ipAddressBytes[0] <= 9)
+                    return true;
+                else if (ipAddressBytes[0] >= 11 && ipAddressBytes[0] <= 126)
+                    return true;
+                else if (ipAddressBytes[0] >= 128 && ipAddressBytes[0] <= 171)
+                    return true;
+                else if (ipAddressBytes[0] == 172)
+                    return ipAddressBytes[1] <= 15 || ipAddressBytes[1] >= 32;
+                else if (ipAddressBytes[0] >= 173 && ipAddressBytes[0] <= 191)
+                    return true;
+                else if (ipAddressBytes[0] == 192)
+                    return ipAddressBytes[1] != 168;
+                else if (ipAddressBytes[0] >= 193 && ipAddressBytes[0] <= 223)
+                    return true;
+                else
+                    return false;
+            }
+            else
+                return true;
+        }
+
+        //ローカルIPアドレスか（拡張：IPアドレス型）
+        public static bool IsLocal(this IPAddress ipAddress)
+        {
+            byte[] ipAddressBytes = ipAddress.GetAddressBytes();
+            if (ipAddress.AddressFamily == AddressFamily.InterNetwork)
+                return ipAddressBytes[0] == 127 && ipAddressBytes[1] == 0 && ipAddressBytes[2] == 0 && ipAddressBytes[3] == 1;
+            else if (ipAddress.AddressFamily == AddressFamily.InterNetworkV6)
+            {
+                for (int i = 0; i < 15; i++)
+                    if (ipAddressBytes[i] != 0)
+                        return false;
+                return ipAddressBytes[15] == 1;
+            }
+            else
+                return false;
+        }
+
         //バイト配列から16進文字列に変換する（拡張：バイト配列型）
         public static string ToHexstring(this byte[] bytes)
         {
@@ -193,13 +257,22 @@ namespace CREA2014
             return def;
         }
 
-        //二つのバイト配列の内容が等しいか判定する（拡張：バイト配列型）
-        public static bool BytesEquals(this byte[] byte1, byte[] byte2)
+        //バイト配列の内容が0であるか判定する（拡張：バイト配列型）
+        public static bool IsZeroBytes(this byte[] bytes)
         {
-            if (byte1.Length != byte2.Length)
+            for (int i = 0; i < bytes.Length; i++)
+                if (bytes[i] != 0)
+                    return false;
+            return true;
+        }
+
+        //二つのバイト配列の内容が等しいか判定する（拡張：バイト配列型）
+        public static bool BytesEquals(this byte[] bytes1, byte[] bytes2)
+        {
+            if (bytes1.Length != bytes2.Length)
                 return false;
-            for (int i = 0; i < byte1.Length; i++)
-                if (byte1[i] != byte2[i])
+            for (int i = 0; i < bytes1.Length; i++)
+                if (bytes1[i] != bytes2[i])
                     return false;
             return true;
         }
@@ -299,8 +372,14 @@ namespace CREA2014
 
         private static Random random = new Random();
 
+        //0からiまでの無作為な整数を返す（拡張：整数型）
+        public static int RandomNum(this int i)
+        {
+            return random.Next(i);
+        }
+
         //0からiまでの整数が1回ずつ無作為な順番で含まれる配列を作成する（拡張：整数型）
-        public static int[] RandomNum(this int i)
+        public static int[] RandomNums(this int i)
         {
             return random.OperateWhileTrue((r => r.Next(i))).Distinct().Take(i).ToArray();
         }
@@ -309,7 +388,7 @@ namespace CREA2014
         public static byte[] BytesRandom(this byte[] bytes)
         {
             byte[] newbytes = new byte[bytes.Length];
-            int[] ramdomNum = bytes.Length.RandomNum();
+            int[] ramdomNum = bytes.Length.RandomNums();
             for (int i = 0; i < bytes.Length; i++)
                 newbytes[i] = bytes[ramdomNum[i]];
             return newbytes;
@@ -559,7 +638,393 @@ namespace CREA2014
 
     public abstract class DATA { }
     public abstract class INTERNALDATA : DATA { }
-    public abstract class SHAREDDATA : DATA
+    public abstract class STREAMDATA<T> : DATA where T : STREAMDATA<T>.StreamInfomation
+    {
+        public class ReaderWriter
+        {
+            private readonly Stream stream;
+            private readonly Mode mode;
+
+            public ReaderWriter(Stream _stream, Mode _mode)
+            {
+                stream = _stream;
+                mode = _mode;
+            }
+
+            public enum Mode { read, write, neither }
+            public class CantReadOrWriteException : Exception { }
+
+            public byte[] ReadOrWrite(byte[] input, int length)
+            {
+                if (mode == Mode.read)
+                {
+                    byte[] output = new byte[length];
+                    stream.Read(output, 0, length);
+                    return output;
+                }
+                else if (mode == Mode.write)
+                {
+                    stream.Write(input, 0, length);
+                    return null;
+                }
+                else
+                    throw new CantReadOrWriteException();
+            }
+        }
+
+        public abstract class StreamInfomation
+        {
+            //2014/02/23
+            //抽象クラスには対応しない
+            //抽象クラスの変数に格納されている具象クラスを保存する場合には具象クラスとしてStreamInfomationを作成する
+            //具象クラスが複数ある場合には具象クラス別にStreamInfomationを作成する
+
+            //SHAREDDATA（の派生クラス）の配列専用
+            public StreamInfomation(Type _type, int? _version, int? _length, Func<object> _sender, Action<object> _receiver)
+            {
+                if (!_type.IsArray)
+                    throw new ArgumentException("stream_info_not_array"); //対応済
+
+                Type elementType = _type.GetElementType();
+                if (!elementType.IsSubclassOf(typeof(SHAREDDATA)))
+                    throw new ArgumentException("stream_info_not_sd_array"); //対応済
+                else if (elementType.IsAbstract)
+                    throw new ArgumentException("stream_info_sd_array_abstract"); //対応済
+
+                SHAREDDATA sd = Activator.CreateInstance(elementType) as SHAREDDATA;
+                if ((!sd.IsVersioned && _version != null) || (sd.IsVersioned && _version == null))
+                    throw new ArgumentException("stream_info_not_sd_array_is_versioned"); //対応済
+
+                version = _version;
+                length = _length;
+
+                Type = _type;
+                Sender = _sender;
+                Receiver = _receiver;
+            }
+
+            //SHAREDDATA（の派生クラス）の配列以外の配列またはSHAREDDATA（の派生クラス）専用
+            public StreamInfomation(Type _type, int? _lengthOrVersion, Func<object> _sender, Action<object> _receiver)
+            {
+                if (_type.IsArray)
+                {
+                    Type elementType = _type.GetElementType();
+                    if (elementType.IsSubclassOf(typeof(SHAREDDATA)))
+                        throw new ArgumentException("stream_info_sd_array"); //対応済
+                    else if (elementType.IsAbstract)
+                        throw new ArgumentException("stream_info_array_abstract"); //対応済
+                    else
+                        length = _lengthOrVersion;
+                }
+                else if (_type.IsSubclassOf(typeof(SHAREDDATA)))
+                {
+                    if (_type.IsAbstract)
+                        throw new ArgumentException("stream_info_sd_abstract"); //対応済
+
+                    SHAREDDATA sd = Activator.CreateInstance(_type) as SHAREDDATA;
+                    if ((!sd.IsVersioned && _lengthOrVersion != null) || (sd.IsVersioned && _lengthOrVersion == null))
+                        throw new ArgumentException("stream_info_sd_is_versioned"); //対応済
+
+                    version = _lengthOrVersion;
+                }
+                else
+                    throw new ArgumentException("stream_info_not_array_sd"); //対応済
+
+                Type = _type;
+                Sender = _sender;
+                Receiver = _receiver;
+            }
+
+            public StreamInfomation(Type _type, Func<object> _sender, Action<object> _receiver)
+            {
+                if (_type.IsArray)
+                    throw new ArgumentException("stream_info_array"); //対応済
+                else if (_type.IsSubclassOf(typeof(SHAREDDATA)))
+                    throw new ArgumentException("stream_info_sd"); //対応済
+                else if (_type.IsAbstract)
+                    throw new ArgumentException("stream_info_abstract"); //対応済
+
+                Type = _type;
+                Sender = _sender;
+                Receiver = _receiver;
+            }
+
+            public readonly Type Type;
+            public readonly Func<object> Sender;
+            public readonly Action<object> Receiver;
+
+            private readonly int? length;
+            public int? Length
+            {
+                get
+                {
+                    if (Type.IsArray)
+                        return length;
+                    else
+                        throw new NotSupportedException("stream_info_length"); //対応済
+                }
+            }
+
+            private readonly int? version;
+            public int Version
+            {
+                get
+                {
+                    SHAREDDATA sd;
+                    if (Type.IsSubclassOf(typeof(SHAREDDATA)))
+                        sd = Activator.CreateInstance(Type) as SHAREDDATA;
+                    else if (Type.IsArray)
+                    {
+                        Type elementType = Type.GetElementType();
+                        if (elementType.IsSubclassOf(typeof(SHAREDDATA)))
+                            sd = Activator.CreateInstance(elementType) as SHAREDDATA;
+                        else
+                            throw new NotSupportedException("stream_info_version"); //対応済
+                    }
+                    else
+                        throw new NotSupportedException("stream_info_version"); //対応済
+
+                    if (!sd.IsVersioned)
+                        throw new NotSupportedException("stream_info_version"); //対応済
+                    else
+                        return (int)version;
+                }
+            }
+        }
+
+        protected abstract Func<ReaderWriter, IEnumerable<T>> StreamInfo { get; }
+
+        protected void Write(Stream stream, StreamInfomation si)
+        {
+            Action<Type, object> _Write = (type, o) =>
+            {
+                if (type == typeof(bool))
+                    stream.Write(BitConverter.GetBytes((bool)o), 0, 1);
+                else if (type == typeof(int))
+                    stream.Write(BitConverter.GetBytes((int)o), 0, 4);
+                else if (type == typeof(float))
+                    stream.Write(BitConverter.GetBytes((float)o), 0, 4);
+                else if (type == typeof(long))
+                    stream.Write(BitConverter.GetBytes((long)o), 0, 8);
+                else if (type == typeof(double))
+                    stream.Write(BitConverter.GetBytes((double)o), 0, 8);
+                else if (type == typeof(DateTime))
+                    stream.Write(BitConverter.GetBytes(((DateTime)o).ToBinary()), 0, 8);
+                else if (type == typeof(string))
+                {
+                    byte[] bytes = Encoding.UTF8.GetBytes((string)o);
+                    stream.Write(BitConverter.GetBytes(bytes.Length), 0, 4);
+                    stream.Write(bytes, 0, bytes.Length);
+                }
+                else if (type.IsSubclassOf(typeof(SHAREDDATA)))
+                {
+                    SHAREDDATA sd = o as SHAREDDATA;
+                    if (sd.IsVersioned)
+                        sd.Version = si.Version;
+
+                    byte[] bytes = sd.ToBinary();
+                    if (sd.Length == null)
+                        stream.Write(BitConverter.GetBytes(bytes.Length), 0, 4);
+                    stream.Write(bytes, 0, bytes.Length);
+                }
+                else
+                    throw new NotSupportedException("sd_write_not_supported"); //対応済
+            };
+
+            object obj = si.Sender();
+
+            if (si.Type == typeof(byte[]))
+            {
+                if (si.Length == null)
+                    stream.Write(BitConverter.GetBytes(((byte[])obj).Length), 0, 4);
+                stream.Write((byte[])obj, 0, ((byte[])obj).Length);
+            }
+            else if (si.Type.IsArray)
+            {
+                object[] objs = obj as object[];
+                Type elementType = si.Type.GetElementType();
+
+                if (si.Length == null)
+                    stream.Write(BitConverter.GetBytes(objs.Length), 0, 4);
+                foreach (var innerObj in obj as object[])
+                    _Write(elementType, innerObj);
+            }
+            else
+                _Write(si.Type, obj);
+        }
+
+        protected void Read(Stream stream, StreamInfomation si)
+        {
+            Func<Type, object> _Read = (type) =>
+            {
+                if (type == typeof(bool))
+                {
+                    byte[] bytes = new byte[1];
+                    stream.Read(bytes, 0, 1);
+                    return BitConverter.ToBoolean(bytes, 0);
+                }
+                else if (type == typeof(int))
+                {
+                    byte[] bytes = new byte[4];
+                    stream.Read(bytes, 0, 4);
+                    return BitConverter.ToInt32(bytes, 0);
+                }
+                else if (type == typeof(float))
+                {
+                    byte[] bytes = new byte[4];
+                    stream.Read(bytes, 0, 4);
+                    return BitConverter.ToSingle(bytes, 0);
+                }
+                else if (type == typeof(long))
+                {
+                    byte[] bytes = new byte[8];
+                    stream.Read(bytes, 0, 8);
+                    return BitConverter.ToInt64(bytes, 0);
+                }
+                else if (type == typeof(double))
+                {
+                    byte[] bytes = new byte[8];
+                    stream.Read(bytes, 0, 8);
+                    return BitConverter.ToDouble(bytes, 0);
+                }
+                else if (type == typeof(DateTime))
+                {
+                    byte[] bytes = new byte[8];
+                    stream.Read(bytes, 0, 8);
+                    return DateTime.FromBinary(BitConverter.ToInt64(bytes, 0));
+                }
+                else if (type == typeof(string))
+                {
+                    byte[] lengthBytes = new byte[4];
+                    stream.Read(lengthBytes, 0, 4);
+                    int length = BitConverter.ToInt32(lengthBytes, 0);
+
+                    byte[] bytes = new byte[length];
+                    stream.Read(bytes, 0, length);
+                    return Encoding.UTF8.GetString(bytes);
+                }
+                else if (type.IsSubclassOf(typeof(SHAREDDATA)))
+                {
+                    SHAREDDATA sd = Activator.CreateInstance(type) as SHAREDDATA;
+                    if (sd.IsVersioned)
+                        sd.Version = si.Version;
+
+                    int length;
+                    if (sd.Length == null)
+                    {
+                        byte[] lengthBytes = new byte[4];
+                        stream.Read(lengthBytes, 0, 4);
+                        length = BitConverter.ToInt32(lengthBytes, 0);
+                    }
+                    else
+                    {
+                        length = (int)sd.Length;
+                        if (sd.IsVersioned)
+                            length += 4;
+                        if (sd.IsCorruptionChecked)
+                            length += 4;
+                    }
+
+                    byte[] bytes = new byte[length];
+                    stream.Read(bytes, 0, length);
+
+                    sd.FromBinary(bytes);
+
+                    return sd;
+                }
+                else
+                    throw new NotSupportedException("sd_read_not_supported"); //対応済
+            };
+
+            if (si.Type == typeof(byte[]))
+            {
+                int length;
+                if (si.Length == null)
+                {
+                    byte[] lengthBytes = new byte[4];
+                    stream.Read(lengthBytes, 0, 4);
+                    length = BitConverter.ToInt32(lengthBytes, 0);
+                }
+                else
+                    length = (int)si.Length;
+
+                byte[] bytes = new byte[length];
+                stream.Read(bytes, 0, length);
+                si.Receiver(bytes);
+            }
+            else if (si.Type.IsArray)
+            {
+                Type elementType = si.Type.GetElementType();
+
+                int length;
+                if (si.Length == null)
+                {
+                    byte[] lengthBytes = new byte[4];
+                    stream.Read(lengthBytes, 0, 4);
+                    length = BitConverter.ToInt32(lengthBytes, 0);
+                }
+                else
+                    length = (int)si.Length;
+
+                object[] os = Array.CreateInstance(elementType, length) as object[];
+                for (int i = 0; i < os.Length; i++)
+                    os[i] = _Read(elementType);
+
+                si.Receiver(os);
+            }
+            else
+                si.Receiver(_Read(si.Type));
+        }
+    }
+    public abstract class COMMUNICATIONPROTOCOL : STREAMDATA<COMMUNICATIONPROTOCOL.ProtocolInfomation>
+    {
+        public enum ClientOrServer { client, server }
+
+        public class ProtocolInfomation : StreamInfomation
+        {
+            public ProtocolInfomation(Type _type, int? _version, int? _length, Func<object> _sender, Action<object> _receiver, Direction _forClient)
+                : base(_type, _version, _length, _sender, _receiver)
+            {
+                ForClient = _forClient;
+            }
+
+            public ProtocolInfomation(Type _type, int? _lengthOrVersion, Func<object> _sender, Action<object> _receiver, Direction _forClient)
+                : base(_type, _lengthOrVersion, _sender, _receiver)
+            {
+                ForClient = _forClient;
+            }
+
+            public ProtocolInfomation(Type _type, Func<object> _sender, Action<object> _receiver, Direction _forClient)
+                : base(_type, _sender, _receiver)
+            {
+                ForClient = _forClient;
+            }
+
+            public enum Direction { write, read }
+
+            public readonly Direction ForClient;
+            public Direction ForServer
+            {
+                get
+                {
+                    if (ForClient == Direction.read)
+                        return Direction.write;
+                    else
+                        return Direction.read;
+                }
+            }
+        }
+
+        protected void Communicate(NetworkStream ns, ClientOrServer clientOrServer)
+        {
+            foreach (var pi in StreamInfo(new ReaderWriter(ns, ReaderWriter.Mode.neither)))
+                if ((clientOrServer == ClientOrServer.client && pi.ForClient == ProtocolInfomation.Direction.read) || (clientOrServer == ClientOrServer.server && pi.ForServer == ProtocolInfomation.Direction.read))
+                    Read(ns, pi);
+                else
+                    Write(ns, pi);
+        }
+    }
+    public abstract class SHAREDDATA : STREAMDATA<SHAREDDATA.MainDataInfomation>
     {
         //<未実装>圧縮機能
         //<未実装>ジャグ配列に対応
@@ -574,6 +1039,13 @@ namespace CREA2014
                 else
                     return (int)version;
             }
+            set
+            {
+                if (!IsVersioned)
+                    throw new NotSupportedException("sd_version"); //対応済
+                else
+                    version = value;
+            }
         }
 
         public SHAREDDATA(int? _version)
@@ -586,159 +1058,69 @@ namespace CREA2014
 
         public SHAREDDATA() : this(null) { }
 
-        public class MainDataInfomation
+        public class MainDataInfomation : StreamInfomation
         {
-            //2014/02/23
-            //抽象クラスには対応しない
-            //抽象クラスの変数に格納されている具象クラスを保存する場合には具象クラスとしてMainDataInfomationを作成する
-            //具象クラスが複数ある場合には具象クラス別にMainDataInfomationを作成する
+            public MainDataInfomation(Type _type, int? _version, int? _length, Func<object> _getter, Action<object> _setter) : base(_type, _version, _length, _getter, _setter) { }
 
-            //CREACOINSHAREDDATA（の派生クラス）の配列専用
-            public MainDataInfomation(Type _type, int? _version, int? _length, Func<object> _getter, Action<object> _setter)
+            public MainDataInfomation(Type _type, int? _lengthOrVersion, Func<object> _getter, Action<object> _setter) : base(_type, _lengthOrVersion, _getter, _setter) { }
+
+            public MainDataInfomation(Type _type, Func<object> _getter, Action<object> _setter) : base(_type, _getter, _setter) { }
+
+            public Func<object> Getter
             {
-                if (!_type.IsArray)
-                    throw new ArgumentException("sd_main_data_info_not_array"); //対応済
-
-                Type elementType = _type.GetElementType();
-                if (!elementType.IsSubclassOf(typeof(SHAREDDATA)))
-                    throw new ArgumentException("sd_main_data_info_not_ccsd_array"); //対応済
-                else if (elementType.IsAbstract)
-                    throw new ArgumentException("sd_main_data_info_ccsd_array_abstract"); //対応済
-
-                SHAREDDATA ccsd = Activator.CreateInstance(elementType) as SHAREDDATA;
-                if ((!ccsd.IsVersioned && _version != null) || (ccsd.IsVersioned && _version == null))
-                    throw new ArgumentException("sd_main_data_info_not_is_versioned"); //対応済
-
-                version = _version;
-                length = _length;
-
-                Type = _type;
-                Getter = _getter;
-                Setter = _setter;
+                get { return Sender; }
             }
 
-            //CREACOINSHAREDDATA（の派生クラス）の配列以外の配列またはCREACOINSHAREDDATA（の派生クラス）専用
-            public MainDataInfomation(Type _type, int? _lengthOrVersion, Func<object> _getter, Action<object> _setter)
+            public Action<object> Setter
             {
-                if (_type.IsArray)
-                {
-                    Type elementType = _type.GetElementType();
-                    if (elementType.IsSubclassOf(typeof(SHAREDDATA)))
-                        throw new ArgumentException("sd_main_data_info_ccsd_array"); //対応済
-                    else if (elementType.IsAbstract)
-                        throw new ArgumentException("sd_main_data_info_array_abstract"); //対応済
-                    else
-                        length = _lengthOrVersion;
-                }
-                else if (_type.IsSubclassOf(typeof(SHAREDDATA)))
-                {
-                    if (_type.IsAbstract)
-                        throw new ArgumentException("sd_main_data_info_ccsd_abstract"); //対応済
-
-                    SHAREDDATA ccsd = Activator.CreateInstance(_type) as SHAREDDATA;
-                    if ((!ccsd.IsVersioned && _lengthOrVersion != null) || (ccsd.IsVersioned && _lengthOrVersion == null))
-                        throw new ArgumentException("sd_main_data_info_not_is_versioned"); //対応済
-
-                    version = _lengthOrVersion;
-                }
-                else
-                    throw new ArgumentException("sd_main_data_info_not_bytes_ccsd"); //対応済
-
-                Type = _type;
-                Getter = _getter;
-                Setter = _setter;
+                get { return Receiver; }
             }
-
-            public MainDataInfomation(Type _type, Func<object> _getter, Action<object> _setter)
-            {
-                if (_type.IsArray)
-                    throw new ArgumentException("sd_main_data_info_array"); //対応済
-                else if (_type.IsSubclassOf(typeof(SHAREDDATA)))
-                    throw new ArgumentException("sd_main_data_info_ccsd"); //対応済
-                else if (_type.IsAbstract)
-                    throw new ArgumentException("sd_main_data_info_abstract"); //対応済
-
-                Type = _type;
-                Getter = _getter;
-                Setter = _setter;
-            }
-
-            public readonly Type Type;
-            private readonly int? length;
-            public int? Length
-            {
-                get
-                {
-                    if (Type.IsArray)
-                        return length;
-                    else
-                        throw new NotSupportedException("sd_main_data_info_length"); //対応済
-                }
-            }
-            private readonly int? version;
-            public int Version
-            {
-                get
-                {
-                    SHAREDDATA ccsd;
-                    if (Type.IsSubclassOf(typeof(SHAREDDATA)))
-                        ccsd = Activator.CreateInstance(Type) as SHAREDDATA;
-                    else if (Type.IsArray)
-                    {
-                        Type elementType = Type.GetElementType();
-                        if (elementType.IsSubclassOf(typeof(SHAREDDATA)))
-                            ccsd = Activator.CreateInstance(elementType) as SHAREDDATA;
-                        else
-                            throw new NotSupportedException("sd_main_data_info_version"); //対応済
-                    }
-                    else
-                        throw new NotSupportedException("sd_main_data_info_version"); //対応済
-
-                    if (!ccsd.IsVersioned)
-                        throw new NotSupportedException("sd_main_data_info_is_versioned"); //対応済
-                    else
-                        return (int)version;
-                }
-            }
-            public readonly Func<object> Getter;
-            public readonly Action<object> Setter;
         }
 
-        public class MemoryStreamReaderWriter
+        public virtual bool IsVersioned
         {
-            private readonly MemoryStream ms;
-            private readonly MsrwMode mode;
-
-            public MemoryStreamReaderWriter(MemoryStream _ms, MsrwMode _mode)
-            {
-                ms = _ms;
-                mode = _mode;
-            }
-
-            public byte[] ReadOrWrite(byte[] input, int length)
-            {
-                if (mode == MsrwMode.read)
-                {
-                    byte[] output = new byte[length];
-                    ms.Read(output, 0, length);
-                    return output;
-                }
-                else if (mode == MsrwMode.write)
-                {
-                    ms.Write(input, 0, length);
-                    return null;
-                }
-                else
-                    throw new MsrwCantReadOrWriteException();
-            }
-
-            public enum MsrwMode { read, write, neither }
-            public class MsrwCantReadOrWriteException : Exception { }
+            get { return false; }
         }
 
-        protected abstract Func<MemoryStreamReaderWriter, IEnumerable<MainDataInfomation>> MainDataInfo { get; }
-        protected abstract bool IsVersioned { get; }
-        protected abstract bool IsCorruptionChecked { get; }
+        public virtual bool IsCorruptionChecked
+        {
+            get { return false; }
+        }
+
+        public virtual bool IsSigned
+        {
+            get { return false; }
+        }
+
+        public virtual byte[] PublicKey
+        {
+            get { throw new NotSupportedException("sd_pubkey"); }
+        }
+
+        public virtual byte[] PrivateKey
+        {
+            get { throw new NotSupportedException("sd_privatekey"); }
+        }
+
+        public virtual bool IsSignatureChecked
+        {
+            get { return false; }
+        }
+
+        private byte[] signature;
+        public bool IsValidSignature
+        {
+            get
+            {
+                if (!IsSigned)
+                    throw new NotSupportedException("sd_is_valid_sig");
+                if (signature == null)
+                    throw new InvalidOperationException("sd_signature");
+
+                using (ECDsaCng dsa = new ECDsaCng(CngKey.Import(PublicKey, CngKeyBlobFormat.EccPublicBlob)))
+                    return dsa.VerifyData(ToBinaryMainData(), signature);
+            }
+        }
 
         public int? Length
         {
@@ -756,22 +1138,22 @@ namespace CREA2014
                         return null;
                     else if (type.IsSubclassOf(typeof(SHAREDDATA)))
                     {
-                        SHAREDDATA ccsd = Activator.CreateInstance(type) as SHAREDDATA;
-                        if (ccsd.IsVersioned)
-                            ccsd.version = mdi.Version;
+                        SHAREDDATA sd = Activator.CreateInstance(type) as SHAREDDATA;
+                        if (sd.IsVersioned)
+                            sd.version = mdi.Version;
 
-                        if (ccsd.Length == null)
+                        if (sd.Length == null)
                             return null;
                         else
                         {
                             int innerLength = 0;
 
-                            if (ccsd.IsVersioned)
+                            if (sd.IsVersioned)
                                 innerLength += 4;
-                            if (ccsd.IsCorruptionChecked)
+                            if (sd.IsCorruptionChecked)
                                 innerLength += 4;
 
-                            return innerLength + (int)ccsd.Length;
+                            return innerLength + (int)sd.Length;
                         }
                     }
                     else
@@ -781,9 +1163,8 @@ namespace CREA2014
                 int length = 0;
                 try
                 {
-                    foreach (var mdi in MainDataInfo(new MemoryStreamReaderWriter(null, MemoryStreamReaderWriter.MsrwMode.neither)))
+                    foreach (var mdi in StreamInfo(new ReaderWriter(null, ReaderWriter.Mode.neither)))
                         if (mdi.Type.IsArray)
-                        {
                             if (mdi.Length == null)
                                 return null;
                             else
@@ -794,7 +1175,6 @@ namespace CREA2014
                                 else
                                     length += (int)mdi.Length * (int)innerLength;
                             }
-                        }
                         else
                         {
                             int? innerLength = _GetLength(mdi.Type, mdi);
@@ -804,7 +1184,7 @@ namespace CREA2014
                                 length += (int)innerLength;
                         }
                 }
-                catch (MemoryStreamReaderWriter.MsrwCantReadOrWriteException)
+                catch (ReaderWriter.CantReadOrWriteException)
                 {
                     return null;
                 }
@@ -812,72 +1192,21 @@ namespace CREA2014
             }
         }
 
-        public byte[] ToBinary()
+        private byte[] ToBinaryMainData()
         {
-            byte[] mainDataBytes;
             using (MemoryStream ms = new MemoryStream())
             {
-                Action<Type, MainDataInfomation, object> _Write = (type, mdi, o) =>
-                {
-                    if (type == typeof(bool))
-                        ms.Write(BitConverter.GetBytes((bool)o), 0, 1);
-                    else if (type == typeof(int))
-                        ms.Write(BitConverter.GetBytes((int)o), 0, 4);
-                    else if (type == typeof(float))
-                        ms.Write(BitConverter.GetBytes((float)o), 0, 4);
-                    else if (type == typeof(long))
-                        ms.Write(BitConverter.GetBytes((long)o), 0, 8);
-                    else if (type == typeof(double))
-                        ms.Write(BitConverter.GetBytes((double)o), 0, 8);
-                    else if (type == typeof(DateTime))
-                        ms.Write(BitConverter.GetBytes(((DateTime)o).ToBinary()), 0, 8);
-                    else if (type == typeof(string))
-                    {
-                        byte[] bytes = Encoding.UTF8.GetBytes((string)o);
-                        ms.Write(BitConverter.GetBytes(bytes.Length), 0, 4);
-                        ms.Write(bytes, 0, bytes.Length);
-                    }
-                    else if (type.IsSubclassOf(typeof(SHAREDDATA)))
-                    {
-                        SHAREDDATA ccsd = o as SHAREDDATA;
-                        if (ccsd.IsVersioned)
-                            ccsd.version = mdi.Version;
+                foreach (var mdi in StreamInfo(new ReaderWriter(ms, ReaderWriter.Mode.write)))
+                    Write(ms, mdi);
 
-                        byte[] bytes = ccsd.ToBinary();
-                        if (ccsd.Length == null)
-                            ms.Write(BitConverter.GetBytes(bytes.Length), 0, 4);
-                        ms.Write(bytes, 0, bytes.Length);
-                    }
-                    else
-                        throw new NotSupportedException("to_binary_not_supported"); //対応済
-                };
-
-                foreach (var mdi in MainDataInfo(new MemoryStreamReaderWriter(ms, MemoryStreamReaderWriter.MsrwMode.write)))
-                {
-                    object o = mdi.Getter();
-
-                    if (mdi.Type == typeof(byte[]))
-                    {
-                        if (mdi.Length == null)
-                            ms.Write(BitConverter.GetBytes(((byte[])o).Length), 0, 4);
-                        ms.Write((byte[])o, 0, ((byte[])o).Length);
-                    }
-                    else if (mdi.Type.IsArray)
-                    {
-                        object[] os = o as object[];
-                        Type elementType = mdi.Type.GetElementType();
-
-                        if (mdi.Length == null)
-                            ms.Write(BitConverter.GetBytes(os.Length), 0, 4);
-                        foreach (var innerObj in o as object[])
-                            _Write(elementType, mdi, innerObj);
-                    }
-                    else
-                        _Write(mdi.Type, mdi, o);
-                }
-
-                mainDataBytes = ms.ToArray();
+                return ms.ToArray();
             }
+        }
+
+        public byte[] ToBinary()
+        {
+            byte[] mainDataBytes = ToBinaryMainData();
+
             using (MemoryStream ms = new MemoryStream())
             {
                 if (IsVersioned)
@@ -919,130 +1248,15 @@ namespace CREA2014
                     throw new InvalidDataException("from_binary_check_inaccurate"); //対応済
             }
             using (MemoryStream ms = new MemoryStream(mainDataBytes))
-            {
-                Func<Type, MainDataInfomation, object> _Read = (type, mdi) =>
-                {
-                    if (type == typeof(bool))
-                    {
-                        byte[] bytes = new byte[1];
-                        ms.Read(bytes, 0, 1);
-                        return BitConverter.ToBoolean(bytes, 0);
-                    }
-                    else if (type == typeof(int))
-                    {
-                        byte[] bytes = new byte[4];
-                        ms.Read(bytes, 0, 4);
-                        return BitConverter.ToInt32(bytes, 0);
-                    }
-                    else if (type == typeof(float))
-                    {
-                        byte[] bytes = new byte[4];
-                        ms.Read(bytes, 0, 4);
-                        return BitConverter.ToSingle(bytes, 0);
-                    }
-                    else if (type == typeof(long))
-                    {
-                        byte[] bytes = new byte[8];
-                        ms.Read(bytes, 0, 8);
-                        return BitConverter.ToInt64(bytes, 0);
-                    }
-                    else if (type == typeof(double))
-                    {
-                        byte[] bytes = new byte[8];
-                        ms.Read(bytes, 0, 8);
-                        return BitConverter.ToDouble(bytes, 0);
-                    }
-                    else if (type == typeof(DateTime))
-                    {
-                        byte[] bytes = new byte[8];
-                        ms.Read(bytes, 0, 8);
-                        return DateTime.FromBinary(BitConverter.ToInt64(bytes, 0));
-                    }
-                    else if (type == typeof(string))
-                    {
-                        byte[] lengthBytes = new byte[4];
-                        ms.Read(lengthBytes, 0, 4);
-                        int length = BitConverter.ToInt32(lengthBytes, 0);
+                foreach (var mdi in StreamInfo(new ReaderWriter(ms, ReaderWriter.Mode.read)))
+                    Read(ms, mdi);
+        }
 
-                        byte[] bytes = new byte[length];
-                        ms.Read(bytes, 0, length);
-                        return Encoding.UTF8.GetString(bytes);
-                    }
-                    else if (type.IsSubclassOf(typeof(SHAREDDATA)))
-                    {
-                        SHAREDDATA ccsd = Activator.CreateInstance(type) as SHAREDDATA;
-                        if (ccsd.IsVersioned)
-                            ccsd.version = mdi.Version;
-
-                        int length;
-                        if (ccsd.Length == null)
-                        {
-                            byte[] lengthBytes = new byte[4];
-                            ms.Read(lengthBytes, 0, 4);
-                            length = BitConverter.ToInt32(lengthBytes, 0);
-                        }
-                        else
-                        {
-                            length = (int)ccsd.Length;
-                            if (ccsd.IsVersioned)
-                                length += 4;
-                            if (ccsd.IsCorruptionChecked)
-                                length += 4;
-                        }
-
-                        byte[] bytes = new byte[length];
-                        ms.Read(bytes, 0, length);
-
-                        ccsd.FromBinary(bytes);
-
-                        return ccsd;
-                    }
-                    else
-                        throw new NotSupportedException("from_binary_not_supported"); //対応済
-                };
-
-                foreach (var mdi in MainDataInfo(new MemoryStreamReaderWriter(ms, MemoryStreamReaderWriter.MsrwMode.read)))
-                {
-                    if (mdi.Type == typeof(byte[]))
-                    {
-                        int length;
-                        if (mdi.Length == null)
-                        {
-                            byte[] lengthBytes = new byte[4];
-                            ms.Read(lengthBytes, 0, 4);
-                            length = BitConverter.ToInt32(lengthBytes, 0);
-                        }
-                        else
-                            length = (int)mdi.Length;
-
-                        byte[] bytes = new byte[length];
-                        ms.Read(bytes, 0, length);
-                        mdi.Setter(bytes);
-                    }
-                    else if (mdi.Type.IsArray)
-                    {
-                        Type elementType = mdi.Type.GetElementType();
-
-                        int length;
-                        if (mdi.Length == null)
-                        {
-                            byte[] lengthBytes = new byte[4];
-                            ms.Read(lengthBytes, 0, 4);
-                            length = BitConverter.ToInt32(lengthBytes, 0);
-                        }
-                        else
-                            length = (int)mdi.Length;
-
-                        object[] os = Array.CreateInstance(elementType, length) as object[];
-                        for (int i = 0; i < os.Length; i++)
-                            os[i] = _Read(elementType, mdi);
-
-                        mdi.Setter(os);
-                    }
-                    else
-                        mdi.Setter(_Read(mdi.Type, mdi));
-                }
-            }
+        public static T FromBinary<T>(byte[] binary) where T : SHAREDDATA
+        {
+            T sd = Activator.CreateInstance(typeof(T)) as T;
+            sd.FromBinary(binary);
+            return sd;
         }
     }
     public abstract class SETTINGSDATA : DATA
@@ -1101,7 +1315,7 @@ namespace CREA2014
                 {
                     Type elementType = mdi.Type.GetElementType();
 
-                    XElement xElementArray = new XElement(XmlName + "s");
+                    XElement xElementArray = new XElement(mdi.XmlName + "s");
                     foreach (var innerObj in o as object[])
                         _Write(elementType, mdi, innerObj, xElementArray);
 
@@ -1218,6 +1432,8 @@ namespace CREA2014
     }
 
     #endregion
+
+    #region main
 
     public static class Program
     {
@@ -2145,6 +2361,8 @@ namespace CREA2014
 
             //Listener listener = new Listener(7777, RsaKeySize.rsa2048, (ca, ip) =>
             //{
+            //    Thread.Sleep(50000);
+
             //    string message = Encoding.UTF8.GetString(ca.ReadCompressedBytes());
 
             //    MessageBox.Show(message);
@@ -2159,13 +2377,15 @@ namespace CREA2014
 
             //Client client = new Client("127.0.0.1", 7777, RsaKeySize.rsa2048, privateRSAParameters, (ca, ip) =>
             //{
+            //    Thread.Sleep(50000);
+
             //    ca.WriteCompreddedBytes(Encoding.UTF8.GetBytes("テストだよ～"));
             //});
             //client.StartClient();
 
-            //Thread.Sleep(10000);
+            //Thread.Sleep(100000);
 
-            //Console.ReadLine();
+            Console.ReadLine();
 
             Action<Exception, ExceptionKind> _OnException = (ex, exKind) =>
             {
@@ -2425,4 +2645,6 @@ namespace CREA2014
             mutex.Close();
         }
     }
+
+    #endregion
 }

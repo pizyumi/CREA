@@ -1,0 +1,440 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<ClassDiagram MajorVersion="1" MinorVersion="1" MembersFormat="NameAndType">
+  <Class Name="CREA2014.OneTime" Collapsed="true">
+    <Position X="72.5" Y="2.5" Width="1.5" />
+    <TypeIdentifier>
+      <HashCode>AAAAAAIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=</HashCode>
+      <FileName>Program.cs</FileName>
+    </TypeIdentifier>
+  </Class>
+  <Class Name="CREA2014.EventArgs&lt;T&gt;" Collapsed="true">
+    <Position X="0.5" Y="0.5" Width="1.5" />
+    <TypeIdentifier>
+      <HashCode>AAAAAAAAAAAAAAAAAAAAAAAAAAAAACAAAAAgAAAAAAA=</HashCode>
+      <FileName>Program.cs</FileName>
+    </TypeIdentifier>
+  </Class>
+  <Class Name="CREA2014.EventArgs&lt;T, U&gt;" Collapsed="true">
+    <Position X="0.5" Y="2" Width="1.75" />
+    <TypeIdentifier>
+      <HashCode>AAAAAAAAAAAAAAAAAAAAAAAAAAAAACAAAAAgAAAAAAA=</HashCode>
+      <FileName>Program.cs</FileName>
+    </TypeIdentifier>
+  </Class>
+  <Class Name="CREA2014.EventArgs&lt;T, U, V&gt;" Collapsed="true">
+    <Position X="0.5" Y="3.5" Width="1.75" />
+    <TypeIdentifier>
+      <HashCode>AAAAAAAAAAAAAAAAAAAAAAAAAAAAACAAAAAgAAAAAAA=</HashCode>
+      <FileName>Program.cs</FileName>
+    </TypeIdentifier>
+  </Class>
+  <Class Name="CREA2014.Extension" Collapsed="true">
+    <Position X="72.5" Y="1.5" Width="1.5" />
+    <TypeIdentifier>
+      <HashCode>IAAIgGAAcJQCBQEAABwgRA4ECJAIgQCIECYDkCCREBg=</HashCode>
+      <FileName>Program.cs</FileName>
+    </TypeIdentifier>
+  </Class>
+  <Class Name="CREA2014.WIN32API" Collapsed="true">
+    <Position X="69" Y="4.5" Width="1.5" />
+    <TypeIdentifier>
+      <HashCode>AABIAAAAAAAAAAAAAAAAAAAAAAAAAQAAAAAAAAAgAAA=</HashCode>
+      <FileName>Program.cs</FileName>
+    </TypeIdentifier>
+  </Class>
+  <Class Name="CREA2014.DATA">
+    <Position X="34" Y="0.5" Width="1.5" />
+    <TypeIdentifier>
+      <HashCode>AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=</HashCode>
+      <FileName>Program.cs</FileName>
+    </TypeIdentifier>
+  </Class>
+  <Class Name="CREA2014.INTERNALDATA">
+    <Position X="59.25" Y="2.25" Width="1.5" />
+    <TypeIdentifier>
+      <HashCode>AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=</HashCode>
+      <FileName>Program.cs</FileName>
+    </TypeIdentifier>
+  </Class>
+  <Class Name="CREA2014.STREAMDATA&lt;T&gt;">
+    <Position X="28" Y="2.25" Width="4" />
+    <Compartments>
+      <Compartment Name="Nested Types" Collapsed="false" />
+    </Compartments>
+    <NestedTypes>
+      <Class Name="CREA2014.STREAMDATA&lt;T&gt;.ReaderWriter">
+        <NestedTypes>
+          <Enum Name="CREA2014.STREAMDATA&lt;T&gt;.ReaderWriter.Mode" Collapsed="true">
+            <TypeIdentifier>
+              <NewMemberFileName>Program.cs</NewMemberFileName>
+            </TypeIdentifier>
+          </Enum>
+          <Class Name="CREA2014.STREAMDATA&lt;T&gt;.ReaderWriter.CantReadOrWriteException" Collapsed="true">
+            <TypeIdentifier>
+              <NewMemberFileName>Program.cs</NewMemberFileName>
+            </TypeIdentifier>
+          </Class>
+        </NestedTypes>
+        <TypeIdentifier>
+          <NewMemberFileName>Program.cs</NewMemberFileName>
+        </TypeIdentifier>
+      </Class>
+      <Class Name="CREA2014.STREAMDATA&lt;T&gt;.StreamInfomation">
+        <TypeIdentifier>
+          <NewMemberFileName>Program.cs</NewMemberFileName>
+        </TypeIdentifier>
+      </Class>
+    </NestedTypes>
+    <TypeIdentifier>
+      <HashCode>AAAAAAAAAAAAAAAAAAAAAAAgAAAAAAAAAAAAAAEAIAA=</HashCode>
+      <FileName>Program.cs</FileName>
+    </TypeIdentifier>
+  </Class>
+  <Class Name="CREA2014.COMMUNICATIONPROTOCOL">
+    <Position X="4.5" Y="11.25" Width="3.25" />
+    <Compartments>
+      <Compartment Name="Nested Types" Collapsed="false" />
+    </Compartments>
+    <NestedTypes>
+      <Enum Name="CREA2014.COMMUNICATIONPROTOCOL.ClientOrServer">
+        <TypeIdentifier>
+          <NewMemberFileName>Program.cs</NewMemberFileName>
+        </TypeIdentifier>
+      </Enum>
+      <Class Name="CREA2014.COMMUNICATIONPROTOCOL.ProtocolInfomation">
+        <Compartments>
+          <Compartment Name="Nested Types" Collapsed="false" />
+        </Compartments>
+        <NestedTypes>
+          <Enum Name="CREA2014.COMMUNICATIONPROTOCOL.ProtocolInfomation.Direction">
+            <TypeIdentifier>
+              <NewMemberFileName>Program.cs</NewMemberFileName>
+            </TypeIdentifier>
+          </Enum>
+        </NestedTypes>
+        <TypeIdentifier>
+          <NewMemberFileName>Program.cs</NewMemberFileName>
+        </TypeIdentifier>
+      </Class>
+    </NestedTypes>
+    <TypeIdentifier>
+      <HashCode>AAAAAAAAAAAAAAAAAAAAAAAACAAAAAAAAAAAAAAAAAA=</HashCode>
+      <FileName>Program.cs</FileName>
+    </TypeIdentifier>
+  </Class>
+  <Class Name="CREA2014.SHAREDDATA">
+    <Position X="31.5" Y="11.25" Width="3.25" />
+    <Compartments>
+      <Compartment Name="Nested Types" Collapsed="false" />
+    </Compartments>
+    <NestedTypes>
+      <Class Name="CREA2014.SHAREDDATA.MainDataInfomation">
+        <TypeIdentifier>
+          <NewMemberFileName>Program.cs</NewMemberFileName>
+        </TypeIdentifier>
+      </Class>
+    </NestedTypes>
+    <TypeIdentifier>
+      <HashCode>IAAAACAAAAAAAAAAAAAAAABAAAAAIAAACAAAAAAAAQA=</HashCode>
+      <FileName>Program.cs</FileName>
+    </TypeIdentifier>
+  </Class>
+  <Class Name="CREA2014.SETTINGSDATA">
+    <Position X="63.25" Y="2.25" Width="3" />
+    <NestedTypes>
+      <Class Name="CREA2014.SETTINGSDATA.MainDataInfomation" Collapsed="true">
+        <TypeIdentifier>
+          <NewMemberFileName>Program.cs</NewMemberFileName>
+        </TypeIdentifier>
+      </Class>
+    </NestedTypes>
+    <TypeIdentifier>
+      <HashCode>CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAEAiAAAAAAAAA=</HashCode>
+      <FileName>Program.cs</FileName>
+    </TypeIdentifier>
+  </Class>
+  <Class Name="CREA2014.SETTABLESETTINGSDATA&lt;T&gt;">
+    <Position X="63.5" Y="5.5" Width="2.25" />
+    <TypeIdentifier>
+      <HashCode>AAAAAAAAAAAABAAAAAAAEAAEAAAAAAAAAAAAAAAAAAA=</HashCode>
+      <FileName>Program.cs</FileName>
+    </TypeIdentifier>
+  </Class>
+  <Class Name="CREA2014.SAVEABLESETTINGSDATA&lt;T&gt;">
+    <Position X="63.5" Y="8.5" Width="2.5" />
+    <TypeIdentifier>
+      <HashCode>AAAAgIBAAAAAQAAAAAAAAAAAAAAAAFAAAAAAAAAAAAA=</HashCode>
+      <FileName>Program.cs</FileName>
+    </TypeIdentifier>
+  </Class>
+  <Class Name="CREA2014.Program" Collapsed="true">
+    <Position X="74.25" Y="2.5" Width="1.5" />
+    <TypeIdentifier>
+      <HashCode>AAACACAAAAAGBAAAARAgAEQAAAAAAAAgAAAABCAAAAA=</HashCode>
+      <FileName>Program.cs</FileName>
+    </TypeIdentifier>
+  </Class>
+  <Class Name="CREA2014.Core" Collapsed="true">
+    <Position X="70.75" Y="1.5" Width="1.5" />
+    <TypeIdentifier>
+      <HashCode>AAAAAEIAAAAGABAAAgQAAAAQAAAAAAAAAgAAAAAAAAA=</HashCode>
+      <FileName>Core.cs</FileName>
+    </TypeIdentifier>
+  </Class>
+  <Class Name="CREA2014.P2PNODE">
+    <Position X="4.25" Y="18.75" Width="3.5" />
+    <TypeIdentifier>
+      <HashCode>AAAAIAAAAAACCAEAAgCAAhIAAAAAEAAAIAgAACEBAAA=</HashCode>
+      <FileName>Core.cs</FileName>
+    </TypeIdentifier>
+  </Class>
+  <Class Name="CREA2014.CommunicationApparatus" Collapsed="true">
+    <Position X="67.25" Y="1.5" Width="1.5" />
+    <TypeIdentifier>
+      <HashCode>EAAAAAAAAAACAAAAAAAAAAIAQAAAEEAAkAAAAAAAAAA=</HashCode>
+      <FileName>Core.cs</FileName>
+    </TypeIdentifier>
+  </Class>
+  <Class Name="CREA2014.SocketData">
+    <Position X="60.75" Y="4" Width="1.75" />
+    <TypeIdentifier>
+      <HashCode>AAAAAAAAAAAAAAAAAACAAAAACAAAIAAAAAAAAAAAAAA=</HashCode>
+      <FileName>Core.cs</FileName>
+    </TypeIdentifier>
+  </Class>
+  <Class Name="CREA2014.Client" Collapsed="true">
+    <Position X="74.25" Y="0.5" Width="1.5" />
+    <TypeIdentifier>
+      <HashCode>AAQAAAAEAAiAQIAAAAAAAAIAIAAIAAgAECAARgEAAAA=</HashCode>
+      <FileName>Core.cs</FileName>
+    </TypeIdentifier>
+  </Class>
+  <Class Name="CREA2014.Listener" Collapsed="true">
+    <Position X="69" Y="2.5" Width="1.5" />
+    <TypeIdentifier>
+      <HashCode>QAAAIAAEBAgAAAAEBAAAAAIgIYAIAAgAFCAAYAEACAA=</HashCode>
+      <FileName>Core.cs</FileName>
+    </TypeIdentifier>
+  </Class>
+  <Class Name="CREA2014.ConnectionData">
+    <Position X="57.5" Y="4" Width="2.5" />
+    <Compartments>
+      <Compartment Name="Nested Types" Collapsed="false" />
+    </Compartments>
+    <NestedTypes>
+      <Enum Name="CREA2014.ConnectionData.ConnectionDirection">
+        <TypeIdentifier>
+          <NewMemberFileName>Core.cs</NewMemberFileName>
+        </TypeIdentifier>
+      </Enum>
+    </NestedTypes>
+    <TypeIdentifier>
+      <HashCode>AAAAAAAAABACYIAQAGCAAAAACAAAIAgAACAAAAAAAAA=</HashCode>
+      <FileName>Core.cs</FileName>
+    </TypeIdentifier>
+  </Class>
+  <Class Name="CREA2014.ConnectionHistory" Collapsed="true">
+    <Position X="69" Y="1.5" Width="1.5" />
+    <TypeIdentifier>
+      <HashCode>AAEAAAAAABAAAIEAAACAEIAAAoCAAAKAAAAAAAAAgBE=</HashCode>
+      <FileName>Core.cs</FileName>
+    </TypeIdentifier>
+  </Class>
+  <Class Name="CREA2014.CreaNode">
+    <Position X="3.5" Y="25" Width="5.25" />
+    <TypeIdentifier>
+      <HashCode>AAIAAAAAACDAAIAAAACAAAAAKIAAAAgAAAAAAAAAIAA=</HashCode>
+      <FileName>Core.cs</FileName>
+    </TypeIdentifier>
+  </Class>
+  <Class Name="CREA2014.FirstNodeInformation">
+    <Position X="45.5" Y="17.75" Width="5.25" />
+    <TypeIdentifier>
+      <HashCode>AAAAAAAAAAAAAIgEgACAAAAACAAAIIgAAAAAAAAAIQA=</HashCode>
+      <FileName>Core.cs</FileName>
+    </TypeIdentifier>
+    <Lollipop Position="0.2" />
+  </Class>
+  <Class Name="CREA2014.Sha256Hash">
+    <Position X="51.5" Y="17.75" Width="5.25" />
+    <TypeIdentifier>
+      <HashCode>AAAAAAAAAAAAAAQEgAAAAAAAAAAAIIgAAAAIAAAAIQA=</HashCode>
+      <FileName>Core.cs</FileName>
+    </TypeIdentifier>
+    <Lollipop Position="0.2" />
+  </Class>
+  <Class Name="CREA2014.Ripemd160Hash">
+    <Position X="9.5" Y="17.75" Width="5.25" />
+    <TypeIdentifier>
+      <HashCode>AAAAAAAAAAAAAAQEgAAAAAAAAAAAIIgAAAAIAAAAIQA=</HashCode>
+      <FileName>Core.cs</FileName>
+    </TypeIdentifier>
+    <Lollipop Position="0.2" />
+  </Class>
+  <Class Name="CREA2014.EcdsaKey">
+    <Position X="21.5" Y="17.75" Width="5.25" />
+    <Compartments>
+      <Compartment Name="Nested Types" Collapsed="false" />
+    </Compartments>
+    <NestedTypes>
+      <Enum Name="CREA2014.EcdsaKey.EcdsaKeyLength">
+        <TypeIdentifier>
+          <NewMemberFileName>Core.cs</NewMemberFileName>
+        </TypeIdentifier>
+      </Enum>
+    </NestedTypes>
+    <TypeIdentifier>
+      <HashCode>AAABAAAAAQBAAAAARAAAAAQAAAAAIAAAAAAAAAAAIQA=</HashCode>
+      <FileName>Core.cs</FileName>
+    </TypeIdentifier>
+  </Class>
+  <Class Name="CREA2014.Account">
+    <Position X="27.5" Y="17.75" Width="5.25" />
+    <Compartments>
+      <Compartment Name="Nested Types" Collapsed="false" />
+    </Compartments>
+    <NestedTypes>
+      <Class Name="CREA2014.Account.AccountAddress">
+        <TypeIdentifier>
+          <NewMemberFileName>Core.cs</NewMemberFileName>
+        </TypeIdentifier>
+      </Class>
+    </NestedTypes>
+    <TypeIdentifier>
+      <HashCode>AAAAAAAAAAAgAAQEIAAEAAQAAAAEIAAiAAAAAAAAIQA=</HashCode>
+      <FileName>Core.cs</FileName>
+    </TypeIdentifier>
+  </Class>
+  <Class Name="CREA2014.AccountHolder">
+    <Position X="36.5" Y="17.75" Width="5.25" />
+    <TypeIdentifier>
+      <HashCode>AABAgAAAAAAAYAAAAAAAAQICAIAEIACAAAACAAAAIUA=</HashCode>
+      <FileName>Core.cs</FileName>
+    </TypeIdentifier>
+  </Class>
+  <Class Name="CREA2014.AnonymousAccountHolder">
+    <Position X="33.5" Y="24" Width="5.25" />
+    <TypeIdentifier>
+      <HashCode>AAAAAAAAAAAAAAAAAAAAAAAAAAAAIAAAAAAAAAAAIQA=</HashCode>
+      <FileName>Core.cs</FileName>
+    </TypeIdentifier>
+  </Class>
+  <Class Name="CREA2014.PseudonymousAccountHolder">
+    <Position X="39.5" Y="24" Width="5.25" />
+    <TypeIdentifier>
+      <HashCode>AAAAAAAAEAAAABQEAAAEAAQAAAAEIAAAAAAAAAAAIQA=</HashCode>
+      <FileName>Core.cs</FileName>
+    </TypeIdentifier>
+  </Class>
+  <Class Name="CREA2014.AccountHolderDatabase">
+    <Position X="15.5" Y="17.75" Width="5.25" />
+    <TypeIdentifier>
+      <HashCode>IICABAAABAABAAABAFKAAgABQAIAIhAAAAAAAAAAIQA=</HashCode>
+      <FileName>Core.cs</FileName>
+    </TypeIdentifier>
+  </Class>
+  <Class Name="CREA2014.TransactionInput" Collapsed="true">
+    <Position X="69" Y="3.5" Width="1.5" />
+    <TypeIdentifier>
+      <HashCode>AEAAAAAAAAAAAAAAEAAAEAAAAAAAAAAAAAAAAABAAAA=</HashCode>
+      <FileName>Core.cs</FileName>
+    </TypeIdentifier>
+  </Class>
+  <Class Name="CREA2014.TransactionOutput" Collapsed="true">
+    <Position X="70.75" Y="3.5" Width="1.5" />
+    <TypeIdentifier>
+      <HashCode>AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=</HashCode>
+      <FileName>Core.cs</FileName>
+    </TypeIdentifier>
+  </Class>
+  <Class Name="CREA2014.BlockHeader" Collapsed="true">
+    <Position X="72.5" Y="0.5" Width="1.5" />
+    <TypeIdentifier>
+      <HashCode>IAALACAAAAAAAAAgAAAABAAQAAAAAAAAAIAAgBAACYA=</HashCode>
+      <FileName>Core.cs</FileName>
+    </TypeIdentifier>
+  </Class>
+  <Class Name="CREA2014.UPnPWanService" Collapsed="true">
+    <Position X="74.25" Y="3.5" Width="1.5" />
+    <TypeIdentifier>
+      <HashCode>AAAAAAgAAEAAgAAAAEAAAAAAAAAAAgAAAEAAQAAIAAA=</HashCode>
+      <FileName>Core.cs</FileName>
+    </TypeIdentifier>
+  </Class>
+  <Class Name="CREA2014.UPnPPortMapping" Collapsed="true">
+    <Position X="72.5" Y="3.5" Width="1.5" />
+    <TypeIdentifier>
+      <HashCode>AAgAAAAAAAAAAIAAAEAAgABAIAAABAAAAAAAAAEAAAA=</HashCode>
+      <FileName>Core.cs</FileName>
+    </TypeIdentifier>
+  </Class>
+  <Class Name="CREA2014.Base58Encoding" Collapsed="true">
+    <Position X="69" Y="0.5" Width="1.5" />
+    <TypeIdentifier>
+      <HashCode>AQIAAAAAAABIAAAAAAACAQAAAAIACAAAAAAAQAAAEAA=</HashCode>
+      <FileName>Core.cs</FileName>
+    </TypeIdentifier>
+  </Class>
+  <Class Name="CREA2014.Utils" Collapsed="true">
+    <Position X="67.25" Y="4.5" Width="1.5" />
+    <TypeIdentifier>
+      <HashCode>AAAAAAAAAAAAAAAAAAAAABAAAAAAAAQAAAAAAAEAAAA=</HashCode>
+      <FileName>Core.cs</FileName>
+    </TypeIdentifier>
+  </Class>
+  <Class Name="CREA2014.AddressFormatException" Collapsed="true">
+    <Position X="67.25" Y="0.5" Width="1.5" />
+    <TypeIdentifier>
+      <HashCode>AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=</HashCode>
+      <FileName>Core.cs</FileName>
+    </TypeIdentifier>
+  </Class>
+  <Class Name="CREA2014.ForwardLinkedList&lt;T&gt;" Collapsed="true" BaseTypeListCollapsed="true">
+    <Position X="74.25" Y="1.5" Width="1.5" />
+    <TypeIdentifier>
+      <HashCode>AAAAAAAAAAAAAREAAAEAAAUAAEEAQAAEAAAAAAAAAAA=</HashCode>
+      <FileName>Core.cs</FileName>
+    </TypeIdentifier>
+    <Lollipop Position="0.2" Collapsed="true" />
+  </Class>
+  <Class Name="CREA2014.LinkedList&lt;T&gt;" Collapsed="true" BaseTypeListCollapsed="true">
+    <Position X="67.25" Y="2.5" Width="1.5" />
+    <TypeIdentifier>
+      <HashCode>AAAAAAAAAAAAAREAAAFAAAQAAEkAQAAEAAACAAACAgA=</HashCode>
+      <FileName>Core.cs</FileName>
+    </TypeIdentifier>
+    <Lollipop Position="0.2" Collapsed="true" />
+  </Class>
+  <Class Name="CREA2014.MyArrayList&lt;T&gt;" Collapsed="true" BaseTypeListCollapsed="true">
+    <Position X="70.75" Y="2.5" Width="1.5" />
+    <TypeIdentifier>
+      <HashCode>AAIAAEAAAAAAABAADAAAAAQAAAkAAAAEAAAQAAAAAAA=</HashCode>
+      <FileName>Core.cs</FileName>
+    </TypeIdentifier>
+    <Lollipop Position="0.2" Collapsed="true" />
+  </Class>
+  <Class Name="CREA2014.RingBuffer&lt;T&gt;" Collapsed="true" BaseTypeListCollapsed="true">
+    <Position X="67.25" Y="3.5" Width="1.5" />
+    <TypeIdentifier>
+      <HashCode>AAAAAEAAAAAAABEACAAAAAwAAAAAAAAEAAAQAAAAAAA=</HashCode>
+      <FileName>Core.cs</FileName>
+    </TypeIdentifier>
+    <Lollipop Position="0.2" Collapsed="true" />
+  </Class>
+  <Class Name="CREA2014.BinaryTree&lt;T&gt;" Collapsed="true" BaseTypeListCollapsed="true">
+    <Position X="70.75" Y="0.5" Width="1.5" />
+    <TypeIdentifier>
+      <HashCode>AAAAAEAAAAAAADAAAAAgAAQACAAIAAAEAAAAAAAQACA=</HashCode>
+      <FileName>Core.cs</FileName>
+    </TypeIdentifier>
+    <Lollipop Position="0.2" Collapsed="true" />
+  </Class>
+  <Enum Name="CREA2014.RsaKeySize" Collapsed="true">
+    <Position X="67.25" Y="5.75" Width="1.5" />
+    <TypeIdentifier>
+      <HashCode>AAABAAAAAAAAAAAAIAAAAAAAAAAAAAAAAAAAAAAAAAA=</HashCode>
+      <FileName>Core.cs</FileName>
+    </TypeIdentifier>
+  </Enum>
+  <Font Name="Meiryo" Size="9" />
+</ClassDiagram>

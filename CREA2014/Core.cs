@@ -6,6 +6,8 @@ using System.IO.Compression;
 using System.Linq;
 using System.Net;
 using System.Net.Sockets;
+using System.Runtime.InteropServices;
+using System.Security;
 using System.Security.Cryptography;
 
 namespace CREA2014
@@ -68,12 +70,9 @@ namespace CREA2014
         }
     }
 
-    public abstract class PROTOCOL
-    {
-        public abstract class ProtocolInformation { }
-    }
+    #region P2Pネットワーク
 
-    public class P2P
+    public abstract class P2PNODE : COMMUNICATIONPROTOCOL
     {
         private readonly object connectionsLock = new object();
         private List<ConnectionData> connections;
@@ -92,7 +91,7 @@ namespace CREA2014
         private readonly string privateRsaParameters;
         private int connectionNumber;
 
-        public P2P()
+        public P2PNODE()
         {
             connections = new List<ConnectionData>();
             connectionHistories = new List<ConnectionHistory>();
@@ -105,7 +104,7 @@ namespace CREA2014
         public event EventHandler ConnectionAdded = delegate { };
         public event EventHandler ConnectionRemoved = delegate { };
 
-        private void NewListener(ushort port, Action<CommunicationApparatus, IPEndPoint> protocolProcess)
+        protected Listener NewListener(ushort port, Action<CommunicationApparatus, IPEndPoint> protocolProcess)
         {
             Dictionary<SocketData, ConnectionData> listenerConnections = new Dictionary<SocketData, ConnectionData>();
 
@@ -141,9 +140,12 @@ namespace CREA2014
                 if (e.Value2 is SocketException)
                     RegisterResult(e.Value1.IpAddress, false);
             };
+            listener.StartListener();
+
+            return listener;
         }
 
-        private void NewClient(string ipAddress, ushort port, Action<CommunicationApparatus, IPEndPoint> protocolProcess)
+        protected Client NewClient(string ipAddress, ushort port, Action<CommunicationApparatus, IPEndPoint> protocolProcess)
         {
             ConnectionData connection = null;
 
@@ -162,6 +164,8 @@ namespace CREA2014
                     RegisterResult(e.Value1.IpAddress, false);
             };
             client.StartClient();
+
+            return client;
         }
 
         private void AddConnection(ConnectionData connection)
@@ -186,7 +190,7 @@ namespace CREA2014
             }
         }
 
-        public void RegisterResult(string ipAddress, bool isSucceeded)
+        private void RegisterResult(string ipAddress, bool isSucceeded)
         {
             ConnectionHistory connectionHistory;
             lock (connectionHistoriesLock)
@@ -408,7 +412,7 @@ namespace CREA2014
 
             this.StartTask(() =>
             {
-                SocketData socketData = new SocketData(ipAddress, port, (ushort)((IPEndPoint)client.LocalEndPoint).Port);
+                SocketData socketData = null;
 
                 try
                 {
@@ -418,6 +422,8 @@ namespace CREA2014
                     client.SendTimeout = sendTimeout;
                     client.ReceiveBufferSize = receiveBufferSize;
                     client.SendBufferSize = sendBufferSize;
+
+                    socketData = new SocketData(ipAddress, port, (ushort)((IPEndPoint)client.LocalEndPoint).Port);
 
                     using (NetworkStream ns = new NetworkStream(client))
                     {
@@ -811,6 +817,414 @@ namespace CREA2014
         }
     }
 
+    #endregion
+
+    #region CREAネットワーク
+
+    public class CreaNode : P2PNODE
+    {
+        private ushort port;
+        public ushort Port
+        {
+            get { return port; }
+            set
+            {
+                port = value;
+
+                Change();
+            }
+        }
+
+        private string ipAddress;
+        public string IpAddress
+        {
+            get { return ipAddress; }
+        }
+
+        private Listener listener;
+
+        public CreaNode(ushort _port)
+        {
+            port = _port;
+        }
+
+        //public enum PortStatus
+
+        public bool IsPort0
+        {
+            get { return port == 0; }
+        }
+
+        protected override Func<STREAMDATA<ProtocolInfomation>.ReaderWriter, IEnumerable<ProtocolInfomation>> StreamInfo
+        {
+            get { return (mswr) => streamInfo; }
+        }
+        private IEnumerable<ProtocolInfomation> streamInfo
+        {
+            get
+            {
+                yield return null;
+            }
+        }
+
+        public void Start()
+        {
+
+        }
+
+        private void Change()
+        {
+
+        }
+
+        public void End()
+        {
+
+        }
+    }
+
+    public class FirstNodeInformation : SHAREDDATA, IEquatable<FirstNodeInformation>
+    {
+        private IPAddress ipAddress;
+        public IPAddress IpAddress
+        {
+            get { return ipAddress; }
+        }
+
+        private ushort port;
+        public ushort Port
+        {
+            get { return port; }
+        }
+
+        public FirstNodeInformation(IPAddress _ipAddress, ushort _port)
+        {
+            ipAddress = _ipAddress;
+            port = _port;
+
+            if (ipAddress.AddressFamily != AddressFamily.InterNetwork && ipAddress.AddressFamily != AddressFamily.InterNetworkV6)
+                throw new ArgumentException("first_node_info_ip_address");
+            if (port == 0)
+                throw new ArgumentException("first_node_info_port");
+        }
+
+        public FirstNodeInformation(string _ipAddress, ushort _port) : this(IPAddress.Parse(_ipAddress), _port) { }
+
+        public FirstNodeInformation(string _hex)
+        {
+            Hex = _hex;
+        }
+
+        public FirstNodeInformation() { }
+
+        public string Hex
+        {
+            get
+            {
+                byte[] plainBytes = ipAddress.GetAddressBytes().Combine(BitConverter.GetBytes(port));
+                byte[] cypherBytes = new byte[plainBytes.Length * 4];
+
+                for (int i = 0; i < plainBytes.Length / 2; i++)
+                {
+                    //正則行列の生成
+                    byte[] matrix = new byte[4];
+                    do
+                    {
+                        for (int j = 0; j < 4; j++)
+                            matrix[j] = (byte)128.RandomNum();
+                    }
+                    while (matrix[0] * matrix[3] - matrix[1] * matrix[2] == 0);
+
+                    //答えの生成
+                    byte[] answer1 = BitConverter.GetBytes((ushort)(matrix[0] * plainBytes[2 * i] + matrix[1] * plainBytes[2 * i + 1]));
+                    byte[] answer2 = BitConverter.GetBytes((ushort)(matrix[2] * plainBytes[2 * i] + matrix[3] * plainBytes[2 * i + 1]));
+
+                    Array.Copy(matrix, 0, cypherBytes, 8 * i, 4);
+                    Array.Copy(answer1, 0, cypherBytes, 8 * i + 4, 2);
+                    Array.Copy(answer2, 0, cypherBytes, 8 * i + 6, 2);
+                }
+
+                using (MemoryStream ms = new MemoryStream())
+                {
+                    using (DeflateStream ds = new DeflateStream(ms, CompressionMode.Compress))
+                    {
+                        ds.Write(cypherBytes, 0, cypherBytes.Length);
+                        ds.Flush();
+                    }
+
+                    return ms.ToArray().ToHexstring();
+                }
+            }
+            private set
+            {
+                byte[] cypherBytes;
+                using (MemoryStream ms = new MemoryStream(value.FromHexstring()))
+                using (DeflateStream ds = new DeflateStream(ms, CompressionMode.Decompress))
+                {
+                    byte[] buffer1 = new byte[24];
+                    byte[] buffer2 = new byte[72 - 24];
+                    ds.Read(buffer1, 0, 24);
+                    ds.Read(buffer2, 0, 72 - 24);
+
+                    cypherBytes = buffer2.IsZeroBytes() ? buffer1 : buffer1.Combine(buffer2);
+                }
+
+                byte[] plainBytes = new byte[cypherBytes.Length / 4];
+
+                for (int i = 0; i < plainBytes.Length / 2; i++)
+                {
+                    byte[] matrix = new byte[4];
+                    byte[] answer1 = new byte[2];
+                    byte[] answer2 = new byte[2];
+                    Array.Copy(cypherBytes, 8 * i, matrix, 0, 4);
+                    Array.Copy(cypherBytes, 8 * i + 4, answer1, 0, 2);
+                    Array.Copy(cypherBytes, 8 * i + 6, answer2, 0, 2);
+
+                    ushort answer3 = BitConverter.ToUInt16(answer1, 0);
+                    ushort answer4 = BitConverter.ToUInt16(answer2, 0);
+
+                    plainBytes[2 * i] = (byte)((matrix[3] * answer3 - matrix[1] * answer4) / (matrix[0] * matrix[3] - matrix[1] * matrix[2]));
+                    plainBytes[2 * i + 1] = (byte)((-matrix[2] * answer3 + matrix[0] * answer4) / (matrix[0] * matrix[3] - matrix[1] * matrix[2]));
+                }
+
+                byte[] ipAddressBytes = cypherBytes.Length == 24 ? new byte[4] : new byte[16];
+                byte[] portBytes = new byte[2];
+                Array.Copy(plainBytes, 0, ipAddressBytes, 0, cypherBytes.Length == 24 ? 4 : 16);
+                Array.Copy(plainBytes, cypherBytes.Length == 24 ? 4 : 16, portBytes, 0, 2);
+
+                ipAddress = new IPAddress(ipAddressBytes);
+                port = BitConverter.ToUInt16(portBytes, 0);
+
+                if (port == 0)
+                    throw new ArgumentException("first_node_info_port");
+            }
+        }
+
+        public override bool Equals(object _obj)
+        {
+            return (_obj as FirstNodeInformation).Operate((o) => o != null && ipAddress.ToString() == o.ipAddress.ToString() && port == o.port);
+        }
+
+        public override int GetHashCode()
+        {
+            return ipAddress.GetHashCode() ^ port.GetHashCode();
+        }
+
+        public override string ToString()
+        {
+            return ipAddress + ":" + port.ToString();
+        }
+
+        public bool Equals(FirstNodeInformation other)
+        {
+            return IpAddress.ToString() == other.IpAddress.ToString() && Port == other.Port;
+        }
+
+        protected override Func<STREAMDATA<MainDataInfomation>.ReaderWriter, IEnumerable<MainDataInfomation>> StreamInfo
+        {
+            get
+            {
+                return (msrw) => new MainDataInfomation[]{
+                    new MainDataInfomation(typeof(string), () => Hex, (o) => Hex = (string)o), 
+                };
+            }
+        }
+
+        public override bool IsVersioned
+        {
+            get { return false; }
+        }
+
+        public override bool IsCorruptionChecked
+        {
+            get { return false; }
+        }
+    }
+
+    //public class NodeInformation : CREAISignable, CREAIBinarySerializable, IEquatable<NodeInformation>
+    //{
+    //    //IPアドレス（読み取り専用）（string）
+    //    private string ipAddress = "";
+    //    public string IpAddress
+    //    {
+    //        get
+    //        {
+    //            return ipAddress;
+    //        }
+    //    }
+
+    //    //ポート番号（読み取り専用）（int）
+    //    private int port = 0;
+    //    public int Port
+    //    {
+    //        get
+    //        {
+    //            return port;
+    //        }
+    //        set
+    //        {
+    //            port = value;
+    //        }
+    //    }
+
+    //    //ID（読み取り専用）（Hash）
+    //    private Hash id = null;
+    //    public Hash ID
+    //    {
+    //        get
+    //        {
+    //            return id;
+    //        }
+    //        set
+    //        {
+    //            id = value;
+    //        }
+    //    }
+
+    //    //参加日時（読み取り専用）（DateTime）
+    //    private DateTime participationDatetime = DateTime.Now;
+    //    public DateTime ParticipationDatetime
+    //    {
+    //        get
+    //        {
+    //            return participationDatetime;
+    //        }
+    //    }
+
+    //    //発行日時（読み取り専用）（DateTime）
+    //    private DateTime publicationDatetime = DateTime.Now;
+    //    public DateTime PublicationDatetime
+    //    {
+    //        get
+    //        {
+    //            return publicationDatetime;
+    //        }
+    //    }
+
+    //    //公開鍵（読み取り専用）（string）
+    //    private string publicRSAParameters = "";
+    //    public string PublicRSAParameters
+    //    {
+    //        get
+    //        {
+    //            return publicRSAParameters;
+    //        }
+    //    }
+
+    //    //暗号化ハッシュ（読み取り専用）（byte[128]）
+    //    private byte[] encryptedSignHash = new byte[0] { };
+    //    public byte[] EncryptedSignHash
+    //    {
+    //        get
+    //        {
+    //            return encryptedSignHash;
+    //        }
+    //    }
+
+    //    //コンストラクタ（IPアドレス／ポート番号／参加日時／公開鍵）
+    //    public NodeInformation(string _ipAddress, int _port, DateTime _participationDatetime, string _privateRSAParameters)
+    //    {
+    //        ipAddress = _ipAddress;
+    //        port = _port;
+    //        participationDatetime = _participationDatetime;
+    //        publicationDatetime = DateTime.Now;
+    //        id = ComputeID();
+    //        publicRSAParameters = CREADataHelper.ExtractPublicRSAParameters(_privateRSAParameters);
+
+    //        AttachSign(_privateRSAParameters);
+    //    }
+
+    //    public FirstNodeInformation CreateFirstNodeInformation()
+    //    {
+    //        return new FirstNodeInformation(ipAddress, port);
+    //    }
+
+    //    //IDを算出する
+    //    private Hash ComputeID()
+    //    {
+    //        using (MemoryStream memoryStream = new MemoryStream())
+    //        {
+    //            CREABinaryHelper.WriteString(memoryStream, ipAddress);
+    //            CREABinaryHelper.WriteInt(memoryStream, port);
+    //            //CREABinaryHelper.WriteDateTime(memoryStream, participationDatetime);
+
+    //            return new Hash(new SHA256Managed().ComputeHash(memoryStream.ToArray()));
+    //        }
+    //    }
+
+    //    //IDを検証する
+    //    public bool CheckID()
+    //    {
+    //        return id.Equals(ComputeID());
+    //    }
+
+    //    //署名を配置する
+    //    private void AttachSign(string privateRSAParameters)
+    //    {
+    //        encryptedSignHash = CREADataHelper.ComputeEncryptedSignHash(ToSignBinary(), privateRSAParameters);
+    //    }
+
+    //    //署名を検証する
+    //    public bool CheckSign()
+    //    {
+    //        return CREADataHelper.CheckEncryptedSignHash(ToSignBinary(), encryptedSignHash, publicRSAParameters);
+    //    }
+
+    //    //署名用のバイナリを作成する
+    //    private byte[] ToSignBinary()
+    //    {
+    //        using (MemoryStream memoryStream = new MemoryStream())
+    //        {
+    //            CREABinaryHelper.WriteString(memoryStream, ipAddress);
+    //            CREABinaryHelper.WriteInt(memoryStream, port);
+    //            CREABinaryHelper.WriteDateTime(memoryStream, participationDatetime);
+    //            CREABinaryHelper.WriteDateTime(memoryStream, publicationDatetime);
+    //            CREABinaryHelper.WriteHash(memoryStream, id);
+
+    //            return memoryStream.ToArray();
+    //        }
+    //    }
+
+    //    //文字列化
+    //    public override string ToString()
+    //    {
+    //        return ID.ToString();
+    //    }
+
+    //    //詳細な文字列化
+    //    public string ToDetailString()
+    //    {
+    //        return "IpAddress: " + ipAddress + Environment.NewLine +
+    //            "Port: " + port.ToString() + Environment.NewLine +
+    //            "ID: " + id.ToString() + Environment.NewLine +
+    //            "ParticipationDateTime: " + participationDatetime.ToString() + Environment.NewLine +
+    //            "PublicationDateTime: " + publicationDatetime.ToString() + Environment.NewLine +
+    //            "PublicRSAParameters: " + publicRSAParameters + Environment.NewLine +
+    //            "EncryptedSignHash: " + encryptedSignHash.ToHexString();
+    //    }
+
+    //    //相等判定
+    //    public override bool Equals(object _obj)
+    //    {
+    //        NodeInformation obj = (NodeInformation)_obj;
+
+    //        return IpAddress == obj.IpAddress && Port == obj.Port && ID.Equals(obj.ID);
+    //    }
+
+    //    //ハッシュ
+    //    public override int GetHashCode()
+    //    {
+    //        return ID.GetHashCode();
+    //    }
+
+    //    public bool Equals(NodeInformation other)
+    //    {
+    //        return ID.Equals(other.ID);
+    //    }
+    //}
+
+    #endregion
+
     #region データ
 
     public class Sha256Hash : SHAREDDATA, IComparable<Sha256Hash>, IEquatable<Sha256Hash>, IComparable
@@ -834,7 +1248,7 @@ namespace CREA2014
 
         public Sha256Hash() { }
 
-        protected override Func<MemoryStreamReaderWriter, IEnumerable<MainDataInfomation>> MainDataInfo
+        protected override Func<ReaderWriter, IEnumerable<MainDataInfomation>> StreamInfo
         {
             get
             {
@@ -842,16 +1256,6 @@ namespace CREA2014
                     new MainDataInfomation(typeof(byte[]), 32, () => bytes, (o) => bytes = (byte[])o), 
                 };
             }
-        }
-
-        protected override bool IsVersioned
-        {
-            get { return false; }
-        }
-
-        protected override bool IsCorruptionChecked
-        {
-            get { return false; }
         }
 
         #region .NETオーバーライド、インターフェイス実装
@@ -930,7 +1334,7 @@ namespace CREA2014
 
         public Ripemd160Hash() { }
 
-        protected override Func<MemoryStreamReaderWriter, IEnumerable<MainDataInfomation>> MainDataInfo
+        protected override Func<ReaderWriter, IEnumerable<MainDataInfomation>> StreamInfo
         {
             get
             {
@@ -938,16 +1342,6 @@ namespace CREA2014
                     new MainDataInfomation(typeof(byte[]), 20, () => bytes, (o) => bytes = (byte[])o), 
                 };
             }
-        }
-
-        protected override bool IsVersioned
-        {
-            get { return false; }
-        }
-
-        protected override bool IsCorruptionChecked
-        {
-            get { return false; }
         }
 
         #region .NETオーバーライド、インターフェイス実装
@@ -1050,7 +1444,7 @@ namespace CREA2014
 
         public EcdsaKey() : this(EcdsaKeyLength.Ecdsa256) { }
 
-        protected override Func<MemoryStreamReaderWriter, IEnumerable<MainDataInfomation>> MainDataInfo
+        protected override Func<ReaderWriter, IEnumerable<MainDataInfomation>> StreamInfo
         {
             get
             {
@@ -1068,12 +1462,12 @@ namespace CREA2014
             }
         }
 
-        protected override bool IsVersioned
+        public override bool IsVersioned
         {
             get { return true; }
         }
 
-        protected override bool IsCorruptionChecked
+        public override bool IsCorruptionChecked
         {
             get
             {
@@ -1217,7 +1611,7 @@ namespace CREA2014
             public override string ToString() { return Base58; }
         }
 
-        protected override Func<MemoryStreamReaderWriter, IEnumerable<MainDataInfomation>> MainDataInfo
+        protected override Func<ReaderWriter, IEnumerable<MainDataInfomation>> StreamInfo
         {
             get
             {
@@ -1232,12 +1626,12 @@ namespace CREA2014
             }
         }
 
-        protected override bool IsVersioned
+        public override bool IsVersioned
         {
             get { return true; }
         }
 
-        protected override bool IsCorruptionChecked
+        public override bool IsCorruptionChecked
         {
             get
             {
@@ -1277,7 +1671,7 @@ namespace CREA2014
 
         public AccountHolder() : this(null) { }
 
-        protected override Func<MemoryStreamReaderWriter, IEnumerable<MainDataInfomation>> MainDataInfo
+        protected override Func<ReaderWriter, IEnumerable<MainDataInfomation>> StreamInfo
         {
             get
             {
@@ -1290,16 +1684,6 @@ namespace CREA2014
                     }), 
                 };
             }
-        }
-
-        protected override bool IsVersioned
-        {
-            get { return false; }
-        }
-
-        protected override bool IsCorruptionChecked
-        {
-            get { return false; }
         }
 
         public event EventHandler AccountAdded = delegate { };
@@ -1357,23 +1741,23 @@ namespace CREA2014
     {
         public AnonymousAccountHolder() : base(0) { }
 
-        protected override Func<MemoryStreamReaderWriter, IEnumerable<MainDataInfomation>> MainDataInfo
+        protected override Func<ReaderWriter, IEnumerable<MainDataInfomation>> StreamInfo
         {
             get
             {
                 if (Version == 0)
-                    return base.MainDataInfo;
+                    return base.StreamInfo;
                 else
                     throw new NotSupportedException("aah_main_data_info"); //対応済
             }
         }
 
-        protected override bool IsVersioned
+        public override bool IsVersioned
         {
             get { return true; }
         }
 
-        protected override bool IsCorruptionChecked
+        public override bool IsCorruptionChecked
         {
             get
             {
@@ -1413,12 +1797,12 @@ namespace CREA2014
 
         public PseudonymousAccountHolder() : this(string.Empty, EcdsaKey.EcdsaKeyLength.Ecdsa256) { }
 
-        protected override Func<MemoryStreamReaderWriter, IEnumerable<MainDataInfomation>> MainDataInfo
+        protected override Func<ReaderWriter, IEnumerable<MainDataInfomation>> StreamInfo
         {
             get
             {
                 if (Version == 0)
-                    return (msrw) => base.MainDataInfo(msrw).Concat(new MainDataInfomation[]{
+                    return (msrw) => base.StreamInfo(msrw).Concat(new MainDataInfomation[]{
                         new MainDataInfomation(typeof(string), () => name, (o) => name = (string)o), 
                         new MainDataInfomation(typeof(EcdsaKey), 0, () => key, (o) => key = (EcdsaKey)o), 
                     });
@@ -1427,12 +1811,12 @@ namespace CREA2014
             }
         }
 
-        protected override bool IsVersioned
+        public override bool IsVersioned
         {
             get { return true; }
         }
 
-        protected override bool IsCorruptionChecked
+        public override bool IsCorruptionChecked
         {
             get
             {
@@ -1488,7 +1872,7 @@ namespace CREA2014
             accountHolders_changed = (sender, e) => AccountHoldersChanged(this, EventArgs.Empty);
         }
 
-        protected override Func<MemoryStreamReaderWriter, IEnumerable<MainDataInfomation>> MainDataInfo
+        protected override Func<ReaderWriter, IEnumerable<MainDataInfomation>> StreamInfo
         {
             get
             {
@@ -1512,12 +1896,12 @@ namespace CREA2014
             }
         }
 
-        protected override bool IsVersioned
+        public override bool IsVersioned
         {
             get { return true; }
         }
 
-        protected override bool IsCorruptionChecked
+        public override bool IsCorruptionChecked
         {
             get
             {
@@ -1665,6 +2049,322 @@ namespace CREA2014
             set { nonce = value; }
         }
     }
+
+    #region UPnP
+
+    public class UPnPWanService
+    {
+        /// <summary>
+        /// ネットワーク内の UPnP Wan サービスを探す。ちょっと時間がかかる。
+        /// 見つからなかったときはnullが返るので気をつける。
+        /// </summary>
+        /// <returns></returns>
+        public static UPnPWanService FindUPnPWanService()
+        {
+            Guid UPnPDeviceFinderClass = new Guid("E2085F28-FEB7-404A-B8E7-E659BDEAAA02");
+            IUPnPDeviceFinder finder = Activator.CreateInstance(Type.GetTypeFromCLSID(UPnPDeviceFinderClass)) as IUPnPDeviceFinder;
+
+            string[] deviceTypes = { "urn:schemas-upnp-org:service:WANPPPConnection:1", "urn:schemas-upnp-org:service:WANIPConnection:1", };
+            string[] serviceNames = { "urn:upnp-org:serviceId:WANPPPConn1", "urn:upnp-org:serviceId:WANIPConn1", };
+            foreach (string deviceType in deviceTypes)
+                foreach (IUPnPDevice device in finder.FindByType(deviceType, 0))
+                    foreach (string serviceName in serviceNames)
+                        foreach (IUPnPService service in device.Services)
+                            return new UPnPWanService() { service = service };
+            return null;
+        }
+
+        IUPnPService service;
+        private UPnPWanService() { }
+
+        static void ThrowForHR(string action, HRESULT_UPnP hr, object result)
+        {
+            if (hr != HRESULT_UPnP.S_OK)
+                throw new COMException("Action " + action + " returns " + hr + " " + result, (int)hr);
+        }
+
+        /// <summary>
+        /// ポートマッピングを追加する。
+        /// </summary>
+        /// <param name="remoteHost">通信相手。通信先を限定する場合に指定。</param>
+        /// <param name="externalPort">グローバルポート番号。</param>
+        /// <param name="protocol">プロトコル名。"TCP" or "UDP"を指定。</param>
+        /// <param name="internalPort">内部クライアントのポート番号。</param>
+        /// <param name="internalClient">内部クライアントのIPアドレス。</param>
+        /// <param name="description">説明。任意。</param>
+        /// <param name="leaseDuration">リース期間(秒単位)。0を指定すると無期限</param>
+        public void AddPortMapping(string remoteHost, ushort externalPort, string protocol, ushort internalPort, IPAddress internalClient, bool enabled, string description, uint leaseDuration)
+        {
+            if (string.IsNullOrEmpty(remoteHost)) remoteHost = "";
+            if (string.IsNullOrEmpty(description)) description = "";
+            if (protocol != "TCP" && protocol != "UDP") throw new ArgumentException("protocol must be \"TCP\" or \"UDP\"", protocol);
+
+            object outArgs = null;
+            object result = null;
+            HRESULT_UPnP hresult = service.InvokeAction("AddPortMapping",
+                new object[] { remoteHost, externalPort, protocol, internalPort, internalClient.ToString(), enabled, description, leaseDuration },
+                ref outArgs, out result);
+            ThrowForHR("AddPortMapping", hresult, result);
+        }
+
+        /// <summary>
+        /// ポートマッピングを追加する。
+        /// </summary>
+        /// <param name="portMapping">追加するポートマッピング</param>
+        public void AddPortMapping(UPnPPortMapping portMapping)
+        {
+            AddPortMapping(portMapping.RemoteHost, portMapping.ExternalPort, portMapping.Protocol, portMapping.InternalPort,
+                portMapping.InternalClient, portMapping.Enabled, portMapping.PortMappingDescription, portMapping.LeaseDuration);
+        }
+
+        /// <summary>
+        /// ポートマッピングを削除する。
+        /// </summary>
+        /// <param name="remoteHost">追加時に指定した通信相手。</param>
+        /// <param name="externalPort">追加時に指定した外部ポート番号。</param>
+        /// <param name="protocol">追加時に指定されたプロトコル。</param>
+        public void DeletePortMapping(string remoteHost, ushort externalPort, string protocol)
+        {
+            if (string.IsNullOrEmpty(remoteHost)) remoteHost = "";
+            if (protocol != "TCP" && protocol != "UDP") throw new ArgumentException("protocol must be \"TCP\" or \"UDP\"", protocol);
+
+            object outArgs = null;
+            object result = null;
+            HRESULT_UPnP hresult = service.InvokeAction("DeletePortMapping", new object[] { remoteHost, externalPort, protocol }, ref outArgs, out result);
+            ThrowForHR("DeletePortMapping", hresult, result);
+        }
+
+        /// <summary>
+        /// ポートマッピングを削除する。
+        /// </summary>
+        /// <param name="portMapping">削除するポートマッピング。RemoteHostとExternalPortとProtocolだけが使われる。</param>
+        public void DeletePortMapping(UPnPPortMapping portMapping)
+        {
+            DeletePortMapping(portMapping.RemoteHost, portMapping.ExternalPort, portMapping.Protocol);
+        }
+
+        /// <summary>
+        /// 現在設定されているポートマッピング情報を得る。
+        /// </summary>
+        /// <returns>ポートマッピング情報</returns>
+        public List<UPnPPortMapping> GetGenericPortMappingEntries()
+        {
+            object outArgs = null;
+            object result = null;
+            List<UPnPPortMapping> list = new List<UPnPPortMapping>(16);
+            for (int i = 0; ; i++)
+            {
+                HRESULT_UPnP hresult = service.InvokeAction("GetGenericPortMappingEntry", new object[] { i }, ref outArgs, out result);
+                if (hresult != HRESULT_UPnP.S_OK) break;
+
+                object[] array = (object[])outArgs;
+                list.Add(new UPnPPortMapping
+                {
+                    RemoteHost = (string)array[0],
+                    ExternalPort = (ushort)array[1],
+                    Protocol = (string)array[2],
+                    InternalPort = (ushort)array[3],
+                    InternalClient = IPAddress.Parse((string)array[4]),
+                    Enabled = (bool)array[5],
+                    PortMappingDescription = (string)array[6],
+                    LeaseDuration = (uint)array[7],
+                });
+            }
+            return list;
+        }
+
+        /// <summary>
+        /// グローバルIPアドレスを得る。
+        /// </summary>
+        /// <returns>IPアドレス</returns>
+        public System.Net.IPAddress GetExternalIPAddress()
+        {
+            object outArgs = null;
+            object result = null;
+            HRESULT_UPnP hresult = service.InvokeAction("GetExternalIPAddress", new object[] { }, ref outArgs, out result);
+            ThrowForHR("GetExternalIPAddress", hresult, result);
+            return IPAddress.Parse((string)((object[])outArgs)[0]);
+        }
+
+        /// <summary>
+        /// 自分のIPアドレス(v4)を得る。
+        /// </summary>
+        /// <returns>IPアドレス</returns>
+        public System.Net.IPAddress GetLocalIPAddress()
+        {
+            IPAddress[] address = Array.FindAll(Dns.GetHostAddresses(Dns.GetHostName()),
+                a => a.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork);
+            if (address.Length > 0) return address[0];
+            return null;
+        }
+
+        #region COM Interop
+
+        [ComImport]
+        [Guid("ADDA3D55-6F72-4319-BFF9-18600A539B10")]
+        [InterfaceType(ComInterfaceType.InterfaceIsDual)]
+        [SuppressUnmanagedCodeSecurity]
+        interface IUPnPDeviceFinder
+        {
+            [DispId(1610744809)]
+            IUPnPDevices FindByType(string bstrTypeURI, int dwFlags);
+            [DispId(1610744812)]
+            int CreateAsyncFind(string bstrTypeURI, int dwFlags, object punkDeviceFinderCallback);
+            [DispId(1610744813)]
+            void StartAsyncFind(int lFindData);
+            [DispId(1610744814)]
+            void CancelAsyncFind(int lFindData);
+            [DispId(1610744811)]
+            IUPnPDevice FindByUDN(string bstrUDN);
+        }
+
+        [ComImport]
+        [Guid("3D44D0D1-98C9-4889-ACD1-F9D674BF2221")]
+        [InterfaceType(ComInterfaceType.InterfaceIsDual)]
+        [SuppressUnmanagedCodeSecurity]
+        interface IUPnPDevice
+        {
+            [DispId(1610747809)]
+            bool IsRootDevice { get; }
+            [DispId(1610747810)]
+            IUPnPDevice RootDevice { get; }
+            [DispId(1610747811)]
+            IUPnPDevice ParentDevice { get; }
+            [DispId(1610747812)]
+            bool HasChildren { get; }
+            [DispId(1610747813)]
+            IUPnPDevices Children { get; }
+            [DispId(1610747814)]
+            string UniqueDeviceName { get; }
+            [DispId(1610747815)]
+            string FriendlyName { get; }
+            [DispId(1610747816)]
+            string Type { get; }
+            [DispId(1610747817)]
+            string PresentationURL { get; }
+            [DispId(1610747818)]
+            string ManufacturerName { get; }
+            [DispId(1610747819)]
+            string ManufacturerURL { get; }
+            [DispId(1610747820)]
+            string ModelName { get; }
+            [DispId(1610747821)]
+            string ModelNumber { get; }
+            [DispId(1610747822)]
+            string Description { get; }
+            [DispId(1610747823)]
+            string ModelURL { get; }
+            [DispId(1610747824)]
+            string UPC { get; }
+            [DispId(1610747825)]
+            string SerialNumber { get; }
+            [DispId(1610747827)]
+            string IconURL(string bstrEncodingFormat, int lSizeX, int lSizeY, int lBitDepth);
+            [DispId(1610747828)]
+            IUPnPServices Services { get; }
+        }
+
+        [ComImport]
+        [Guid("FDBC0C73-BDA3-4C66-AC4F-F2D96FDAD68C")]
+        [InterfaceType(ComInterfaceType.InterfaceIsDual)]
+        [SuppressUnmanagedCodeSecurity]
+        interface IUPnPDevices : IEnumerable
+        {
+            [DispId(1610747309)]
+            int Count { get; }
+
+            [DispId(-4)]
+            [TypeLibFunc(TypeLibFuncFlags.FHidden | TypeLibFuncFlags.FRestricted)]
+            new IEnumerator GetEnumerator();
+
+            [DispId(0)]
+            IUPnPDevice this[string bstrUDN] { get; }
+        }
+
+        [ComImport]
+        [Guid("3F8C8E9E-9A7A-4DC8-BC41-FF31FA374956")]
+        [InterfaceType(ComInterfaceType.InterfaceIsDual)]
+        [SuppressUnmanagedCodeSecurity]
+        interface IUPnPServices : IEnumerable
+        {
+            [DispId(1610745809)]
+            int Count { get; }
+
+            [DispId(-4)]
+            [TypeLibFunc(TypeLibFuncFlags.FHidden | TypeLibFuncFlags.FRestricted)]
+            new IEnumerator GetEnumerator();
+
+            [DispId(0)]
+            IUPnPService this[string bstrServiceId] { get; }
+        }
+
+        [ComImport]
+        [Guid("A295019C-DC65-47DD-90DC-7FE918A1AB44")]
+        [InterfaceType(ComInterfaceType.InterfaceIsDual)]
+        [SuppressUnmanagedCodeSecurity]
+        interface IUPnPService
+        {
+            [PreserveSig]
+            [DispId(1610746309)]
+            HRESULT_UPnP QueryStateVariable(string bstrVariableName, out /*VARIANT*/ object pvarValue);
+            [PreserveSig]
+            [DispId(1610746310)]
+            HRESULT_UPnP InvokeAction(string bstrActionName, /*VARIANT*/ object vInActionArgs, ref /*VARIANT*/ object pvOutActionArgs, out /*VARIANT*/ object pvarRetVal);
+
+            [DispId(1610746311)]
+            string ServiceTypeIdentifier { get; }
+            [DispId(1610746312)]
+            void AddCallback(/*IUnknown*/ object pUnkCallback);
+            [DispId(1610746313)]
+            string Id { get; }
+            [DispId(1610746314)]
+            int LastTransportStatus { get; }
+        }
+
+        enum HRESULT_UPnP : int
+        {
+            S_OK = 0,
+            UPNP_FACILITY_ITF = -2147221504,
+            UPNP_E_ROOT_ELEMENT_EXPECTED = UPNP_FACILITY_ITF + 0x0200,
+            UPNP_E_DEVICE_ELEMENT_EXPECTED,
+            UPNP_E_SERVICE_ELEMENT_EXPECTED,
+            UPNP_E_SERVICE_NODE_INCOMPLETE,
+            UPNP_E_DEVICE_NODE_INCOMPLETE,
+            UPNP_E_ICON_ELEMENT_EXPECTED,
+            UPNP_E_ICON_NODE_INCOMPLETE,
+            UPNP_E_INVALID_ACTION,
+            UPNP_E_INVALID_ARGUMENTS,
+            UPNP_E_OUT_OF_SYNC,
+            UPNP_E_ACTION_REQUEST_FAILED,
+            UPNP_E_TRANSPORT_ERROR,
+            UPNP_E_VARIABLE_VALUE_UNKNOWN,
+            UPNP_E_INVALID_VARIABLE,
+            UPNP_E_DEVICE_ERROR,
+            UPNP_E_PROTOCOL_ERROR,
+            UPNP_E_ERROR_PROCESSING_RESPONS,
+            UPNP_E_DEVICE_TIMEOUT,
+            UPNP_E_INVALID_DOCUMENT = UPNP_FACILITY_ITF + 0x0500,
+            UPNP_E_EVENT_SUBSCRIPTION_FAILED,
+            UPNP_E_ACTION_SPECIFIC_BASE = UPNP_FACILITY_ITF + 0x0300,
+            UPNP_E_ACTION_SPECIFIC_MAX = UPNP_E_ACTION_SPECIFIC_BASE + 0x0258,
+        }
+
+        #endregion
+    }
+
+    public class UPnPPortMapping
+    {
+        public string RemoteHost { get; set; }
+        public ushort ExternalPort { get; set; }
+        public string Protocol { get; set; }
+        public ushort InternalPort { get; set; }
+        public IPAddress InternalClient { get; set; }
+        public bool Enabled { get; set; }
+        public string PortMappingDescription { get; set; }
+        public uint LeaseDuration { get; set; }
+    }
+
+    #endregion
 
     #region base58
 
