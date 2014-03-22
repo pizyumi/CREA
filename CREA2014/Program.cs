@@ -350,6 +350,12 @@ namespace CREA2014
             action();
         }
 
+        //関数を実行する（拡張：任意型）
+        public static void Operate<T>(this T self, Action operation)
+        {
+            operation();
+        }
+
         //自分自身を関数に渡してから返す（拡張：任意型）
         public static T Operate<T>(this T self, Action<T> operation)
         {
@@ -510,13 +516,17 @@ namespace CREA2014
             public readonly Type Type;
             public readonly string Message;
             public readonly int Level;
+            public readonly string[] Arguments;
 
-            public LogInfomation(Type _type, string _message, int _level)
+            public LogInfomation(Type _type, string _message, int _level, string[] _arguments)
             {
                 Type = _type;
                 Message = _message;
                 Level = _level;
+                Arguments = _arguments;
             }
+
+            public LogInfomation(Type _type, string _message, int _level) : this(_type, _message, _level, null) { }
         }
 
         //ログイベントはProgram静的クラスのログ機能を介してより具体的なイベントに変換して、具体的なイベントをUIで処理する
@@ -531,11 +541,19 @@ namespace CREA2014
         {
             Tested(self.GetType(), new LogInfomation(self.GetType(), message, level));
         }
+        public static void RaiseTest<T>(this T self, string message, int level, string[] arguments)
+        {
+            Tested(self.GetType(), new LogInfomation(self.GetType(), message, level, arguments));
+        }
 
         //通知ログイベントを発生させる（拡張：型表現型）
         public static void RaiseNotification<T>(this T self, string message, int level)
         {
             Notified(self.GetType(), new LogInfomation(self.GetType(), message, level));
+        }
+        public static void RaiseNotification<T>(this T self, string message, int level, string[] arguments)
+        {
+            Notified(self.GetType(), new LogInfomation(self.GetType(), message, level, arguments));
         }
 
         //結果ログイベントを発生させる（拡張：任意型）
@@ -543,23 +561,39 @@ namespace CREA2014
         {
             Resulted(self.GetType(), new LogInfomation(self.GetType(), message, level));
         }
+        public static void RaiseResult<T>(this T self, string message, int level, string[] arguments)
+        {
+            Resulted(self.GetType(), new LogInfomation(self.GetType(), message, level, arguments));
+        }
 
         //警告ログイベントを発生させる（拡張：任意型）
         public static void RaiseWarning<T>(this T self, string message, int level)
         {
             Warned(self.GetType(), new LogInfomation(self.GetType(), message, level));
         }
+        public static void RaiseWarning<T>(this T self, string message, int level, string[] arguments)
+        {
+            Warned(self.GetType(), new LogInfomation(self.GetType(), message, level, arguments));
+        }
 
-        //エラーログイベントを発生させる（拡張：任意型）
+        //過誤ログイベントを発生させる（拡張：任意型）
         public static void RaiseError<T>(this T self, string message, int level)
         {
             Errored(self.GetType(), new LogInfomation(self.GetType(), message, level));
         }
+        public static void RaiseError<T>(this T self, string message, int level, string[] arguments)
+        {
+            Errored(self.GetType(), new LogInfomation(self.GetType(), message, level, arguments));
+        }
 
-        //例外エラーログイベントを発生させる（拡張：任意型）
+        //例外過誤ログイベントを発生させる（拡張：任意型）
         public static void RaiseError<T>(this T self, string message, int level, Exception ex)
         {
             Errored(self.GetType(), new LogInfomation(self.GetType(), string.Join(Environment.NewLine, message, ex.CreateMessage(0)), level));
+        }
+        public static void RaiseError<T>(this T self, string message, int level, Exception ex, string[] arguments)
+        {
+            Errored(self.GetType(), new LogInfomation(self.GetType(), string.Join(Environment.NewLine, message, ex.CreateMessage(0)), level, arguments));
         }
 
         //真偽値が真のときのみエラーイベントを発生させ、真偽値をそのまま返す（拡張：真偽型）
@@ -607,7 +641,11 @@ namespace CREA2014
         //ログの文章を取得する（拡張：文字列型）
         public static string GetLogMessage(this string rawMessage)
         {
-            return Program.GetLogMessage(rawMessage);
+            return Program.GetLogMessage(rawMessage, null);
+        }
+        public static string GetLogMessage(this string rawMessage, params string[] arguments)
+        {
+            return Program.GetLogMessage(rawMessage, arguments);
         }
 
         //例外の説明を取得する（拡張：文字列型）
@@ -832,6 +870,8 @@ namespace CREA2014
             };
 
             object obj = si.Sender();
+            if (obj.GetType() != si.Type)
+                throw new InvalidDataException("sd_writer_type_mismatch"); //対応済
 
             if (si.Type == typeof(byte[]))
             {
@@ -1095,6 +1135,7 @@ namespace CREA2014
         public virtual byte[] PublicKey
         {
             get { throw new NotSupportedException("sd_pubkey"); }
+            protected set { throw new NotSupportedException("sd_pubkey_set"); }
         }
 
         public virtual byte[] PrivateKey
@@ -1117,9 +1158,18 @@ namespace CREA2014
                 if (signature == null)
                     throw new InvalidOperationException("sd_signature");
 
-                using (ECDsaCng dsa = new ECDsaCng(CngKey.Import(PublicKey, CngKeyBlobFormat.EccPublicBlob)))
-                    return dsa.VerifyData(ToBinaryMainData(), signature);
+                return VerifySignature();
             }
+        }
+
+        protected virtual Action<byte[]> ReservedRead
+        {
+            get { throw new NotSupportedException("sd_reserved_write"); }
+        }
+
+        protected virtual Func<byte[]> ReservedWrite
+        {
+            get { return () => new byte[] { }; }
         }
 
         public int? Length
@@ -1199,6 +1249,10 @@ namespace CREA2014
                 foreach (var mdi in StreamInfo(new ReaderWriter(ms, ReaderWriter.Mode.write)))
                     Write(ms, mdi);
 
+                byte[] reservedBytes = ReservedWrite();
+                ms.Write(BitConverter.GetBytes(reservedBytes.Length), 0, 4);
+                ms.Write(reservedBytes, 0, reservedBytes.Length);
+
                 return ms.ToArray();
             }
         }
@@ -1214,6 +1268,29 @@ namespace CREA2014
                 //破損検査のためのデータ（主データのハッシュ値の先頭4バイト）
                 if (IsCorruptionChecked)
                     ms.Write(mainDataBytes.ComputeSha256(), 0, 4);
+                if (IsSigned)
+                {
+                    ms.Write(BitConverter.GetBytes(PublicKey.Length), 0, 4);
+                    ms.Write(PublicKey, 0, PublicKey.Length);
+
+                    //一応主データに加えて公開鍵も結合したものに対して署名することにする
+                    //公開鍵を結合しないと、後で別の鍵ペアで同一データに署名することができる
+                    //だからといって、別人が署名した同一データができるだけで、
+                    //本人が作成していないデータに対して別人が本人として署名することはできないが
+                    byte[] signBytes = PublicKey.Combine(mainDataBytes);
+
+                    using (ECDsaCng dsa = new ECDsaCng(CngKey.Import(PrivateKey, CngKeyBlobFormat.EccPrivateBlob)))
+                    {
+                        dsa.HashAlgorithm = CngAlgorithm.Sha256;
+
+                        signature = dsa.SignData(signBytes);
+
+                        //将来的にハッシュアルゴリズムが変更される可能性もあるので、
+                        //署名は可変長ということにする
+                        ms.Write(BitConverter.GetBytes(signature.Length), 0, 4);
+                        ms.Write(signature, 0, signature.Length);
+                    }
+                }
                 ms.Write(mainDataBytes, 0, mainDataBytes.Length);
 
                 return ms.ToArray();
@@ -1240,16 +1317,48 @@ namespace CREA2014
                     check = BitConverter.ToInt32(checkBytes, 0);
                 }
 
+                if (IsSigned)
+                {
+                    byte[] publicKeyLengthBytes = new byte[4];
+                    ms.Read(publicKeyLengthBytes, 0, 4);
+                    int publicKeyLength = BitConverter.ToInt32(publicKeyLengthBytes, 0);
+
+                    byte[] publicKey = new byte[publicKeyLength];
+                    ms.Read(publicKey, 0, publicKey.Length);
+                    PublicKey = publicKey;
+
+                    byte[] signatureLengthBytes = new byte[4];
+                    ms.Read(signatureLengthBytes, 0, 4);
+                    int signatureLength = BitConverter.ToInt32(signatureLengthBytes, 0);
+
+                    signature = new byte[signatureLength];
+                    ms.Read(signature, 0, signature.Length);
+                }
+
                 int length = (int)(ms.Length - ms.Position);
                 mainDataBytes = new byte[length];
                 ms.Read(mainDataBytes, 0, length);
 
                 if (IsCorruptionChecked && check != BitConverter.ToInt32(mainDataBytes.ComputeSha256(), 0))
-                    throw new InvalidDataException("from_binary_check_inaccurate"); //対応済
+                    throw new InvalidDataException("from_binary_check"); //対応済
+                if (IsSigned && IsSignatureChecked && !VerifySignature())
+                    throw new InvalidDataException("from_binary_signature"); //対応済
             }
             using (MemoryStream ms = new MemoryStream(mainDataBytes))
+            {
                 foreach (var mdi in StreamInfo(new ReaderWriter(ms, ReaderWriter.Mode.read)))
                     Read(ms, mdi);
+
+                byte[] reservedLengthBytes = new byte[4];
+                ms.Read(reservedLengthBytes, 0, 4);
+                int reservedLength = BitConverter.ToInt32(reservedLengthBytes, 0);
+
+                byte[] reservedBytes = new byte[reservedLength];
+                ms.Read(reservedBytes, 0, reservedBytes.Length);
+
+                if (reservedBytes.Length != 0)
+                    ReservedRead(reservedBytes);
+            }
         }
 
         public static T FromBinary<T>(byte[] binary) where T : SHAREDDATA
@@ -1257,6 +1366,16 @@ namespace CREA2014
             T sd = Activator.CreateInstance(typeof(T)) as T;
             sd.FromBinary(binary);
             return sd;
+        }
+
+        private bool VerifySignature()
+        {
+            using (ECDsaCng dsa = new ECDsaCng(CngKey.Import(PublicKey, CngKeyBlobFormat.EccPublicBlob)))
+            {
+                dsa.HashAlgorithm = CngAlgorithm.Sha256;
+
+                return dsa.VerifyData(ToBinaryMainData(), signature);
+            }
         }
     }
     public abstract class SETTINGSDATA : DATA
@@ -2241,7 +2360,7 @@ namespace CREA2014
         private static Dictionary<string, Func<string>> taskNames;
         private static Dictionary<string, Func<string>> taskDescriptions;
         private static Dictionary<Type, LogData.LogGround> logGrounds;
-        private static Dictionary<string, Func<string>> logMessages;
+        private static Dictionary<string, Func<string[], string>> logMessages;
         private static Dictionary<string, Func<string>> exceptionMessages;
 
         public static string Multilanguage(string text, int id)
@@ -2265,9 +2384,9 @@ namespace CREA2014
             return logGrounds.GetValue(type, LogData.LogGround.other);
         }
 
-        public static string GetLogMessage(string rawMessage)
+        public static string GetLogMessage(string rawMessage, string[] arguments)
         {
-            return logMessages.GetValue(rawMessage, () => rawMessage)();
+            return logMessages.GetValue(rawMessage, (arg) => rawMessage)(arguments);
         }
 
         public static string GetExceptionMessage(string rawMessage)
@@ -2325,15 +2444,24 @@ namespace CREA2014
                 {typeof(AccountHolderDatabase), LogData.LogGround.signData}, 
                 {typeof(Client), LogData.LogGround.networkBase}, 
                 {typeof(Listener), LogData.LogGround.networkBase}, 
+                {typeof(CreaNode), LogData.LogGround.creaNetwork}, 
             };
 
-            logMessages = new Dictionary<string, Func<string>>() { 
-                {"exist_same_name_account_holder", () => "同名の口座名義人が存在します。".Multilanguage(93)}, 
-                {"client_socket", () => "エラーが発生しました。".Multilanguage(94)}, 
-                {"listener_socket", () => "エラーが発生しました。".Multilanguage(95)}, 
-                {"task", () => "エラーが発生しました。".Multilanguage(96)}, 
-                {"task_aborted", () => "作業が強制終了されました。".Multilanguage(97)}, 
-                {"all_tasks_aborted", () => "全ての作業が強制終了されました。".Multilanguage(98)}, 
+            logMessages = new Dictionary<string, Func<string[], string>>() { 
+                {"exist_same_name_account_holder", (args) => "同名の口座名義人が存在します。".Multilanguage(93)}, 
+                {"client_socket", (args) => "エラーが発生しました。".Multilanguage(94)}, 
+                {"listener_socket", (args) => "エラーが発生しました。".Multilanguage(95)}, 
+                {"task", (args) => "エラーが発生しました。".Multilanguage(96)}, 
+                {"task_aborted", (args) => "作業が強制終了されました。".Multilanguage(97)}, 
+                {"all_tasks_aborted", (args) => "全ての作業が強制終了されました。".Multilanguage(98)}, 
+                {"upnp_not_found", (args) => "UPnPによるグローバルIPアドレスの取得に失敗しました。サーバは起動されませんでした。".Multilanguage(99)}, 
+                {"port0", (args) => "ポート0です。サーバは起動されませんでした。".Multilanguage(100)}, 
+                {"rsa_key_cant_create", (args) => "RSA鍵の生成に失敗しました。サーバは起動されませんでした。".Multilanguage(101)}, 
+                {"rsa_key_create", (args) => "RSA鍵の生成に成功しました。サーバは起動されませんでした。".Multilanguage(102)}, 
+                {"upnp_ipaddress", (args) => string.Format("グローバルIPアドレスを取得しました：{0}".Multilanguage(103), args[0])}, 
+                {"server_started", (args) => string.Format("サーバのリッスンを開始しました：{0}:{1}".Multilanguage(104), args[0], args[1])}, 
+                {"server_ended", (args) => string.Format("サーバのリッスンを終了しました：{0}:{1}".Multilanguage(105), args[0], args[1])}, 
+                {"server_restart", (args) => string.Format("ポートが変更されました。現在起動しているサーバを停止し、新たなサーバを起動します：{0}:{1}".Multilanguage(106), args[0], args[1])}, 
             };
 
             exceptionMessages = new Dictionary<string, Func<string>>() {
@@ -2361,8 +2489,6 @@ namespace CREA2014
 
             //Listener listener = new Listener(7777, RsaKeySize.rsa2048, (ca, ip) =>
             //{
-            //    Thread.Sleep(50000);
-
             //    string message = Encoding.UTF8.GetString(ca.ReadCompressedBytes());
 
             //    MessageBox.Show(message);
@@ -2375,15 +2501,13 @@ namespace CREA2014
             //using (RSACryptoServiceProvider rsacsp = new RSACryptoServiceProvider(2048))
             //    privateRSAParameters = rsacsp.ToXmlString(true);
 
-            //Client client = new Client("127.0.0.1", 7777, RsaKeySize.rsa2048, privateRSAParameters, (ca, ip) =>
+            //Client client = new Client(IPAddress.Loopback, 7777, RsaKeySize.rsa2048, privateRSAParameters, (ca, ip) =>
             //{
-            //    Thread.Sleep(50000);
-
             //    ca.WriteCompreddedBytes(Encoding.UTF8.GetBytes("テストだよ～"));
             //});
             //client.StartClient();
 
-            //Thread.Sleep(100000);
+            //Thread.Sleep(10000);
 
             Console.ReadLine();
 

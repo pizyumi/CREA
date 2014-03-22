@@ -145,7 +145,7 @@ namespace CREA2014
             return listener;
         }
 
-        protected Client NewClient(string ipAddress, ushort port, Action<CommunicationApparatus, IPEndPoint> protocolProcess)
+        protected Client NewClient(IPAddress ipAddress, ushort port, Action<CommunicationApparatus, IPEndPoint> protocolProcess)
         {
             ConnectionData connection = null;
 
@@ -190,11 +190,11 @@ namespace CREA2014
             }
         }
 
-        private void RegisterResult(string ipAddress, bool isSucceeded)
+        private void RegisterResult(IPAddress ipAddress, bool isSucceeded)
         {
             ConnectionHistory connectionHistory;
             lock (connectionHistoriesLock)
-                if ((connectionHistory = connectionHistories.Where((e) => e.IpAddress == ipAddress).FirstOrDefault()) == null)
+                if ((connectionHistory = connectionHistories.Where((e) => e.IpAddress.Equals(ipAddress)).FirstOrDefault()) == null)
                     connectionHistories.Add(connectionHistory = new ConnectionHistory(ipAddress));
 
             if (isSucceeded)
@@ -355,11 +355,11 @@ namespace CREA2014
 
     public class SocketData : INTERNALDATA
     {
-        public readonly string IpAddress;
+        public readonly IPAddress IpAddress;
         public readonly ushort Port;
         public readonly ushort MyPort;
 
-        public SocketData(string _ipAddress, ushort _port, ushort _myPort)
+        public SocketData(IPAddress _ipAddress, ushort _port, ushort _myPort)
         {
             IpAddress = _ipAddress;
             Port = _port;
@@ -369,36 +369,96 @@ namespace CREA2014
 
     public class Client
     {
-        private readonly string ipAddress;
+        private readonly IPAddress ipAddress;
+        public IPAddress IpAdress
+        {
+            get { return ipAddress; }
+        }
+
         private readonly ushort port;
+        public ushort Port
+        {
+            get { return port; }
+        }
+
         private readonly string privateRsaParameter;
+        public bool IsEncrypted
+        {
+            get { return privateRsaParameter != null; }
+        }
+
         private readonly RsaKeySize keySize;
+        public RsaKeySize KeySize
+        {
+            get { return keySize; }
+        }
+
         private readonly Action<CommunicationApparatus, IPEndPoint> protocolProcess;
-        private readonly int receiveTimeout;
-        private readonly int sendTimeout;
-        private readonly int receiveBufferSize;
-        private readonly int sendBufferSize;
+
+        private int receiveTimeout = 30000;
+        public int ReceiveTimeout
+        {
+            get { return receiveTimeout; }
+            set
+            {
+                if (client != null)
+                    throw new InvalidOperationException("client_already_started"); //対応済
+
+                receiveTimeout = value;
+            }
+        }
+
+        private int sendTimeout = 30000;
+        public int SendTimeout
+        {
+            get { return sendTimeout; }
+            set
+            {
+                if (client != null)
+                    throw new InvalidOperationException("client_already_started"); //対応済
+
+                sendTimeout = value;
+            }
+        }
+
+        private int receiveBufferSize = 8192;
+        public int ReceiveBufferSize
+        {
+            get { return receiveBufferSize; }
+            set
+            {
+                if (client != null)
+                    throw new InvalidOperationException("client_already_started"); //対応済
+
+                receiveBufferSize = value;
+            }
+        }
+
+        private int sendBufferSize = 8192;
+        public int SendBufferSize
+        {
+            get { return sendBufferSize; }
+            set
+            {
+                if (client != null)
+                    throw new InvalidOperationException("client_already_started"); //対応済
+
+                sendBufferSize = value;
+            }
+        }
 
         private Socket client;
 
-        public Client(string _ipAddress, ushort _port, RsaKeySize _keySize, string _privateRsaParameter, Action<CommunicationApparatus, IPEndPoint> _protocolProcess, int _receiveTimeout, int _sendTimeout, int _receiveBufferSize, int _sendBufferSize)
+        public Client(IPAddress _ipAddress, ushort _port, RsaKeySize _keySize, string _privateRsaParameter, Action<CommunicationApparatus, IPEndPoint> _protocolProcess)
         {
             ipAddress = _ipAddress;
             port = _port;
             keySize = _keySize;
             privateRsaParameter = _privateRsaParameter;
             protocolProcess = _protocolProcess;
-            receiveTimeout = _receiveTimeout;
-            sendTimeout = _sendTimeout;
-            receiveBufferSize = _receiveBufferSize;
-            sendBufferSize = _sendBufferSize;
         }
 
-        public Client(string _ipAddress, ushort _port, Action<CommunicationApparatus, IPEndPoint> _protocolProcess, int _receiveTimeout, int _sendTimeout, int _receiveBufferSize, int _sendBufferSize) : this(_ipAddress, _port, RsaKeySize.rsa2048, null, _protocolProcess, _receiveTimeout, _sendTimeout, _receiveBufferSize, _sendBufferSize) { }
-
-        public Client(string _ipAddress, ushort _port, RsaKeySize _keySize, string _privateRsaParameter, Action<CommunicationApparatus, IPEndPoint> _protocolProcess) : this(_ipAddress, _port, _keySize, _privateRsaParameter, _protocolProcess, 30000, 30000, 8192, 8192) { }
-
-        public Client(string _ipAddress, ushort _port, Action<CommunicationApparatus, IPEndPoint> _protocolProcess) : this(_ipAddress, _port, RsaKeySize.rsa2048, null, _protocolProcess, 30000, 30000, 8192, 8192) { }
+        public Client(IPAddress _ipAddress, ushort _port, Action<CommunicationApparatus, IPEndPoint> _protocolProcess) : this(_ipAddress, _port, RsaKeySize.rsa2048, null, _protocolProcess) { }
 
         public event EventHandler<SocketData> Connected = delegate { };
         public event EventHandler<SocketData> Disconnected = delegate { };
@@ -416,8 +476,8 @@ namespace CREA2014
 
                 try
                 {
-                    client = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
-                    client.Connect(IPAddress.Parse(ipAddress), port);
+                    client = new Socket(ipAddress.AddressFamily, SocketType.Stream, ProtocolType.Tcp);
+                    client.Connect(ipAddress, port);
                     client.ReceiveTimeout = receiveTimeout;
                     client.SendTimeout = sendTimeout;
                     client.ReceiveBufferSize = receiveBufferSize;
@@ -429,7 +489,7 @@ namespace CREA2014
                     {
                         RijndaelManaged rm = null;
 
-                        if (privateRsaParameter != null)
+                        if (IsEncrypted)
                         {
                             RSACryptoServiceProvider rsacsp = new RSACryptoServiceProvider();
                             rsacsp.FromXmlString(privateRsaParameter);
@@ -499,39 +559,107 @@ namespace CREA2014
     public class Listener
     {
         private readonly ushort port;
+        public ushort Port
+        {
+            get { return port; }
+        }
+
         private readonly bool isEncrypted;
+        public bool IsEncrypted
+        {
+            get { return isEncrypted; }
+        }
+
         private readonly RsaKeySize keySize;
+        public RsaKeySize KeySize
+        {
+            get { return keySize; }
+        }
+
         private readonly Action<CommunicationApparatus, IPEndPoint> protocolProcess;
-        private readonly int receiveTimeout;
-        private readonly int sendTimeout;
-        private readonly int receiveBufferSize;
-        private readonly int sendBufferSize;
-        private readonly int backlog;
 
-        private Socket listener = null;
+        private int receiveTimeout = 30000;
+        public int ReceiveTimeout
+        {
+            get { return receiveTimeout; }
+            set
+            {
+                if (listener != null)
+                    throw new InvalidOperationException("listener_already_started"); //対応済
+
+                receiveTimeout = value;
+            }
+        }
+
+        private int sendTimeout = 30000;
+        public int SendTimeout
+        {
+            get { return sendTimeout; }
+            set
+            {
+                if (listener != null)
+                    throw new InvalidOperationException("listener_already_started"); //対応済
+
+                sendTimeout = value;
+            }
+        }
+
+        private int receiveBufferSize = 8192;
+        public int ReceiveBufferSize
+        {
+            get { return receiveBufferSize; }
+            set
+            {
+                if (listener != null)
+                    throw new InvalidOperationException("listener_already_started"); //対応済
+
+                receiveBufferSize = value;
+            }
+        }
+
+        private int sendBufferSize = 8192;
+        public int SendBufferSize
+        {
+            get { return sendBufferSize; }
+            set
+            {
+                if (listener != null)
+                    throw new InvalidOperationException("listener_already_started"); //対応済
+
+                sendBufferSize = value;
+            }
+        }
+
+        private int backlog = 100;
+        public int Backlog
+        {
+            get { return backlog; }
+            set
+            {
+                if (listener != null)
+                    throw new InvalidOperationException("listener_already_started"); //対応済
+
+                backlog = value;
+            }
+        }
+
+        private Socket listener;
         private readonly object lobject = new object();
-        private List<Socket> clients = new List<Socket>();
+        private readonly List<Socket> clients;
 
-        private Listener(ushort _port, bool _isEncrypted, RsaKeySize _keySize, Action<CommunicationApparatus, IPEndPoint> _protocolProcess, int _receiveTimeout, int _sendTimeout, int _receiveBufferSize, int _sendBufferSize, int _backlog)
+        private Listener(ushort _port, bool _isEncrypted, RsaKeySize _keySize, Action<CommunicationApparatus, IPEndPoint> _protocolProcess)
         {
             port = _port;
             isEncrypted = _isEncrypted;
             keySize = _keySize;
             protocolProcess = _protocolProcess;
-            receiveTimeout = _receiveTimeout;
-            sendTimeout = _sendTimeout;
-            receiveBufferSize = _receiveBufferSize;
-            sendBufferSize = _sendBufferSize;
-            backlog = _backlog;
+
+            clients = new List<Socket>();
         }
 
-        public Listener(ushort _port, RsaKeySize _keySize, Action<CommunicationApparatus, IPEndPoint> _protocolProcess, int _receiveTimeout, int _sendTimeout, int _receiveBufferSize, int _sendBufferSize, int _backlog) : this(_port, true, _keySize, _protocolProcess, _receiveTimeout, _sendTimeout, _receiveBufferSize, _sendBufferSize, _backlog) { }
+        public Listener(ushort _port, RsaKeySize _keySize, Action<CommunicationApparatus, IPEndPoint> _protocolProcess) : this(_port, true, _keySize, _protocolProcess) { }
 
-        public Listener(ushort _port, Action<CommunicationApparatus, IPEndPoint> _protocolProcess, int _receiveTimeout, int _sendTimeout, int _receiveBufferSize, int _sendBufferSize, int _backlog) : this(_port, false, RsaKeySize.rsa2048, _protocolProcess, _receiveTimeout, _sendTimeout, _receiveBufferSize, _sendBufferSize, _backlog) { }
-
-        public Listener(ushort _port, RsaKeySize _keySize, Action<CommunicationApparatus, IPEndPoint> _protocolProcess) : this(_port, true, _keySize, _protocolProcess, 30000, 30000, 8192, 8192, 100) { }
-
-        public Listener(ushort _port, Action<CommunicationApparatus, IPEndPoint> _protocolProcess) : this(_port, false, RsaKeySize.rsa2048, _protocolProcess, 30000, 30000, 8192, 8192, 100) { }
+        public Listener(ushort _port, Action<CommunicationApparatus, IPEndPoint> _protocolProcess) : this(_port, false, RsaKeySize.rsa2048, _protocolProcess) { }
 
         public event EventHandler<Exception> Errored = delegate { };
         public event EventHandler<SocketData> ClientConnected = delegate { };
@@ -599,7 +727,9 @@ namespace CREA2014
         {
             this.StartTask(() =>
             {
-                SocketData socketData = new SocketData(((IPEndPoint)client.RemoteEndPoint).Address.ToString(), (ushort)((IPEndPoint)client.RemoteEndPoint).Port, (ushort)((IPEndPoint)client.LocalEndPoint).Port);
+                IPEndPoint ipEndPoint = (IPEndPoint)client.RemoteEndPoint;
+
+                SocketData socketData = new SocketData(ipEndPoint.Address, (ushort)ipEndPoint.Port, (ushort)((IPEndPoint)client.LocalEndPoint).Port);
 
                 try
                 {
@@ -684,8 +814,8 @@ namespace CREA2014
             get { return number; }
         }
 
-        private readonly string ipAddress;
-        public string IpAddress
+        private readonly IPAddress ipAddress;
+        public IPAddress IpAddress
         {
             get { return ipAddress; }
         }
@@ -716,7 +846,7 @@ namespace CREA2014
 
         public enum ConnectionDirection { up, down }
 
-        public ConnectionData(int _number, string _ipAddress, ushort _port, ushort _myPort, ConnectionDirection _direction)
+        public ConnectionData(int _number, IPAddress _ipAddress, ushort _port, ushort _myPort, ConnectionDirection _direction)
         {
             number = _number;
             ipAddress = _ipAddress;
@@ -734,8 +864,8 @@ namespace CREA2014
 
     public class ConnectionHistory
     {
-        private readonly string ipAddress;
-        public string IpAddress
+        private readonly IPAddress ipAddress;
+        public IPAddress IpAddress
         {
             get { return ipAddress; }
         }
@@ -759,7 +889,7 @@ namespace CREA2014
             get { return failureTime.ToArray(); }
         }
 
-        public ConnectionHistory(string _ipAddress)
+        public ConnectionHistory(IPAddress _ipAddress)
         {
             ipAddress = _ipAddress;
             failureTime = new List<DateTime>();
@@ -821,38 +951,91 @@ namespace CREA2014
 
     #region CREAネットワーク
 
+    public enum Network { localtest = 0, global = 1 }
+
     public class CreaNode : P2PNODE
     {
+        private readonly Network network;
+        public Network Network
+        {
+            get { return network; }
+        }
+
         private ushort port;
         public ushort Port
         {
             get { return port; }
             set
             {
-                port = value;
+                if (port != value)
+                {
+                    port = value;
 
-                Change();
+                    if (isStartCompleted && IsServer)
+                    {
+                        this.RaiseNotification("server_restart".GetLogMessage(ipAddress.ToString(), port.ToString()), 5);
+
+                        End();
+
+                        string publicRsaParameters;
+                        using (RSACryptoServiceProvider rsacsp = new RSACryptoServiceProvider())
+                        {
+                            rsacsp.FromXmlString(privateRsaParameters);
+                            publicRsaParameters = rsacsp.ToXmlString(false);
+                        }
+
+                        New(publicRsaParameters);
+
+                        ServerChanged(this, EventArgs.Empty);
+                    }
+                }
             }
         }
 
-        private string ipAddress;
-        public string IpAddress
+        private IPAddress ipAddress;
+        public IPAddress IpAddress
         {
-            get { return ipAddress; }
+            get
+            {
+                if (!isStartCompleted)
+                    throw new InvalidOperationException("crea_node_not_start_completed");
+
+                return ipAddress;
+            }
         }
 
-        private Listener listener;
-
-        public CreaNode(ushort _port)
+        private NodeInformation nodeInfo;
+        public NodeInformation NodeInfo
         {
-            port = _port;
-        }
+            get
+            {
+                if (!isStartCompleted)
+                    throw new InvalidOperationException("crea_node_not_start_completed");
 
-        //public enum PortStatus
+                return nodeInfo;
+            }
+        }
 
         public bool IsPort0
         {
             get { return port == 0; }
+        }
+
+        public bool IsServer
+        {
+            get
+            {
+                if (!isStartCompleted)
+                    throw new InvalidOperationException("crea_node_not_start_completed");
+
+                return !IsPort0 && ipAddress != null;
+            }
+        }
+
+        public CreaNode(Network _network, ushort _port)
+        {
+            network = _network;
+            port = _port;
         }
 
         protected override Func<STREAMDATA<ProtocolInfomation>.ReaderWriter, IEnumerable<ProtocolInfomation>> StreamInfo
@@ -867,19 +1050,107 @@ namespace CREA2014
             }
         }
 
+        public event EventHandler ServerStarted = delegate { };
+        public event EventHandler ServerChanged = delegate { };
+        public event EventHandler ServerEnded = delegate { };
+
+        private Listener listener;
+        private string privateRsaParameters;
+        private bool isStarted;
+        private bool isStartCompleted;
+
         public void Start()
         {
+            if (isStarted)
+                throw new InvalidOperationException("crea_node_already_started");
 
-        }
+            this.StartTask(() =>
+            {
+                isStarted = true;
 
-        private void Change()
-        {
+                this.Operate(() =>
+                {
+                    if (IsPort0)
+                    {
+                        this.RaiseNotification("port0".GetLogMessage(), 5);
 
+                        return;
+                    }
+
+                    if (network == Network.global)
+                    {
+                        UPnPWanService upnpws = UPnPWanService.FindUPnPWanService();
+                        if (upnpws == null)
+                        {
+                            this.RaiseError("upnp_not_found".GetLogMessage(), 5);
+
+                            return;
+                        }
+
+                        ipAddress = upnpws.GetExternalIPAddress();
+
+                        this.RaiseNotification("upnp_ipaddress".GetLogMessage(ipAddress.ToString()), 5);
+                    }
+                    else
+                        ipAddress = IPAddress.Loopback;
+
+                    string publicRsaParameters;
+                    try
+                    {
+                        using (RSACryptoServiceProvider rsacsp = new RSACryptoServiceProvider(2048))
+                        {
+                            privateRsaParameters = rsacsp.ToXmlString(true);
+                            publicRsaParameters = rsacsp.ToXmlString(false);
+                        }
+                    }
+                    catch (Exception)
+                    {
+                        this.RaiseError("rsa_key_cant_create".GetLogMessage(), 5);
+
+                        return;
+                    }
+
+                    this.RaiseNotification("rsa_key_create".GetLogMessage(), 5);
+
+                    New(publicRsaParameters);
+                });
+
+                isStartCompleted = true;
+
+                ServerStarted(this, EventArgs.Empty);
+
+                //初期ノード情報通知
+                //初期ノード情報取得
+                //初期ノードに接続して近接ノード取得
+                //近接ノードとの接続を維持
+            }, "creanode", string.Empty);
         }
 
         public void End()
         {
+            if (!isStartCompleted)
+                throw new InvalidOperationException("crea_node_not_start_completed");
+            if (!IsServer)
+                throw new InvalidOperationException("crea_node_not_is_server");
 
+            listener.EndListener();
+
+            this.RaiseNotification("server_ended".GetLogMessage(ipAddress.ToString(), port.ToString()), 5);
+
+            ServerEnded(this, EventArgs.Empty);
+        }
+
+        private void New(string publicRsaParameters)
+        {
+            nodeInfo = new NodeInformation(ipAddress, port, network, DateTime.Now, publicRsaParameters);
+
+            listener = new Listener(port, (ca, ipEndPoint) =>
+            {
+
+            });
+            listener.StartListener();
+
+            this.RaiseNotification("server_started".GetLogMessage(ipAddress.ToString(), port.ToString()), 5);
         }
     }
 
@@ -897,10 +1168,18 @@ namespace CREA2014
             get { return port; }
         }
 
-        public FirstNodeInformation(IPAddress _ipAddress, ushort _port)
+        private Network network;
+        public Network Network
+        {
+            get { return network; }
+        }
+
+        protected FirstNodeInformation(int? _version, IPAddress _ipAddress, ushort _port, Network _network)
+            : base(_version)
         {
             ipAddress = _ipAddress;
             port = _port;
+            network = _network;
 
             if (ipAddress.AddressFamily != AddressFamily.InterNetwork && ipAddress.AddressFamily != AddressFamily.InterNetworkV6)
                 throw new ArgumentException("first_node_info_ip_address");
@@ -908,7 +1187,7 @@ namespace CREA2014
                 throw new ArgumentException("first_node_info_port");
         }
 
-        public FirstNodeInformation(string _ipAddress, ushort _port) : this(IPAddress.Parse(_ipAddress), _port) { }
+        public FirstNodeInformation(IPAddress _ipAddress, ushort _port, Network _network) : this(null, _ipAddress, _port, _network) { }
 
         public FirstNodeInformation(string _hex)
         {
@@ -921,7 +1200,7 @@ namespace CREA2014
         {
             get
             {
-                byte[] plainBytes = ipAddress.GetAddressBytes().Combine(BitConverter.GetBytes(port));
+                byte[] plainBytes = ipAddress.GetAddressBytes().Combine(BitConverter.GetBytes(port), BitConverter.GetBytes((int)network));
                 byte[] cypherBytes = new byte[plainBytes.Length * 4];
 
                 for (int i = 0; i < plainBytes.Length / 2; i++)
@@ -955,16 +1234,16 @@ namespace CREA2014
                     return ms.ToArray().ToHexstring();
                 }
             }
-            private set
+            protected set
             {
                 byte[] cypherBytes;
                 using (MemoryStream ms = new MemoryStream(value.FromHexstring()))
                 using (DeflateStream ds = new DeflateStream(ms, CompressionMode.Decompress))
                 {
-                    byte[] buffer1 = new byte[24];
-                    byte[] buffer2 = new byte[72 - 24];
-                    ds.Read(buffer1, 0, 24);
-                    ds.Read(buffer2, 0, 72 - 24);
+                    byte[] buffer1 = new byte[(4 + 2 + 4) * 4];
+                    byte[] buffer2 = new byte[(16 + 2 + 4) * 4 - (4 + 2 + 4) * 4];
+                    ds.Read(buffer1, 0, (4 + 2 + 4) * 4);
+                    ds.Read(buffer2, 0, (16 + 2 + 4) * 4 - (4 + 2 + 4) * 4);
 
                     cypherBytes = buffer2.IsZeroBytes() ? buffer1 : buffer1.Combine(buffer2);
                 }
@@ -987,22 +1266,35 @@ namespace CREA2014
                     plainBytes[2 * i + 1] = (byte)((-matrix[2] * answer3 + matrix[0] * answer4) / (matrix[0] * matrix[3] - matrix[1] * matrix[2]));
                 }
 
-                byte[] ipAddressBytes = cypherBytes.Length == 24 ? new byte[4] : new byte[16];
+                byte[] ipAddressBytes = cypherBytes.Length == 40 ? new byte[4] : new byte[16];
                 byte[] portBytes = new byte[2];
-                Array.Copy(plainBytes, 0, ipAddressBytes, 0, cypherBytes.Length == 24 ? 4 : 16);
-                Array.Copy(plainBytes, cypherBytes.Length == 24 ? 4 : 16, portBytes, 0, 2);
+                byte[] networkBytes = new byte[4];
+                Array.Copy(plainBytes, 0, ipAddressBytes, 0, cypherBytes.Length == 40 ? 4 : 16);
+                Array.Copy(plainBytes, cypherBytes.Length == 40 ? 4 : 16, portBytes, 0, 2);
+                Array.Copy(plainBytes, cypherBytes.Length == 40 ? 4 + 2 : 16 + 2, networkBytes, 0, 4);
 
                 ipAddress = new IPAddress(ipAddressBytes);
                 port = BitConverter.ToUInt16(portBytes, 0);
+                network = (Network)BitConverter.ToInt32(networkBytes, 0);
 
                 if (port == 0)
                     throw new ArgumentException("first_node_info_port");
             }
         }
 
-        public override bool Equals(object _obj)
+        protected override Func<STREAMDATA<MainDataInfomation>.ReaderWriter, IEnumerable<MainDataInfomation>> StreamInfo
         {
-            return (_obj as FirstNodeInformation).Operate((o) => o != null && ipAddress.ToString() == o.ipAddress.ToString() && port == o.port);
+            get
+            {
+                return (msrw) => new MainDataInfomation[]{
+                    new MainDataInfomation(typeof(string), () => Hex, (o) => Hex = (string)o), 
+                };
+            }
+        }
+
+        public override bool Equals(object obj)
+        {
+            return (obj as FirstNodeInformation).Operate((o) => o != null && Equals(o));
         }
 
         public override int GetHashCode()
@@ -1017,211 +1309,109 @@ namespace CREA2014
 
         public bool Equals(FirstNodeInformation other)
         {
-            return IpAddress.ToString() == other.IpAddress.ToString() && Port == other.Port;
+            return ipAddress.ToString() == other.ipAddress.ToString() && port == other.port;
+        }
+    }
+
+    public class NodeInformation : FirstNodeInformation
+    {
+        private DateTime participation;
+        public DateTime Participation
+        {
+            get { return participation; }
+        }
+
+        private DateTime publication;
+        public DateTime Publication
+        {
+            get { return publication; }
+        }
+
+        private string publicRSAParameters;
+        public string PublicRSAParameters
+        {
+            get { return publicRSAParameters; }
+        }
+
+        public NodeInformation(IPAddress _ipAddress, ushort _port, Network _network, DateTime _participation, string _publicRSAParameters)
+            : base(0, _ipAddress, _port, _network)
+        {
+            participation = _participation;
+            //取り敢えず現在時刻を代入するようにしておくがもっと別の実装を考えるべきかもしれない
+            publication = DateTime.Now;
+            publicRSAParameters = _publicRSAParameters;
+        }
+
+        private Sha256Hash idCache;
+        public Sha256Hash Id
+        {
+            get
+            {
+                if (idCache == null)
+                    return idCache = new Sha256Hash(IpAddress.GetAddressBytes().Combine(BitConverter.GetBytes(Port)).ComputeSha256());
+                else
+                    return idCache;
+            }
+        }
+
+        public FirstNodeInformation FirstNodeInfo
+        {
+            //型変換ではなく新しいオブジェクトを作成しないとSHAREDDATA.ToBinaryで例外が発生する
+            get { return new FirstNodeInformation(IpAddress, Port, Network); }
         }
 
         protected override Func<STREAMDATA<MainDataInfomation>.ReaderWriter, IEnumerable<MainDataInfomation>> StreamInfo
         {
             get
             {
-                return (msrw) => new MainDataInfomation[]{
-                    new MainDataInfomation(typeof(string), () => Hex, (o) => Hex = (string)o), 
-                };
+                if (Version == 0)
+                    return (msrw) => new MainDataInfomation[]{
+                        new MainDataInfomation(typeof(string), () => Hex, (o) => Hex = (string)o), 
+                        new MainDataInfomation(typeof(DateTime), () => participation, (o) => participation = (DateTime)o), 
+                        new MainDataInfomation(typeof(DateTime), () => publication, (o) => publication = (DateTime)o), 
+                        new MainDataInfomation(typeof(string), () => publicRSAParameters, (o) => publicRSAParameters = (string)o), 
+                    };
+                else
+                    throw new NotSupportedException("node_info_stream_info"); //対応済
             }
         }
 
         public override bool IsVersioned
         {
-            get { return false; }
+            get { return true; }
         }
 
         public override bool IsCorruptionChecked
         {
-            get { return false; }
+            get
+            {
+                if (Version <= 0)
+                    return true;
+                else
+                    throw new NotSupportedException("node_info_corruption_checked"); //対応済
+            }
+        }
+
+        public override bool Equals(object _obj)
+        {
+            return (_obj as NodeInformation).Operate((o) => o != null && Equals(o));
+        }
+
+        public override int GetHashCode()
+        {
+            return Id.GetHashCode();
+        }
+
+        public override string ToString()
+        {
+            return Id.ToString();
+        }
+
+        public bool Equals(NodeInformation other)
+        {
+            return Id.Equals(other.Id);
         }
     }
-
-    //public class NodeInformation : CREAISignable, CREAIBinarySerializable, IEquatable<NodeInformation>
-    //{
-    //    //IPアドレス（読み取り専用）（string）
-    //    private string ipAddress = "";
-    //    public string IpAddress
-    //    {
-    //        get
-    //        {
-    //            return ipAddress;
-    //        }
-    //    }
-
-    //    //ポート番号（読み取り専用）（int）
-    //    private int port = 0;
-    //    public int Port
-    //    {
-    //        get
-    //        {
-    //            return port;
-    //        }
-    //        set
-    //        {
-    //            port = value;
-    //        }
-    //    }
-
-    //    //ID（読み取り専用）（Hash）
-    //    private Hash id = null;
-    //    public Hash ID
-    //    {
-    //        get
-    //        {
-    //            return id;
-    //        }
-    //        set
-    //        {
-    //            id = value;
-    //        }
-    //    }
-
-    //    //参加日時（読み取り専用）（DateTime）
-    //    private DateTime participationDatetime = DateTime.Now;
-    //    public DateTime ParticipationDatetime
-    //    {
-    //        get
-    //        {
-    //            return participationDatetime;
-    //        }
-    //    }
-
-    //    //発行日時（読み取り専用）（DateTime）
-    //    private DateTime publicationDatetime = DateTime.Now;
-    //    public DateTime PublicationDatetime
-    //    {
-    //        get
-    //        {
-    //            return publicationDatetime;
-    //        }
-    //    }
-
-    //    //公開鍵（読み取り専用）（string）
-    //    private string publicRSAParameters = "";
-    //    public string PublicRSAParameters
-    //    {
-    //        get
-    //        {
-    //            return publicRSAParameters;
-    //        }
-    //    }
-
-    //    //暗号化ハッシュ（読み取り専用）（byte[128]）
-    //    private byte[] encryptedSignHash = new byte[0] { };
-    //    public byte[] EncryptedSignHash
-    //    {
-    //        get
-    //        {
-    //            return encryptedSignHash;
-    //        }
-    //    }
-
-    //    //コンストラクタ（IPアドレス／ポート番号／参加日時／公開鍵）
-    //    public NodeInformation(string _ipAddress, int _port, DateTime _participationDatetime, string _privateRSAParameters)
-    //    {
-    //        ipAddress = _ipAddress;
-    //        port = _port;
-    //        participationDatetime = _participationDatetime;
-    //        publicationDatetime = DateTime.Now;
-    //        id = ComputeID();
-    //        publicRSAParameters = CREADataHelper.ExtractPublicRSAParameters(_privateRSAParameters);
-
-    //        AttachSign(_privateRSAParameters);
-    //    }
-
-    //    public FirstNodeInformation CreateFirstNodeInformation()
-    //    {
-    //        return new FirstNodeInformation(ipAddress, port);
-    //    }
-
-    //    //IDを算出する
-    //    private Hash ComputeID()
-    //    {
-    //        using (MemoryStream memoryStream = new MemoryStream())
-    //        {
-    //            CREABinaryHelper.WriteString(memoryStream, ipAddress);
-    //            CREABinaryHelper.WriteInt(memoryStream, port);
-    //            //CREABinaryHelper.WriteDateTime(memoryStream, participationDatetime);
-
-    //            return new Hash(new SHA256Managed().ComputeHash(memoryStream.ToArray()));
-    //        }
-    //    }
-
-    //    //IDを検証する
-    //    public bool CheckID()
-    //    {
-    //        return id.Equals(ComputeID());
-    //    }
-
-    //    //署名を配置する
-    //    private void AttachSign(string privateRSAParameters)
-    //    {
-    //        encryptedSignHash = CREADataHelper.ComputeEncryptedSignHash(ToSignBinary(), privateRSAParameters);
-    //    }
-
-    //    //署名を検証する
-    //    public bool CheckSign()
-    //    {
-    //        return CREADataHelper.CheckEncryptedSignHash(ToSignBinary(), encryptedSignHash, publicRSAParameters);
-    //    }
-
-    //    //署名用のバイナリを作成する
-    //    private byte[] ToSignBinary()
-    //    {
-    //        using (MemoryStream memoryStream = new MemoryStream())
-    //        {
-    //            CREABinaryHelper.WriteString(memoryStream, ipAddress);
-    //            CREABinaryHelper.WriteInt(memoryStream, port);
-    //            CREABinaryHelper.WriteDateTime(memoryStream, participationDatetime);
-    //            CREABinaryHelper.WriteDateTime(memoryStream, publicationDatetime);
-    //            CREABinaryHelper.WriteHash(memoryStream, id);
-
-    //            return memoryStream.ToArray();
-    //        }
-    //    }
-
-    //    //文字列化
-    //    public override string ToString()
-    //    {
-    //        return ID.ToString();
-    //    }
-
-    //    //詳細な文字列化
-    //    public string ToDetailString()
-    //    {
-    //        return "IpAddress: " + ipAddress + Environment.NewLine +
-    //            "Port: " + port.ToString() + Environment.NewLine +
-    //            "ID: " + id.ToString() + Environment.NewLine +
-    //            "ParticipationDateTime: " + participationDatetime.ToString() + Environment.NewLine +
-    //            "PublicationDateTime: " + publicationDatetime.ToString() + Environment.NewLine +
-    //            "PublicRSAParameters: " + publicRSAParameters + Environment.NewLine +
-    //            "EncryptedSignHash: " + encryptedSignHash.ToHexString();
-    //    }
-
-    //    //相等判定
-    //    public override bool Equals(object _obj)
-    //    {
-    //        NodeInformation obj = (NodeInformation)_obj;
-
-    //        return IpAddress == obj.IpAddress && Port == obj.Port && ID.Equals(obj.ID);
-    //    }
-
-    //    //ハッシュ
-    //    public override int GetHashCode()
-    //    {
-    //        return ID.GetHashCode();
-    //    }
-
-    //    public bool Equals(NodeInformation other)
-    //    {
-    //        return ID.Equals(other.ID);
-    //    }
-    //}
 
     #endregion
 
