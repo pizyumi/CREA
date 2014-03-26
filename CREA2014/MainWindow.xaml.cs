@@ -335,7 +335,7 @@ namespace CREA2014
             if (pstatus.IsFirst)
             {
                 if (!File.Exists(lisenceTextFilePath))
-                    throw new FileNotFoundException("lisence_text_not_found"); //対応済
+                    throw new FileNotFoundException("lisence_text_not_found");
 
                 LisenceWindow lw = new LisenceWindow(File.ReadAllText(lisenceTextFilePath));
                 lw.Owner = this;
@@ -433,7 +433,7 @@ namespace CREA2014
                 }
                 catch (HttpListenerException ex)
                 {
-                    throw new HttpListenerException(ex.ErrorCode, "require_administrator"); //対応済
+                    throw new HttpListenerException(ex.ErrorCode, "require_administrator");
                 }
 
                 Thread thread = new Thread(() =>
@@ -456,7 +456,7 @@ namespace CREA2014
                             if (webServerData.Keys.Contains(hlc.Request.RawUrl) && webServerData[hlc.Request.RawUrl] != null)
                                 hlres.OutputStream.Write(webServerData[hlc.Request.RawUrl], 0, webServerData[hlc.Request.RawUrl].Length);
                             else
-                                throw new KeyNotFoundException("web_server_data"); //対応済
+                                throw new KeyNotFoundException("web_server_data");
                     }
                 });
                 thread.Start();
@@ -515,7 +515,7 @@ namespace CREA2014
                             core.AccountHolderDatabase.AccountHolderAdded -= accountHolderAdded;
                         }
                         else
-                            throw new NotSupportedException("wss_command"); //対応済
+                            throw new NotSupportedException("wss_command");
                     })).ExecuteInUIThread();
                 }
                 catch (Exception ex)

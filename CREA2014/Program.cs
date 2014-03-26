@@ -30,7 +30,7 @@ namespace CREA2014
             return () =>
             {
                 if (o != null)
-                    throw new InvalidOperationException("one_time"); //対応済
+                    throw new InvalidOperationException("one_time");
                 o = new object();
             };
         }
@@ -224,7 +224,7 @@ namespace CREA2014
         public static byte[] FromHexstring(this string str)
         {
             if (str.Length % 2 != 0)
-                throw new ArgumentException("hexstring_length"); //対応済
+                throw new ArgumentException("hexstring_length");
 
             int length = str.Length / 2;
             byte[] bytes = new byte[length];
@@ -239,7 +239,7 @@ namespace CREA2014
         public static string[] SplitEqually(this string str, int interval)
         {
             if (str.Length % interval != 0)
-                throw new ArgumentException("string_split_length"); //対応済
+                throw new ArgumentException("string_split_length");
 
             int length = str.Length / interval;
             string[] strs = new string[length];
@@ -596,7 +596,7 @@ namespace CREA2014
             Errored(self.GetType(), new LogInfomation(self.GetType(), string.Join(Environment.NewLine, message, ex.CreateMessage(0)), level, arguments));
         }
 
-        //真偽値が真のときのみエラーイベントを発生させ、真偽値をそのまま返す（拡張：真偽型）
+        //真偽値が真のときのみ過誤ログイベントを発生させ、真偽値をそのまま返す（拡張：真偽型）
         public static bool RaiseError(this bool flag, Type type, string message, int level)
         {
             if (flag)
@@ -605,13 +605,21 @@ namespace CREA2014
             return flag;
         }
 
-        //真偽値が偽のときのみエラーイベントを発生させ、真偽値をそのまま返す（拡張：真偽型）
+        //真偽値が偽のときのみ過誤ログイベントを発生させ、真偽値をそのまま返す（拡張：真偽型）
         public static bool NotRaiseError(this bool flag, Type type, string message, int level)
         {
             if (!flag)
                 type.RaiseError(message, level);
 
             return flag;
+        }
+
+        //通知ログイベントを発生させ、オブジェクトをそのまま返す（拡張：任意型）
+        public static T RaiseNotification<T>(this T self, Type type, Func<T, string> messageFunc, int level)
+        {
+            type.RaiseError(messageFunc(self), level);
+
+            return self;
         }
 
         //多言語化対応（拡張：文字列型）
@@ -721,17 +729,17 @@ namespace CREA2014
             public StreamInfomation(Type _type, int? _version, int? _length, Func<object> _sender, Action<object> _receiver)
             {
                 if (!_type.IsArray)
-                    throw new ArgumentException("stream_info_not_array"); //対応済
+                    throw new ArgumentException("stream_info_not_array");
 
                 Type elementType = _type.GetElementType();
                 if (!elementType.IsSubclassOf(typeof(SHAREDDATA)))
-                    throw new ArgumentException("stream_info_not_sd_array"); //対応済
+                    throw new ArgumentException("stream_info_not_sd_array");
                 else if (elementType.IsAbstract)
-                    throw new ArgumentException("stream_info_sd_array_abstract"); //対応済
+                    throw new ArgumentException("stream_info_sd_array_abstract");
 
                 SHAREDDATA sd = Activator.CreateInstance(elementType) as SHAREDDATA;
                 if ((!sd.IsVersioned && _version != null) || (sd.IsVersioned && _version == null))
-                    throw new ArgumentException("stream_info_not_sd_array_is_versioned"); //対応済
+                    throw new ArgumentException("stream_info_not_sd_array_is_versioned");
 
                 version = _version;
                 length = _length;
@@ -748,25 +756,25 @@ namespace CREA2014
                 {
                     Type elementType = _type.GetElementType();
                     if (elementType.IsSubclassOf(typeof(SHAREDDATA)))
-                        throw new ArgumentException("stream_info_sd_array"); //対応済
+                        throw new ArgumentException("stream_info_sd_array");
                     else if (elementType.IsAbstract)
-                        throw new ArgumentException("stream_info_array_abstract"); //対応済
+                        throw new ArgumentException("stream_info_array_abstract");
                     else
                         length = _lengthOrVersion;
                 }
                 else if (_type.IsSubclassOf(typeof(SHAREDDATA)))
                 {
                     if (_type.IsAbstract)
-                        throw new ArgumentException("stream_info_sd_abstract"); //対応済
+                        throw new ArgumentException("stream_info_sd_abstract");
 
                     SHAREDDATA sd = Activator.CreateInstance(_type) as SHAREDDATA;
                     if ((!sd.IsVersioned && _lengthOrVersion != null) || (sd.IsVersioned && _lengthOrVersion == null))
-                        throw new ArgumentException("stream_info_sd_is_versioned"); //対応済
+                        throw new ArgumentException("stream_info_sd_is_versioned");
 
                     version = _lengthOrVersion;
                 }
                 else
-                    throw new ArgumentException("stream_info_not_array_sd"); //対応済
+                    throw new ArgumentException("stream_info_not_array_sd");
 
                 Type = _type;
                 Sender = _sender;
@@ -776,11 +784,11 @@ namespace CREA2014
             public StreamInfomation(Type _type, Func<object> _sender, Action<object> _receiver)
             {
                 if (_type.IsArray)
-                    throw new ArgumentException("stream_info_array"); //対応済
+                    throw new ArgumentException("stream_info_array");
                 else if (_type.IsSubclassOf(typeof(SHAREDDATA)))
-                    throw new ArgumentException("stream_info_sd"); //対応済
+                    throw new ArgumentException("stream_info_sd");
                 else if (_type.IsAbstract)
-                    throw new ArgumentException("stream_info_abstract"); //対応済
+                    throw new ArgumentException("stream_info_abstract");
 
                 Type = _type;
                 Sender = _sender;
@@ -799,7 +807,7 @@ namespace CREA2014
                     if (Type.IsArray)
                         return length;
                     else
-                        throw new NotSupportedException("stream_info_length"); //対応済
+                        throw new NotSupportedException("stream_info_length");
                 }
             }
 
@@ -817,13 +825,13 @@ namespace CREA2014
                         if (elementType.IsSubclassOf(typeof(SHAREDDATA)))
                             sd = Activator.CreateInstance(elementType) as SHAREDDATA;
                         else
-                            throw new NotSupportedException("stream_info_version"); //対応済
+                            throw new NotSupportedException("stream_info_version");
                     }
                     else
-                        throw new NotSupportedException("stream_info_version"); //対応済
+                        throw new NotSupportedException("stream_info_version");
 
                     if (!sd.IsVersioned)
-                        throw new NotSupportedException("stream_info_version"); //対応済
+                        throw new NotSupportedException("stream_info_version");
                     else
                         return (int)version;
                 }
@@ -866,12 +874,12 @@ namespace CREA2014
                     stream.Write(bytes, 0, bytes.Length);
                 }
                 else
-                    throw new NotSupportedException("sd_write_not_supported"); //対応済
+                    throw new NotSupportedException("sd_write_not_supported");
             };
 
             object obj = si.Sender();
             if (obj.GetType() != si.Type)
-                throw new InvalidDataException("sd_writer_type_mismatch"); //対応済
+                throw new InvalidDataException("sd_writer_type_mismatch");
 
             if (si.Type == typeof(byte[]))
             {
@@ -973,7 +981,7 @@ namespace CREA2014
                     return sd;
                 }
                 else
-                    throw new NotSupportedException("sd_read_not_supported"); //対応済
+                    throw new NotSupportedException("sd_read_not_supported");
             };
 
             if (si.Type == typeof(byte[]))
@@ -1075,14 +1083,14 @@ namespace CREA2014
             get
             {
                 if (!IsVersioned)
-                    throw new NotSupportedException("sd_version"); //対応済
+                    throw new NotSupportedException("sd_version");
                 else
                     return (int)version;
             }
             set
             {
                 if (!IsVersioned)
-                    throw new NotSupportedException("sd_version"); //対応済
+                    throw new NotSupportedException("sd_version");
                 else
                     version = value;
             }
@@ -1091,7 +1099,7 @@ namespace CREA2014
         public SHAREDDATA(int? _version)
         {
             if ((IsVersioned && _version == null) || (!IsVersioned && _version != null))
-                throw new ArgumentException("sd_is_versioned_and_version"); //対応済
+                throw new ArgumentException("sd_is_versioned_and_version");
 
             version = _version;
         }
@@ -1207,7 +1215,7 @@ namespace CREA2014
                         }
                     }
                     else
-                        throw new NotSupportedException("sd_length_not_supported"); //対応済
+                        throw new NotSupportedException("sd_length_not_supported");
                 };
 
                 int length = 0;
@@ -1340,9 +1348,9 @@ namespace CREA2014
                 ms.Read(mainDataBytes, 0, length);
 
                 if (IsCorruptionChecked && check != BitConverter.ToInt32(mainDataBytes.ComputeSha256(), 0))
-                    throw new InvalidDataException("from_binary_check"); //対応済
+                    throw new InvalidDataException("from_binary_check");
                 if (IsSigned && IsSignatureChecked && !VerifySignature())
-                    throw new InvalidDataException("from_binary_signature"); //対応済
+                    throw new InvalidDataException("from_binary_signature");
             }
             using (MemoryStream ms = new MemoryStream(mainDataBytes))
             {
@@ -1425,7 +1433,7 @@ namespace CREA2014
                     else if (type.IsSubclassOf(typeof(SETTINGSDATA)))
                         innerXElement.Add(new XElement(innerMdi.XmlName, (innerObj as SETTINGSDATA).ToXml()));
                     else
-                        throw new NotSupportedException("to_xml_not_supported"); //対応済
+                        throw new NotSupportedException("to_xml_not_supported");
                 };
 
                 object o = mdi.Getter();
@@ -1449,7 +1457,7 @@ namespace CREA2014
         public void FromXml(XElement xElement)
         {
             if (xElement.Name.LocalName != XmlName)
-                throw new ArgumentException("xml_name"); //対応済
+                throw new ArgumentException("xml_name");
 
             foreach (var mdi in MainDataInfo)
             {
@@ -1480,7 +1488,7 @@ namespace CREA2014
                         return ccsd;
                     }
                     else
-                        throw new NotSupportedException("from_xml_not_supported"); //対応済
+                        throw new NotSupportedException("from_xml_not_supported");
                 };
 
                 if (mdi.Type.IsArray)
@@ -1638,7 +1646,7 @@ namespace CREA2014
                 lock (tasksLock)
                 {
                     if ((status = tasks.Where((e) => e.Data == abortTask).FirstOrDefault()) == null)
-                        throw new InvalidOperationException("task_not_found"); //対応済
+                        throw new InvalidOperationException("task_not_found");
                     tasks.Remove(status);
                 }
                 status.Thread.Abort();
@@ -2013,7 +2021,7 @@ namespace CREA2014
                 get { return maximalHoldingCount; }
             }
 
-            private bool isSave = false;
+            private bool isSave = true;
             public bool IsSave
             {
                 get { return isSave; }
@@ -2412,7 +2420,7 @@ namespace CREA2014
             ProgramSettings psettings = new ProgramSettings();
             ProgramStatus pstatus = new ProgramStatus();
 
-            Logger logger;
+            Logger logger = null;
             Tasker tasker = new Tasker();
             int taskNumber = 0;
 
@@ -2444,6 +2452,7 @@ namespace CREA2014
                 {typeof(AccountHolderDatabase), LogData.LogGround.signData}, 
                 {typeof(Client), LogData.LogGround.networkBase}, 
                 {typeof(Listener), LogData.LogGround.networkBase}, 
+                {typeof(CREANODEBASE), LogData.LogGround.creaNetwork}, 
                 {typeof(CreaNode), LogData.LogGround.creaNetwork}, 
             };
 
@@ -2457,7 +2466,7 @@ namespace CREA2014
                 {"upnp_not_found", (args) => "UPnPによるグローバルIPアドレスの取得に失敗しました。サーバは起動されませんでした。".Multilanguage(99)}, 
                 {"port0", (args) => "ポート0です。サーバは起動されませんでした。".Multilanguage(100)}, 
                 {"rsa_key_cant_create", (args) => "RSA鍵の生成に失敗しました。サーバは起動されませんでした。".Multilanguage(101)}, 
-                {"rsa_key_create", (args) => "RSA鍵の生成に成功しました。サーバは起動されませんでした。".Multilanguage(102)}, 
+                {"rsa_key_create", (args) => "RSA鍵の生成に成功しました。".Multilanguage(102)}, 
                 {"upnp_ipaddress", (args) => string.Format("グローバルIPアドレスを取得しました：{0}".Multilanguage(103), args[0])}, 
                 {"server_started", (args) => string.Format("サーバのリッスンを開始しました：{0}:{1}".Multilanguage(104), args[0], args[1])}, 
                 {"server_ended", (args) => string.Format("サーバのリッスンを終了しました：{0}:{1}".Multilanguage(105), args[0], args[1])}, 
@@ -2487,29 +2496,9 @@ namespace CREA2014
                 Extension.Errored += (sender, e) => logger.AddLog(new LogData(e, LogData.LogKind.error));
             }
 
-            //Listener listener = new Listener(7777, RsaKeySize.rsa2048, (ca, ip) =>
-            //{
-            //    string message = Encoding.UTF8.GetString(ca.ReadCompressedBytes());
+            Test test = new Test(logger);
 
-            //    MessageBox.Show(message);
-            //});
-            //listener.StartListener();
-
-            //Thread.Sleep(1000);
-
-            //string privateRSAParameters;
-            //using (RSACryptoServiceProvider rsacsp = new RSACryptoServiceProvider(2048))
-            //    privateRSAParameters = rsacsp.ToXmlString(true);
-
-            //Client client = new Client(IPAddress.Loopback, 7777, RsaKeySize.rsa2048, privateRSAParameters, (ca, ip) =>
-            //{
-            //    ca.WriteCompreddedBytes(Encoding.UTF8.GetBytes("テストだよ～"));
-            //});
-            //client.StartClient();
-
-            //Thread.Sleep(10000);
-
-            Console.ReadLine();
+            return;
 
             Action<Exception, ExceptionKind> _OnException = (ex, exKind) =>
             {
@@ -2659,7 +2648,7 @@ namespace CREA2014
             }
             catch (ApplicationException)
             {
-                throw new ApplicationException("already_starting"); //対応済
+                throw new ApplicationException("already_starting");
             }
 
             if (mutex.WaitOne(0, false))
@@ -2673,12 +2662,12 @@ namespace CREA2014
                     {
                         v = ieKey.GetValue("Version");
                         if (v == null)
-                            throw new ApplicationException("ie_not_existing"); //対応済
+                            throw new ApplicationException("ie_not_existing");
                     }
                     int.TryParse(v.ToString().Split('.')[0], out ieVersion);
                 }
                 if (ieVersion < 10)
-                    throw new ApplicationException("ie_too_old"); //対応済
+                    throw new ApplicationException("ie_too_old");
 
                 Process process = Process.GetCurrentProcess();
                 string fileName = Path.GetFileName(process.MainModule.FileName);
@@ -2763,7 +2752,7 @@ namespace CREA2014
                     WIN32API.SetForegroundWindow(prevProcess.MainWindowHandle);
                 }
                 else
-                    throw new ApplicationException("already_starting"); //対応済
+                    throw new ApplicationException("already_starting");
             }
 
             mutex.Close();

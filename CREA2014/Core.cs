@@ -45,7 +45,7 @@ namespace CREA2014
             lock (coreLock)
             {
                 if (isSystemStarted)
-                    throw new InvalidOperationException("core_started"); //対応済
+                    throw new InvalidOperationException("core_started");
 
                 accountHolderDatabase = new AccountHolderDatabase();
 
@@ -61,7 +61,7 @@ namespace CREA2014
             lock (coreLock)
             {
                 if (!isSystemStarted)
-                    throw new InvalidOperationException("core_not_started"); //対応済
+                    throw new InvalidOperationException("core_not_started");
 
                 File.WriteAllBytes(accountHolderDatabasePath, accountHolderDatabase.ToBinary());
 
@@ -72,7 +72,7 @@ namespace CREA2014
 
     #region P2Pネットワーク
 
-    public abstract class P2PNODE : COMMUNICATIONPROTOCOL
+    public abstract class P2PNODE
     {
         private readonly object connectionsLock = new object();
         private List<ConnectionData> connections;
@@ -125,7 +125,7 @@ namespace CREA2014
                 lock (listenerConnections)
                 {
                     if (!listenerConnections.ContainsKey(e))
-                        throw new InvalidDataException("not_contains_socket_data"); //対応済
+                        throw new InvalidDataException("not_contains_socket_data");
 
                     connection = listenerConnections[e];
 
@@ -173,7 +173,7 @@ namespace CREA2014
             lock (connectionsLock)
             {
                 if (connections.Contains(connection))
-                    throw new InvalidOperationException("exist_connection"); //対応済
+                    throw new InvalidOperationException("exist_connection");
 
                 this.ExecuteBeforeEvent(() => connections.Add(connection), ConnectionAdded);
             }
@@ -184,7 +184,7 @@ namespace CREA2014
             lock (connectionsLock)
             {
                 if (!connections.Contains(connection))
-                    throw new InvalidOperationException("not_exist_connection"); //対応済
+                    throw new InvalidOperationException("not_exist_connection");
 
                 this.ExecuteBeforeEvent(() => connections.Remove(connection), ConnectionRemoved);
             }
@@ -241,7 +241,8 @@ namespace CREA2014
         {
             //最初の4バイトは本来のデータの長さ
             byte[] dataLengthBytes = new byte[4];
-            ns.Read(dataLengthBytes, 0, 4);
+            if (ns.Read(dataLengthBytes, 0, 4) != 4)
+                throw new Exception("cant_read_data_length_bytes");
             int dataLength = BitConverter.ToInt32(dataLengthBytes, 0);
 
             if (dataLength == 0)
@@ -249,33 +250,40 @@ namespace CREA2014
 
             //次の32バイトは受信データのハッシュ（破損検査用）
             byte[] hash = new byte[32];
-            ns.Read(hash, 0, 32);
+            if (ns.Read(hash, 0, 32) != 32)
+                throw new Exception("cant_read_hash");
 
             //次の4バイトは受信データの長さ
             byte[] readDataLengthBytes = new byte[4];
-            ns.Read(readDataLengthBytes, 0, 4);
+            if (ns.Read(readDataLengthBytes, 0, 4) != 4)
+                throw new Exception("cant_read_read_data_length_bytes");
             int readDataLength = BitConverter.ToInt32(readDataLengthBytes, 0);
 
             byte[] readData = null;
 
             using (MemoryStream ms = new MemoryStream())
             {
-                byte[] buffer = new byte[1024];
+                int bufsize = 1024;
+                byte[] buffer = new byte[bufsize];
 
                 while (true)
                 {
-                    int byteSize = ns.Read(buffer, 0, buffer.Length);
+                    int mustReadSize = (int)ms.Length + bufsize > readDataLength ? readDataLength - (int)ms.Length : bufsize;
+
+                    int byteSize = ns.Read(buffer, 0, mustReadSize);
                     ms.Write(buffer, 0, byteSize);
 
-                    if (ms.Length >= readDataLength)
+                    if (ms.Length == readDataLength)
                         break;
+                    else if (ms.Length > readDataLength)
+                        throw new Exception("overread");
                 }
 
                 readData = ms.ToArray();
             }
 
             if (!hash.BytesEquals(new SHA256Managed().ComputeHash(readData)))
-                throw new Exception("receive_data_corrupt"); //対応済
+                throw new Exception("receive_data_corrupt");
 
             byte[] data = new byte[dataLength];
 
@@ -402,7 +410,7 @@ namespace CREA2014
             set
             {
                 if (client != null)
-                    throw new InvalidOperationException("client_already_started"); //対応済
+                    throw new InvalidOperationException("client_already_started");
 
                 receiveTimeout = value;
             }
@@ -415,7 +423,7 @@ namespace CREA2014
             set
             {
                 if (client != null)
-                    throw new InvalidOperationException("client_already_started"); //対応済
+                    throw new InvalidOperationException("client_already_started");
 
                 sendTimeout = value;
             }
@@ -428,7 +436,7 @@ namespace CREA2014
             set
             {
                 if (client != null)
-                    throw new InvalidOperationException("client_already_started"); //対応済
+                    throw new InvalidOperationException("client_already_started");
 
                 receiveBufferSize = value;
             }
@@ -441,7 +449,7 @@ namespace CREA2014
             set
             {
                 if (client != null)
-                    throw new InvalidOperationException("client_already_started"); //対応済
+                    throw new InvalidOperationException("client_already_started");
 
                 sendBufferSize = value;
             }
@@ -468,7 +476,7 @@ namespace CREA2014
         public void StartClient()
         {
             if (client != null)
-                throw new InvalidOperationException("client_already_started"); //対応済
+                throw new InvalidOperationException("client_already_started");
 
             this.StartTask(() =>
             {
@@ -541,7 +549,7 @@ namespace CREA2014
         public void EndClient()
         {
             if (client == null)
-                throw new InvalidOperationException("client_not_started"); //対応済
+                throw new InvalidOperationException("client_not_started");
 
             try
             {
@@ -585,7 +593,7 @@ namespace CREA2014
             set
             {
                 if (listener != null)
-                    throw new InvalidOperationException("listener_already_started"); //対応済
+                    throw new InvalidOperationException("listener_already_started");
 
                 receiveTimeout = value;
             }
@@ -598,7 +606,7 @@ namespace CREA2014
             set
             {
                 if (listener != null)
-                    throw new InvalidOperationException("listener_already_started"); //対応済
+                    throw new InvalidOperationException("listener_already_started");
 
                 sendTimeout = value;
             }
@@ -611,7 +619,7 @@ namespace CREA2014
             set
             {
                 if (listener != null)
-                    throw new InvalidOperationException("listener_already_started"); //対応済
+                    throw new InvalidOperationException("listener_already_started");
 
                 receiveBufferSize = value;
             }
@@ -624,7 +632,7 @@ namespace CREA2014
             set
             {
                 if (listener != null)
-                    throw new InvalidOperationException("listener_already_started"); //対応済
+                    throw new InvalidOperationException("listener_already_started");
 
                 sendBufferSize = value;
             }
@@ -637,7 +645,7 @@ namespace CREA2014
             set
             {
                 if (listener != null)
-                    throw new InvalidOperationException("listener_already_started"); //対応済
+                    throw new InvalidOperationException("listener_already_started");
 
                 backlog = value;
             }
@@ -670,7 +678,7 @@ namespace CREA2014
         public void StartListener()
         {
             if (listener != null)
-                throw new InvalidOperationException("listener_already_started"); //対応済
+                throw new InvalidOperationException("listener_already_started");
 
             this.StartTask(() =>
             {
@@ -703,7 +711,7 @@ namespace CREA2014
         public void EndListener()
         {
             if (listener == null)
-                throw new InvalidOperationException("listener_not_started"); //対応済
+                throw new InvalidOperationException("listener_not_started");
 
             try
             {
@@ -953,43 +961,17 @@ namespace CREA2014
 
     public enum Network { localtest = 0, global = 1 }
 
-    public class CreaNode : P2PNODE
+    public abstract class CREANODEBASE : P2PNODE
     {
-        private readonly Network network;
-        public Network Network
-        {
-            get { return network; }
-        }
+        public enum MessageName { }
 
-        private ushort port;
+        private readonly int creaVersion;
+        private readonly int protocolVersion;
+
+        private readonly ushort port;
         public ushort Port
         {
             get { return port; }
-            set
-            {
-                if (port != value)
-                {
-                    port = value;
-
-                    if (isStartCompleted && IsServer)
-                    {
-                        this.RaiseNotification("server_restart".GetLogMessage(ipAddress.ToString(), port.ToString()), 5);
-
-                        End();
-
-                        string publicRsaParameters;
-                        using (RSACryptoServiceProvider rsacsp = new RSACryptoServiceProvider())
-                        {
-                            rsacsp.FromXmlString(privateRsaParameters);
-                            publicRsaParameters = rsacsp.ToXmlString(false);
-                        }
-
-                        New(publicRsaParameters);
-
-                        ServerChanged(this, EventArgs.Empty);
-                    }
-                }
-            }
         }
 
         private IPAddress ipAddress;
@@ -1032,23 +1014,18 @@ namespace CREA2014
             }
         }
 
-        public CreaNode(Network _network, ushort _port)
+        public CREANODEBASE(ushort _port, int _creaVersion)
         {
-            network = _network;
             port = _port;
+            creaVersion = _creaVersion;
+            protocolVersion = 0;
         }
 
-        protected override Func<STREAMDATA<ProtocolInfomation>.ReaderWriter, IEnumerable<ProtocolInfomation>> StreamInfo
-        {
-            get { return (mswr) => streamInfo; }
-        }
-        private IEnumerable<ProtocolInfomation> streamInfo
-        {
-            get
-            {
-                yield return null;
-            }
-        }
+        protected abstract Network Network { get; }
+
+        protected abstract IPAddress GetIpAddress();
+        protected abstract void NotifyFirstNodeInfo();
+        protected abstract FirstNodeInformation[] GetFirstNodeInfos();
 
         public event EventHandler ServerStarted = delegate { };
         public event EventHandler ServerChanged = delegate { };
@@ -1077,22 +1054,8 @@ namespace CREA2014
                         return;
                     }
 
-                    if (network == Network.global)
-                    {
-                        UPnPWanService upnpws = UPnPWanService.FindUPnPWanService();
-                        if (upnpws == null)
-                        {
-                            this.RaiseError("upnp_not_found".GetLogMessage(), 5);
-
-                            return;
-                        }
-
-                        ipAddress = upnpws.GetExternalIPAddress();
-
-                        this.RaiseNotification("upnp_ipaddress".GetLogMessage(ipAddress.ToString()), 5);
-                    }
-                    else
-                        ipAddress = IPAddress.Loopback;
+                    if ((ipAddress = GetIpAddress()) == null)
+                        return;
 
                     string publicRsaParameters;
                     try
@@ -1112,17 +1075,54 @@ namespace CREA2014
 
                     this.RaiseNotification("rsa_key_create".GetLogMessage(), 5);
 
-                    New(publicRsaParameters);
+                    nodeInfo = new NodeInformation(ipAddress, port, Network, DateTime.Now, publicRsaParameters);
+
+                    listener = new Listener(port, RsaKeySize.rsa2048, (ca, ipEndPoint) =>
+                    {
+                        NodeInformation aiteNi = SHAREDDATA.FromBinary<NodeInformation>(ca.ReadBytes());
+                        ca.WriteBytes(BitConverter.GetBytes(aiteNi.Network == Network));
+                        if (aiteNi.Network != Network)
+                            return;
+                        //<未実装>ノード情報更新
+
+                        int aiteCreaVersion = BitConverter.ToInt32(ca.ReadBytes(), 0);
+                        ca.WriteBytes(BitConverter.GetBytes(aiteCreaVersion < creaVersion));
+                        if (aiteCreaVersion > creaVersion)
+                        {
+                            //相手のクライアントバージョンの方が大きい場合の処理
+                            //<未実装>使用者への通知
+                            //<未実装>自動ダウンロード、バージョンアップなど
+                            //ここで直接行うべきではなく、イベントを発令するべきだろう
+                        }
+
+                        int sessionProtocolVersion = Math.Min(BitConverter.ToInt32(ca.ReadBytes(), 0), protocolVersion);
+                        ca.WriteBytes(BitConverter.GetBytes(sessionProtocolVersion));
+
+                        if (sessionProtocolVersion == 0)
+                        {
+                            //一時接続
+                            if (BitConverter.ToBoolean(ca.ReadBytes(), 0))
+                            {
+
+                            }
+
+                            //常時接続
+                        }
+                    });
+                    listener.StartListener();
+
+                    this.RaiseNotification("server_started".GetLogMessage(ipAddress.ToString(), port.ToString()), 5);
+
+                    ServerStarted(this, EventArgs.Empty);
+
+                    NotifyFirstNodeInfo();
+                    FirstNodeInformation[] firstNodeInfos = GetFirstNodeInfos();
+
+                    //<未実装>初期ノードに接続して近接ノード取得
+                    //<未実装>近接ノードとの接続を維持
                 });
 
                 isStartCompleted = true;
-
-                ServerStarted(this, EventArgs.Empty);
-
-                //初期ノード情報通知
-                //初期ノード情報取得
-                //初期ノードに接続して近接ノード取得
-                //近接ノードとの接続を維持
             }, "creanode", string.Empty);
         }
 
@@ -1139,18 +1139,63 @@ namespace CREA2014
 
             ServerEnded(this, EventArgs.Empty);
         }
+    }
 
-        private void New(string publicRsaParameters)
+    public class CreaNode : CREANODEBASE
+    {
+        public CreaNode(ushort _port, int _creaVersion) : base(_port, _creaVersion) { }
+
+        protected override Network Network
         {
-            nodeInfo = new NodeInformation(ipAddress, port, network, DateTime.Now, publicRsaParameters);
+            get { return Network.global; }
+        }
 
-            listener = new Listener(port, (ca, ipEndPoint) =>
-            {
+        protected override IPAddress GetIpAddress()
+        {
+            UPnPWanService upnpws = UPnPWanService.FindUPnPWanService();
 
-            });
-            listener.StartListener();
+            if (upnpws.IsNull().RaiseError(this.GetType(), "upnp_not_found".GetLogMessage(), 5))
+                return null;
 
-            this.RaiseNotification("server_started".GetLogMessage(ipAddress.ToString(), port.ToString()), 5);
+            return upnpws.GetExternalIPAddress().RaiseNotification(this.GetType(), (self) => "upnp_ipaddress".GetLogMessage(self.ToString()), 5);
+        }
+
+        protected override void NotifyFirstNodeInfo()
+        {
+            throw new NotImplementedException();
+        }
+
+        protected override FirstNodeInformation[] GetFirstNodeInfos()
+        {
+            throw new NotImplementedException();
+        }
+    }
+
+    public class CreaNodeLocalTest : CREANODEBASE
+    {
+        private readonly FirstNodeInformation[] firstNodeInfos;
+
+        public CreaNodeLocalTest(ushort _port, FirstNodeInformation[] _firstNodeInfos, int _creaVersion)
+            : base(_port, _creaVersion)
+        {
+            firstNodeInfos = _firstNodeInfos;
+        }
+
+        protected override Network Network
+        {
+            get { return Network.localtest; }
+        }
+
+        protected override IPAddress GetIpAddress()
+        {
+            return IPAddress.Loopback;
+        }
+
+        protected override void NotifyFirstNodeInfo() { }
+
+        protected override FirstNodeInformation[] GetFirstNodeInfos()
+        {
+            return firstNodeInfos;
         }
     }
 
@@ -1174,6 +1219,10 @@ namespace CREA2014
             get { return network; }
         }
 
+        protected FirstNodeInformation(int? _version) : base(_version) { }
+
+        public FirstNodeInformation() : this((int?)null) { }
+
         protected FirstNodeInformation(int? _version, IPAddress _ipAddress, ushort _port, Network _network)
             : base(_version)
         {
@@ -1193,8 +1242,6 @@ namespace CREA2014
         {
             Hex = _hex;
         }
-
-        public FirstNodeInformation() { }
 
         public string Hex
         {
@@ -1333,6 +1380,8 @@ namespace CREA2014
             get { return publicRSAParameters; }
         }
 
+        public NodeInformation() : base(0) { }
+
         public NodeInformation(IPAddress _ipAddress, ushort _port, Network _network, DateTime _participation, string _publicRSAParameters)
             : base(0, _ipAddress, _port, _network)
         {
@@ -1372,7 +1421,7 @@ namespace CREA2014
                         new MainDataInfomation(typeof(string), () => publicRSAParameters, (o) => publicRSAParameters = (string)o), 
                     };
                 else
-                    throw new NotSupportedException("node_info_stream_info"); //対応済
+                    throw new NotSupportedException("node_info_stream_info");
             }
         }
 
@@ -1388,7 +1437,7 @@ namespace CREA2014
                 if (Version <= 0)
                     return true;
                 else
-                    throw new NotSupportedException("node_info_corruption_checked"); //対応済
+                    throw new NotSupportedException("node_info_corruption_checked");
             }
         }
 
@@ -1429,7 +1478,7 @@ namespace CREA2014
         public Sha256Hash(byte[] _bytes)
         {
             if (_bytes.Length != 32)
-                throw new ArgumentException("Sha256_bytes_length"); //対応済
+                throw new ArgumentException("Sha256_bytes_length");
 
             bytes = _bytes;
         }
@@ -1515,7 +1564,7 @@ namespace CREA2014
         public Ripemd160Hash(byte[] _bytes)
         {
             if (_bytes.Length != 20)
-                throw new ArgumentException("Ripemd160_bytes_length"); //対応済
+                throw new ArgumentException("Ripemd160_bytes_length");
 
             bytes = _bytes;
         }
@@ -1624,7 +1673,7 @@ namespace CREA2014
             else if (keyLength == EcdsaKeyLength.Ecdsa521)
                 ca = CngAlgorithm.ECDsaP521;
             else
-                throw new NotSupportedException("ecdsa_key_length_not_suppoeted"); //対応済
+                throw new NotSupportedException("ecdsa_key_length_not_suppoeted");
 
             CngKey ck = CngKey.Create(ca, null, new CngKeyCreationParameters { ExportPolicy = CngExportPolicies.AllowPlaintextExport });
 
@@ -1647,7 +1696,7 @@ namespace CREA2014
                     };
                 }
                 else
-                    throw new NotSupportedException("ecdsa_key_main_data_info"); //対応済
+                    throw new NotSupportedException("ecdsa_key_main_data_info");
 
             }
         }
@@ -1664,7 +1713,7 @@ namespace CREA2014
                 if (Version <= 0)
                     return true;
                 else
-                    throw new NotSupportedException("ecdsa_key_check"); //対応済
+                    throw new NotSupportedException("ecdsa_key_check");
             }
         }
     }
@@ -1726,7 +1775,7 @@ namespace CREA2014
                         int check1 = BitConverter.ToInt32(checkBytes, 0);
                         int check2 = BitConverter.ToInt32(mergedBytes.ComputeSha256().ComputeSha256(), 0);
                         if (check1 != check2)
-                            throw new InvalidDataException("base58_check"); //対応済
+                            throw new InvalidDataException("base58_check");
 
                         byte[] identifierBytes = new byte[3];
                         Array.Copy(mergedBytes, 0, identifierBytes, 0, identifierBytes.Length);
@@ -1737,7 +1786,7 @@ namespace CREA2014
                         byte[] correctIdentifierBytes = new byte[] { 84, 122, 143 };
 
                         if (!identifierBytes.BytesEquals(correctIdentifierBytes))
-                            throw new InvalidDataException("base58_identifier"); //対応済
+                            throw new InvalidDataException("base58_identifier");
 
                         return hash = new Ripemd160Hash(hashBytes);
                     }
@@ -1812,7 +1861,7 @@ namespace CREA2014
                         new MainDataInfomation(typeof(EcdsaKey), 0, () => key, (o) => key = (EcdsaKey)o), 
                     };
                 else
-                    throw new NotSupportedException("account_main_data_info"); //対応済
+                    throw new NotSupportedException("account_main_data_info");
             }
         }
 
@@ -1828,7 +1877,7 @@ namespace CREA2014
                 if (Version <= 0)
                     return true;
                 else
-                    throw new NotSupportedException("account_check"); //対応済
+                    throw new NotSupportedException("account_check");
             }
         }
 
@@ -1938,7 +1987,7 @@ namespace CREA2014
                 if (Version == 0)
                     return base.StreamInfo;
                 else
-                    throw new NotSupportedException("aah_main_data_info"); //対応済
+                    throw new NotSupportedException("aah_main_data_info");
             }
         }
 
@@ -1954,7 +2003,7 @@ namespace CREA2014
                 if (Version <= 0)
                     return true;
                 else
-                    throw new NotSupportedException("aah_check"); //対応済
+                    throw new NotSupportedException("aah_check");
             }
         }
     }
@@ -1997,7 +2046,7 @@ namespace CREA2014
                         new MainDataInfomation(typeof(EcdsaKey), 0, () => key, (o) => key = (EcdsaKey)o), 
                     });
                 else
-                    throw new NotSupportedException("pah_main_data_info"); //対応済
+                    throw new NotSupportedException("pah_main_data_info");
             }
         }
 
@@ -2013,7 +2062,7 @@ namespace CREA2014
                 if (Version <= 0)
                     return true;
                 else
-                    throw new NotSupportedException("pah_check"); //対応済
+                    throw new NotSupportedException("pah_check");
             }
         }
 
@@ -2082,7 +2131,7 @@ namespace CREA2014
                         new MainDataInfomation(typeof(PseudonymousAccountHolder[]), 0, null, () => candidateAccountHolders.ToArray(), (o) => candidateAccountHolders = ((PseudonymousAccountHolder[])o).ToList()), 
                     };
                 else
-                    throw new NotSupportedException("account_holder_database_main_data_info"); //対応済
+                    throw new NotSupportedException("account_holder_database_main_data_info");
             }
         }
 
@@ -2098,7 +2147,7 @@ namespace CREA2014
                 if (Version <= 0)
                     return true;
                 else
-                    throw new NotSupportedException("account_holder_database_check"); //対応済
+                    throw new NotSupportedException("account_holder_database_check");
             }
         }
 
@@ -2113,7 +2162,7 @@ namespace CREA2014
             lock (pahsLock)
             {
                 if (pseudonymousAccountHolders.Contains(ah))
-                    throw new InvalidOperationException("exist_account_holder"); //対応済
+                    throw new InvalidOperationException("exist_account_holder");
 
                 if (!pseudonymousAccountHolders.Where((e) => e.Name == ah.Name).FirstOrDefault().IsNotNull().RaiseError(this.GetType(), "exist_same_name_account_holder".GetLogMessage(), 5))
                     this.ExecuteBeforeEvent(() =>
@@ -2129,7 +2178,7 @@ namespace CREA2014
             lock (pahsLock)
             {
                 if (!pseudonymousAccountHolders.Contains(ah))
-                    throw new InvalidOperationException("not_exist_account_holder"); //対応済
+                    throw new InvalidOperationException("not_exist_account_holder");
 
                 this.ExecuteBeforeEvent(() =>
                 {
@@ -2144,7 +2193,7 @@ namespace CREA2014
             lock (cahsLock)
             {
                 if (candidateAccountHolders.Contains(ah))
-                    throw new InvalidOperationException("exist_candidate_account_holder"); //対応済
+                    throw new InvalidOperationException("exist_candidate_account_holder");
 
                 candidateAccountHolders.Add(ah);
             }
@@ -2155,7 +2204,7 @@ namespace CREA2014
             lock (cahsLock)
             {
                 if (!candidateAccountHolders.Contains(ah))
-                    throw new InvalidOperationException("not_exist_candidate_account_holder"); //対応済
+                    throw new InvalidOperationException("not_exist_candidate_account_holder");
 
                 candidateAccountHolders.Remove(ah);
             }

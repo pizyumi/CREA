@@ -59,14 +59,14 @@
   </PropertyGroup>
   <ItemGroup>
     <Reference Include="SuperSocket.SocketBase">
-      <HintPath>C:\Users\湯味菜\Downloads\SuperWebSocket(0.8).Binaries\Net45\Release\SuperSocket.SocketBase.dll</HintPath>
+      <HintPath>..\..\..\..\アプリケーション\#開発\SuperWebSocket(0.8).Binaries\Net45\Release\SuperSocket.SocketBase.dll</HintPath>
     </Reference>
     <Reference Include="SuperSocket.SocketEngine">
-      <HintPath>C:\Users\湯味菜\Downloads\SuperWebSocket(0.8).Binaries\Net45\Release\SuperSocket.SocketEngine.dll</HintPath>
+      <HintPath>..\..\..\..\アプリケーション\#開発\SuperWebSocket(0.8).Binaries\Net45\Release\SuperSocket.SocketEngine.dll</HintPath>
     </Reference>
     <Reference Include="SuperWebSocket, Version=0.8.0.0, Culture=neutral, PublicKeyToken=7ba53b9a7cef5d1c, processorArchitecture=MSIL">
       <SpecificVersion>False</SpecificVersion>
-      <HintPath>C:\Users\湯味菜\Downloads\SuperWebSocket(0.8).Binaries\Net45\Release\SuperWebSocket.dll</HintPath>
+      <HintPath>..\..\..\..\アプリケーション\#開発\SuperWebSocket(0.8).Binaries\Net45\Release\SuperWebSocket.dll</HintPath>
     </Reference>
     <Reference Include="System" />
     <Reference Include="System.Configuration" />
@@ -86,6 +86,7 @@
     <Reference Include="PresentationFramework" />
   </ItemGroup>
   <ItemGroup>
+    <Compile Include="Test.cs" />
     <Compile Include="Windows\AboutWindow.xaml.cs">
       <DependentUpon>AboutWindow.xaml</DependentUpon>
     </Compile>
