@@ -21,7 +21,7 @@ namespace CREA2014
 
         private void CreaNodeTest()
         {
-            CreaNodeLocalTest localTest = new CreaNodeLocalTest(7777, new FirstNodeInformation[] { }, 0);
+            CreaNodeLocalTest localTest = new CreaNodeLocalTest(7777, new FirstNodeInformation[] { }, 0, "test");
             localTest.Start();
 
             Thread.Sleep(3000);

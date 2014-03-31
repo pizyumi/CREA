@@ -965,7 +965,75 @@ namespace CREA2014
     {
         public enum MessageName { }
 
+        public class Header : SHAREDDATA
+        {
+            public NodeInformation nodeInfo { get; private set; }
+            public int creaVersion { get; private set; }
+            public int protocolVersion { get; private set; }
+            public string client { get; private set; }
+            public bool isTemporary { get; private set; }
+
+            public Header(NodeInformation _nodeInfo, int _creaVersion, int _protocolVersion, string _client, bool _isTemporary)
+            {
+                if (_client.Length > 256)
+                    throw new InvalidDataException("client_too_lengthy");
+
+                nodeInfo = _nodeInfo;
+                creaVersion = _creaVersion;
+                protocolVersion = _protocolVersion;
+                client = _client;
+                isTemporary = _isTemporary;
+            }
+
+            protected override Func<STREAMDATA<MainDataInfomation>.ReaderWriter, IEnumerable<MainDataInfomation>> StreamInfo
+            {
+                get
+                {
+                    return (msrw) => new MainDataInfomation[]{
+                        new MainDataInfomation(typeof(NodeInformation), 0, () => nodeInfo, (o) => nodeInfo = (NodeInformation)o), 
+                        new MainDataInfomation(typeof(int), () => creaVersion, (o) => creaVersion = (int)o), 
+                        new MainDataInfomation(typeof(int), () => protocolVersion, (o) => protocolVersion = (int)o), 
+                        new MainDataInfomation(typeof(string), () => client, (o) => client = (string)o), 
+                        new MainDataInfomation(typeof(bool), () => isTemporary, (o) => isTemporary = (bool)o), 
+                    };
+                }
+            }
+        }
+
+        public class HeaderResponse : SHAREDDATA
+        {
+            public bool isSameNetwork { get; private set; }
+            public bool isOldCreaVersion { get; private set; }
+            public int protocolVersion { get; private set; }
+            public string client { get; private set; }
+
+            public HeaderResponse(bool _isSameNetwork, bool _isOldCreaVersion, int _protocolVersion, string _client)
+            {
+                if (_client.Length > 256)
+                    throw new InvalidDataException("client_too_lengthy");
+
+                isSameNetwork = _isSameNetwork;
+                isOldCreaVersion = _isOldCreaVersion;
+                protocolVersion = _protocolVersion;
+                client = _client;
+            }
+
+            protected override Func<STREAMDATA<MainDataInfomation>.ReaderWriter, IEnumerable<MainDataInfomation>> StreamInfo
+            {
+                get
+                {
+                    return (msrw) => new MainDataInfomation[]{
+                        new MainDataInfomation(typeof(bool), () => isSameNetwork, (o) => isSameNetwork = (bool)o), 
+                        new MainDataInfomation(typeof(bool), () => isOldCreaVersion, (o) => isOldCreaVersion = (bool)o), 
+                        new MainDataInfomation(typeof(int), () => protocolVersion, (o) => protocolVersion = (int)o), 
+                        new MainDataInfomation(typeof(string), () => client, (o) => client = (string)o), 
+                    };
+                }
+            }
+        }
+
         private readonly int creaVersion;
+        private readonly string appnameWithVersion;
         private readonly int protocolVersion;
 
         private readonly ushort port;
@@ -1014,10 +1082,11 @@ namespace CREA2014
             }
         }
 
-        public CREANODEBASE(ushort _port, int _creaVersion)
+        public CREANODEBASE(ushort _port, int _creaVersion, string _appnameWithVersion)
         {
             port = _port;
             creaVersion = _creaVersion;
+            appnameWithVersion = _appnameWithVersion;
             protocolVersion = 0;
         }
 
@@ -1079,15 +1148,14 @@ namespace CREA2014
 
                     listener = new Listener(port, RsaKeySize.rsa2048, (ca, ipEndPoint) =>
                     {
-                        NodeInformation aiteNi = SHAREDDATA.FromBinary<NodeInformation>(ca.ReadBytes());
-                        ca.WriteBytes(BitConverter.GetBytes(aiteNi.Network == Network));
-                        if (aiteNi.Network != Network)
+                        Header header = SHAREDDATA.FromBinary<Header>(ca.ReadBytes());
+                        HeaderResponse headerResponse = new HeaderResponse(header.nodeInfo.Network == Network, header.creaVersion < creaVersion, protocolVersion, appnameWithVersion);
+
+                        if (!headerResponse.isSameNetwork)
                             return;
                         //<未実装>ノード情報更新
 
-                        int aiteCreaVersion = BitConverter.ToInt32(ca.ReadBytes(), 0);
-                        ca.WriteBytes(BitConverter.GetBytes(aiteCreaVersion < creaVersion));
-                        if (aiteCreaVersion > creaVersion)
+                        if (header.creaVersion > creaVersion)
                         {
                             //相手のクライアントバージョンの方が大きい場合の処理
                             //<未実装>使用者への通知
@@ -1095,19 +1163,21 @@ namespace CREA2014
                             //ここで直接行うべきではなく、イベントを発令するべきだろう
                         }
 
-                        int sessionProtocolVersion = Math.Min(BitConverter.ToInt32(ca.ReadBytes(), 0), protocolVersion);
-                        ca.WriteBytes(BitConverter.GetBytes(sessionProtocolVersion));
+                        ca.WriteBytes(headerResponse.ToBinary());
 
+                        int sessionProtocolVersion = Math.Min(header.protocolVersion, protocolVersion);
                         if (sessionProtocolVersion == 0)
                         {
                             //一時接続
-                            if (BitConverter.ToBoolean(ca.ReadBytes(), 0))
+                            if (header.isTemporary)
                             {
 
                             }
 
                             //常時接続
                         }
+                        else
+                            throw new NotSupportedException("not_supported_protocol_ver");
                     });
                     listener.StartListener();
 
@@ -1143,7 +1213,7 @@ namespace CREA2014
 
     public class CreaNode : CREANODEBASE
     {
-        public CreaNode(ushort _port, int _creaVersion) : base(_port, _creaVersion) { }
+        public CreaNode(ushort _port, int _creaVersion, string _appnameWithVersion) : base(_port, _creaVersion, _appnameWithVersion) { }
 
         protected override Network Network
         {
@@ -1175,8 +1245,8 @@ namespace CREA2014
     {
         private readonly FirstNodeInformation[] firstNodeInfos;
 
-        public CreaNodeLocalTest(ushort _port, FirstNodeInformation[] _firstNodeInfos, int _creaVersion)
-            : base(_port, _creaVersion)
+        public CreaNodeLocalTest(ushort _port, FirstNodeInformation[] _firstNodeInfos, int _creaVersion, string _appnameWithVersion)
+            : base(_port, _creaVersion, _appnameWithVersion)
         {
             firstNodeInfos = _firstNodeInfos;
         }

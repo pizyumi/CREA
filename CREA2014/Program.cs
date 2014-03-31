@@ -686,31 +686,55 @@ namespace CREA2014
     public abstract class INTERNALDATA : DATA { }
     public abstract class STREAMDATA<T> : DATA where T : STREAMDATA<T>.StreamInfomation
     {
+        public abstract class STREAMWRITER
+        {
+            public abstract void WriteBytes(byte[] data, int? length);
+            public abstract void WriteBool(bool data);
+            public abstract void WriteInt(int data);
+            public abstract void WriteFloat(float data);
+            public abstract void WriteLong(long data);
+            public abstract void WriteDouble(double data);
+            public abstract void WriteDateTime(DateTime data);
+            public abstract void WriteString(string data);
+            public abstract void WriteSHAREDDATA(SHAREDDATA data, int? version);
+        }
+
+        public abstract class STREAMREADER
+        {
+            public abstract byte[] ReadBytes(int? length);
+            public abstract bool ReadBool();
+            public abstract int ReadInt();
+            public abstract float ReadFloat();
+            public abstract long ReadLong();
+            public abstract double ReadDouble();
+            public abstract DateTime ReadDateTime();
+            public abstract string ReadString();
+            public abstract SHAREDDATA ReadSHAREDDATA(Type type, int? version);
+        }
+
         public class ReaderWriter
         {
-            private readonly Stream stream;
+            private readonly STREAMWRITER writer;
+            private readonly STREAMREADER reader;
             private readonly Mode mode;
 
-            public ReaderWriter(Stream _stream, Mode _mode)
+            public ReaderWriter(STREAMWRITER _writer, STREAMREADER _reader, Mode _mode)
             {
-                stream = _stream;
+                writer = _writer;
+                reader = _reader;
                 mode = _mode;
             }
 
             public enum Mode { read, write, neither }
             public class CantReadOrWriteException : Exception { }
 
-            public byte[] ReadOrWrite(byte[] input, int length)
+            public byte[] ReadOrWrite(byte[] bytes, int length)
             {
                 if (mode == Mode.read)
-                {
-                    byte[] output = new byte[length];
-                    stream.Read(output, 0, length);
-                    return output;
-                }
+                    return reader.ReadBytes(length);
                 else if (mode == Mode.write)
                 {
-                    stream.Write(input, 0, length);
+                    writer.WriteBytes(bytes, length);
                     return null;
                 }
                 else
@@ -840,38 +864,29 @@ namespace CREA2014
 
         protected abstract Func<ReaderWriter, IEnumerable<T>> StreamInfo { get; }
 
-        protected void Write(Stream stream, StreamInfomation si)
+        protected void Write(STREAMWRITER writer, StreamInfomation si)
         {
             Action<Type, object> _Write = (type, o) =>
             {
                 if (type == typeof(bool))
-                    stream.Write(BitConverter.GetBytes((bool)o), 0, 1);
+                    writer.WriteBool((bool)o);
                 else if (type == typeof(int))
-                    stream.Write(BitConverter.GetBytes((int)o), 0, 4);
+                    writer.WriteInt((int)o);
                 else if (type == typeof(float))
-                    stream.Write(BitConverter.GetBytes((float)o), 0, 4);
+                    writer.WriteFloat((float)o);
                 else if (type == typeof(long))
-                    stream.Write(BitConverter.GetBytes((long)o), 0, 8);
+                    writer.WriteLong((long)o);
                 else if (type == typeof(double))
-                    stream.Write(BitConverter.GetBytes((double)o), 0, 8);
+                    writer.WriteDouble((double)o);
                 else if (type == typeof(DateTime))
-                    stream.Write(BitConverter.GetBytes(((DateTime)o).ToBinary()), 0, 8);
+                    writer.WriteDateTime((DateTime)o);
                 else if (type == typeof(string))
-                {
-                    byte[] bytes = Encoding.UTF8.GetBytes((string)o);
-                    stream.Write(BitConverter.GetBytes(bytes.Length), 0, 4);
-                    stream.Write(bytes, 0, bytes.Length);
-                }
+                    writer.WriteString((string)o);
                 else if (type.IsSubclassOf(typeof(SHAREDDATA)))
                 {
                     SHAREDDATA sd = o as SHAREDDATA;
-                    if (sd.IsVersioned)
-                        sd.Version = si.Version;
 
-                    byte[] bytes = sd.ToBinary();
-                    if (sd.Length == null)
-                        stream.Write(BitConverter.GetBytes(bytes.Length), 0, 4);
-                    stream.Write(bytes, 0, bytes.Length);
+                    writer.WriteSHAREDDATA(sd, sd.IsVersioned ? (int?)si.Version : null);
                 }
                 else
                     throw new NotSupportedException("sd_write_not_supported");
@@ -882,18 +897,14 @@ namespace CREA2014
                 throw new InvalidDataException("sd_writer_type_mismatch");
 
             if (si.Type == typeof(byte[]))
-            {
-                if (si.Length == null)
-                    stream.Write(BitConverter.GetBytes(((byte[])obj).Length), 0, 4);
-                stream.Write((byte[])obj, 0, ((byte[])obj).Length);
-            }
+                writer.WriteBytes((byte[])obj, si.Length);
             else if (si.Type.IsArray)
             {
                 object[] objs = obj as object[];
                 Type elementType = si.Type.GetElementType();
 
                 if (si.Length == null)
-                    stream.Write(BitConverter.GetBytes(objs.Length), 0, 4);
+                    writer.WriteInt(objs.Length);
                 foreach (var innerObj in obj as object[])
                     _Write(elementType, innerObj);
             }
@@ -901,119 +912,41 @@ namespace CREA2014
                 _Write(si.Type, obj);
         }
 
-        protected void Read(Stream stream, StreamInfomation si)
+        protected void Read(STREAMREADER reader, StreamInfomation si)
         {
             Func<Type, object> _Read = (type) =>
             {
                 if (type == typeof(bool))
-                {
-                    byte[] bytes = new byte[1];
-                    stream.Read(bytes, 0, 1);
-                    return BitConverter.ToBoolean(bytes, 0);
-                }
+                    return reader.ReadBool();
                 else if (type == typeof(int))
-                {
-                    byte[] bytes = new byte[4];
-                    stream.Read(bytes, 0, 4);
-                    return BitConverter.ToInt32(bytes, 0);
-                }
+                    return reader.ReadInt();
                 else if (type == typeof(float))
-                {
-                    byte[] bytes = new byte[4];
-                    stream.Read(bytes, 0, 4);
-                    return BitConverter.ToSingle(bytes, 0);
-                }
+                    return reader.ReadFloat();
                 else if (type == typeof(long))
-                {
-                    byte[] bytes = new byte[8];
-                    stream.Read(bytes, 0, 8);
-                    return BitConverter.ToInt64(bytes, 0);
-                }
+                    return reader.ReadLong();
                 else if (type == typeof(double))
-                {
-                    byte[] bytes = new byte[8];
-                    stream.Read(bytes, 0, 8);
-                    return BitConverter.ToDouble(bytes, 0);
-                }
+                    return reader.ReadDouble();
                 else if (type == typeof(DateTime))
-                {
-                    byte[] bytes = new byte[8];
-                    stream.Read(bytes, 0, 8);
-                    return DateTime.FromBinary(BitConverter.ToInt64(bytes, 0));
-                }
+                    return reader.ReadDateTime();
                 else if (type == typeof(string))
-                {
-                    byte[] lengthBytes = new byte[4];
-                    stream.Read(lengthBytes, 0, 4);
-                    int length = BitConverter.ToInt32(lengthBytes, 0);
-
-                    byte[] bytes = new byte[length];
-                    stream.Read(bytes, 0, length);
-                    return Encoding.UTF8.GetString(bytes);
-                }
+                    return reader.ReadString();
                 else if (type.IsSubclassOf(typeof(SHAREDDATA)))
                 {
                     SHAREDDATA sd = Activator.CreateInstance(type) as SHAREDDATA;
-                    if (sd.IsVersioned)
-                        sd.Version = si.Version;
 
-                    int length;
-                    if (sd.Length == null)
-                    {
-                        byte[] lengthBytes = new byte[4];
-                        stream.Read(lengthBytes, 0, 4);
-                        length = BitConverter.ToInt32(lengthBytes, 0);
-                    }
-                    else
-                    {
-                        length = (int)sd.Length;
-                        if (sd.IsVersioned)
-                            length += 4;
-                        if (sd.IsCorruptionChecked)
-                            length += 4;
-                    }
-
-                    byte[] bytes = new byte[length];
-                    stream.Read(bytes, 0, length);
-
-                    sd.FromBinary(bytes);
-
-                    return sd;
+                    return reader.ReadSHAREDDATA(type, sd.IsVersioned ? (int?)si.Version : null);
                 }
                 else
                     throw new NotSupportedException("sd_read_not_supported");
             };
 
             if (si.Type == typeof(byte[]))
-            {
-                int length;
-                if (si.Length == null)
-                {
-                    byte[] lengthBytes = new byte[4];
-                    stream.Read(lengthBytes, 0, 4);
-                    length = BitConverter.ToInt32(lengthBytes, 0);
-                }
-                else
-                    length = (int)si.Length;
-
-                byte[] bytes = new byte[length];
-                stream.Read(bytes, 0, length);
-                si.Receiver(bytes);
-            }
+                si.Receiver(reader.ReadBytes(si.Length));
             else if (si.Type.IsArray)
             {
+                int length = si.Length == null ? reader.ReadInt() : (int)si.Length;
+
                 Type elementType = si.Type.GetElementType();
-
-                int length;
-                if (si.Length == null)
-                {
-                    byte[] lengthBytes = new byte[4];
-                    stream.Read(lengthBytes, 0, 4);
-                    length = BitConverter.ToInt32(lengthBytes, 0);
-                }
-                else
-                    length = (int)si.Length;
-
                 object[] os = Array.CreateInstance(elementType, length) as object[];
                 for (int i = 0; i < os.Length; i++)
                     os[i] = _Read(elementType);
@@ -1027,6 +960,134 @@ namespace CREA2014
     public abstract class COMMUNICATIONPROTOCOL : STREAMDATA<COMMUNICATIONPROTOCOL.ProtocolInfomation>
     {
         public enum ClientOrServer { client, server }
+
+        public class CommunicationApparatusWriter : STREAMWRITER
+        {
+            private readonly CommunicationApparatus ca;
+
+            public CommunicationApparatusWriter(CommunicationApparatus _ca)
+            {
+                ca = _ca;
+            }
+
+            public override void WriteBytes(byte[] data, int? length)
+            {
+                ca.WriteBytes(data);
+            }
+
+            public override void WriteBool(bool data)
+            {
+                ca.WriteBytes(BitConverter.GetBytes(data));
+            }
+
+            public override void WriteInt(int data)
+            {
+                ca.WriteBytes(BitConverter.GetBytes(data));
+            }
+
+            public override void WriteFloat(float data)
+            {
+                ca.WriteBytes(BitConverter.GetBytes(data));
+            }
+
+            public override void WriteLong(long data)
+            {
+                ca.WriteBytes(BitConverter.GetBytes(data));
+            }
+
+            public override void WriteDouble(double data)
+            {
+                ca.WriteBytes(BitConverter.GetBytes(data));
+            }
+
+            public override void WriteDateTime(DateTime data)
+            {
+                ca.WriteBytes(BitConverter.GetBytes((data).ToBinary()));
+            }
+
+            public override void WriteString(string data)
+            {
+                ca.WriteBytes(Encoding.UTF8.GetBytes(data));
+            }
+
+            public override void WriteSHAREDDATA(SHAREDDATA sd, int? version)
+            {
+                if (sd.IsVersioned)
+                {
+                    if (version == null)
+                        throw new ArgumentException("write_sd_version_null");
+
+                    sd.Version = (int)version;
+                }
+
+                ca.WriteBytes(sd.ToBinary());
+            }
+        }
+
+        public class CommunicationApparatusReader : STREAMREADER
+        {
+            private readonly CommunicationApparatus ca;
+
+            public CommunicationApparatusReader(CommunicationApparatus _ca)
+            {
+                ca = _ca;
+            }
+
+            public override byte[] ReadBytes(int? length)
+            {
+                return ca.ReadBytes();
+            }
+
+            public override bool ReadBool()
+            {
+                return BitConverter.ToBoolean(ca.ReadBytes(), 0);
+            }
+
+            public override int ReadInt()
+            {
+                return BitConverter.ToInt32(ca.ReadBytes(), 0);
+            }
+
+            public override float ReadFloat()
+            {
+                return BitConverter.ToSingle(ca.ReadBytes(), 0);
+            }
+
+            public override long ReadLong()
+            {
+                return BitConverter.ToInt64(ca.ReadBytes(), 0);
+            }
+
+            public override double ReadDouble()
+            {
+                return BitConverter.ToDouble(ca.ReadBytes(), 0);
+            }
+
+            public override DateTime ReadDateTime()
+            {
+                return DateTime.FromBinary(BitConverter.ToInt64(ca.ReadBytes(), 0));
+            }
+
+            public override string ReadString()
+            {
+                return Encoding.UTF8.GetString(ca.ReadBytes());
+            }
+
+            public override SHAREDDATA ReadSHAREDDATA(Type type, int? version)
+            {
+                SHAREDDATA sd = Activator.CreateInstance(type) as SHAREDDATA;
+                if (sd.IsVersioned)
+                {
+                    if (version == null)
+                        throw new ArgumentException("read_sd_version_null");
+
+                    sd.Version = (int)version;
+                }
+                sd.FromBinary(ca.ReadBytes());
+
+                return sd;
+            }
+        }
 
         public class ProtocolInfomation : StreamInfomation
         {
@@ -1063,19 +1124,25 @@ namespace CREA2014
             }
         }
 
-        protected void Communicate(NetworkStream ns, ClientOrServer clientOrServer)
+        protected void Communicate(CommunicationApparatus ca, ClientOrServer clientOrServer)
         {
-            foreach (var pi in StreamInfo(new ReaderWriter(ns, ReaderWriter.Mode.neither)))
+            CommunicationApparatusWriter writer = new CommunicationApparatusWriter(ca);
+            CommunicationApparatusReader reader = new CommunicationApparatusReader(ca);
+
+            foreach (var pi in StreamInfo(new ReaderWriter(writer, reader, ReaderWriter.Mode.neither)))
                 if ((clientOrServer == ClientOrServer.client && pi.ForClient == ProtocolInfomation.Direction.read) || (clientOrServer == ClientOrServer.server && pi.ForServer == ProtocolInfomation.Direction.read))
-                    Read(ns, pi);
+                    Read(reader, pi);
                 else
-                    Write(ns, pi);
+                    Write(writer, pi);
         }
     }
     public abstract class SHAREDDATA : STREAMDATA<SHAREDDATA.MainDataInfomation>
     {
         //<未実装>圧縮機能
         //<未実装>ジャグ配列に対応
+        //<未修正>ReaderのSHAREDDATAの読み込みが署名機能に対応していない
+        //　　　　署名機能を使用する場合長さが可変になるので長さを保存する必要がある
+        //<未修正>Lengthでversionなどの長さを加算しているのに、Readでも加算しているような
 
         private int? version;
         public int Version
@@ -1105,6 +1172,188 @@ namespace CREA2014
         }
 
         public SHAREDDATA() : this(null) { }
+
+        public class MyStreamWriter : STREAMWRITER
+        {
+            private readonly Stream stream;
+
+            public MyStreamWriter(Stream _stream)
+            {
+                stream = _stream;
+            }
+
+            public override void WriteBytes(byte[] data, int? length)
+            {
+                if (length == null)
+                    stream.Write(BitConverter.GetBytes(data.Length), 0, 4);
+                stream.Write(data, 0, data.Length);
+            }
+
+            public override void WriteBool(bool data)
+            {
+                stream.Write(BitConverter.GetBytes(data), 0, 1);
+            }
+
+            public override void WriteInt(int data)
+            {
+                stream.Write(BitConverter.GetBytes(data), 0, 4);
+            }
+
+            public override void WriteFloat(float data)
+            {
+                stream.Write(BitConverter.GetBytes(data), 0, 4);
+            }
+
+            public override void WriteLong(long data)
+            {
+                stream.Write(BitConverter.GetBytes(data), 0, 8);
+            }
+
+            public override void WriteDouble(double data)
+            {
+                stream.Write(BitConverter.GetBytes(data), 0, 8);
+            }
+
+            public override void WriteDateTime(DateTime data)
+            {
+                stream.Write(BitConverter.GetBytes((data).ToBinary()), 0, 8);
+            }
+
+            public override void WriteString(string data)
+            {
+                byte[] bytes = Encoding.UTF8.GetBytes(data);
+                stream.Write(BitConverter.GetBytes(bytes.Length), 0, 4);
+                stream.Write(bytes, 0, bytes.Length);
+            }
+
+            public override void WriteSHAREDDATA(SHAREDDATA data, int? version)
+            {
+                if (data.IsVersioned)
+                {
+                    if (version == null)
+                        throw new ArgumentException("write_sd_version_null");
+
+                    data.Version = (int)version;
+                }
+
+                byte[] bytes = data.ToBinary();
+                if (data.Length == null)
+                    stream.Write(BitConverter.GetBytes(bytes.Length), 0, 4);
+                stream.Write(bytes, 0, bytes.Length);
+            }
+        }
+
+        public class MyStreamReader : STREAMREADER
+        {
+            private readonly Stream stream;
+
+            public MyStreamReader(Stream _stream)
+            {
+                stream = _stream;
+            }
+
+            public override byte[] ReadBytes(int? length)
+            {
+                if (length == null)
+                {
+                    byte[] lengthBytes = new byte[4];
+                    stream.Read(lengthBytes, 0, 4);
+                    length = BitConverter.ToInt32(lengthBytes, 0);
+                }
+
+                byte[] bytes = new byte[(int)length];
+                stream.Read(bytes, 0, (int)length);
+                return bytes;
+            }
+
+            public override bool ReadBool()
+            {
+                byte[] bytes = new byte[1];
+                stream.Read(bytes, 0, 1);
+                return BitConverter.ToBoolean(bytes, 0);
+            }
+
+            public override int ReadInt()
+            {
+                byte[] bytes = new byte[4];
+                stream.Read(bytes, 0, 4);
+                return BitConverter.ToInt32(bytes, 0);
+            }
+
+            public override float ReadFloat()
+            {
+                byte[] bytes = new byte[4];
+                stream.Read(bytes, 0, 4);
+                return BitConverter.ToSingle(bytes, 0);
+            }
+
+            public override long ReadLong()
+            {
+                byte[] bytes = new byte[8];
+                stream.Read(bytes, 0, 8);
+                return BitConverter.ToInt64(bytes, 0);
+            }
+
+            public override double ReadDouble()
+            {
+                byte[] bytes = new byte[8];
+                stream.Read(bytes, 0, 8);
+                return BitConverter.ToDouble(bytes, 0);
+            }
+
+            public override DateTime ReadDateTime()
+            {
+                byte[] bytes = new byte[8];
+                stream.Read(bytes, 0, 8);
+                return DateTime.FromBinary(BitConverter.ToInt64(bytes, 0));
+            }
+
+            public override string ReadString()
+            {
+                byte[] lengthBytes = new byte[4];
+                stream.Read(lengthBytes, 0, 4);
+                int length = BitConverter.ToInt32(lengthBytes, 0);
+
+                byte[] bytes = new byte[length];
+                stream.Read(bytes, 0, length);
+                return Encoding.UTF8.GetString(bytes);
+            }
+
+            public override SHAREDDATA ReadSHAREDDATA(Type type, int? version)
+            {
+                SHAREDDATA sd = Activator.CreateInstance(type) as SHAREDDATA;
+                if (sd.IsVersioned)
+                {
+                    if (version == null)
+                        throw new ArgumentException("read_sd_version_null");
+
+                    sd.Version = (int)version;
+                }
+
+                int length;
+                if (sd.Length == null)
+                {
+                    byte[] lengthBytes = new byte[4];
+                    stream.Read(lengthBytes, 0, 4);
+                    length = BitConverter.ToInt32(lengthBytes, 0);
+                }
+                else
+                {
+                    length = (int)sd.Length;
+                    if (sd.IsVersioned)
+                        length += 4;
+                    if (sd.IsCorruptionChecked)
+                        length += 4;
+                }
+
+                byte[] bytes = new byte[length];
+                stream.Read(bytes, 0, length);
+
+                sd.FromBinary(bytes);
+
+                return sd;
+            }
+        }
 
         public class MainDataInfomation : StreamInfomation
         {
@@ -1221,7 +1470,7 @@ namespace CREA2014
                 int length = 0;
                 try
                 {
-                    foreach (var mdi in StreamInfo(new ReaderWriter(null, ReaderWriter.Mode.neither)))
+                    foreach (var mdi in StreamInfo(new ReaderWriter(null, null, ReaderWriter.Mode.neither)))
                         if (mdi.Type.IsArray)
                             if (mdi.Length == null)
                                 return null;
@@ -1254,8 +1503,10 @@ namespace CREA2014
         {
             using (MemoryStream ms = new MemoryStream())
             {
-                foreach (var mdi in StreamInfo(new ReaderWriter(ms, ReaderWriter.Mode.write)))
-                    Write(ms, mdi);
+                MyStreamWriter writer = new MyStreamWriter(ms);
+
+                foreach (var mdi in StreamInfo(new ReaderWriter(writer, new MyStreamReader(ms), ReaderWriter.Mode.write)))
+                    Write(writer, mdi);
 
                 byte[] reservedBytes = ReservedWrite();
                 ms.Write(BitConverter.GetBytes(reservedBytes.Length), 0, 4);
@@ -1354,8 +1605,10 @@ namespace CREA2014
             }
             using (MemoryStream ms = new MemoryStream(mainDataBytes))
             {
-                foreach (var mdi in StreamInfo(new ReaderWriter(ms, ReaderWriter.Mode.read)))
-                    Read(ms, mdi);
+                MyStreamReader reader = new MyStreamReader(ms);
+
+                foreach (var mdi in StreamInfo(new ReaderWriter(new MyStreamWriter(ms), reader, ReaderWriter.Mode.read)))
+                    Read(reader, mdi);
 
                 byte[] reservedLengthBytes = new byte[4];
                 ms.Read(reservedLengthBytes, 0, 4);
@@ -2496,9 +2749,9 @@ namespace CREA2014
                 Extension.Errored += (sender, e) => logger.AddLog(new LogData(e, LogData.LogKind.error));
             }
 
-            Test test = new Test(logger);
+            //Test test = new Test(logger);
 
-            return;
+            //return;
 
             Action<Exception, ExceptionKind> _OnException = (ex, exKind) =>
             {
