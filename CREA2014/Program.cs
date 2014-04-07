@@ -117,7 +117,7 @@ namespace CREA2014
         }
 
         //UIスレッドで処理を非同期的に実行する（拡張：操作型）
-        public static void BeginExecuteInUIThread(Action action)
+        public static void BeginExecuteInUIThread(this Action action)
         {
             if (Application.Current == null)
                 action();
@@ -351,9 +351,10 @@ namespace CREA2014
         }
 
         //関数を実行する（拡張：任意型）
-        public static void Operate<T>(this T self, Action operation)
+        public static T Operate<T>(this T self, Action operation)
         {
             operation();
+            return self;
         }
 
         //自分自身を関数に渡してから返す（拡張：任意型）
@@ -377,6 +378,7 @@ namespace CREA2014
         }
 
         private static Random random = new Random();
+        private static double[] cache = new double[] { };
 
         //0からiまでの無作為な整数を返す（拡張：整数型）
         public static int RandomNum(this int i)
@@ -384,20 +386,54 @@ namespace CREA2014
             return random.Next(i);
         }
 
+        //0からiまでの無作為な浮動小数点数を返す（拡張：整数型）
+        public static double RandomDouble(this int i)
+        {
+            return random.NextDouble() * i;
+        }
+
         //0からiまでの整数が1回ずつ無作為な順番で含まれる配列を作成する（拡張：整数型）
         public static int[] RandomNums(this int i)
         {
-            return random.OperateWhileTrue((r => r.Next(i))).Distinct().Take(i).ToArray();
+            return random.OperateWhileTrue(r => r.Next(i)).Distinct().Take(i).ToArray();
+        }
+
+        //常に同一の0から1までの無作為な浮動小数点数を返す
+        public static IEnumerable<double> RandomDoublesCache()
+        {
+            for (int i = 0; ; i++)
+            {
+                if (i >= cache.Length)
+                    cache = cache.Combine(random.OperateWhileTrue(r => r.NextDouble()).Take(100).ToArray());
+                yield return cache[i];
+            }
+        }
+
+        //常に同一の0からiまでの整数が1回ずつ無作為な順番で含まれる配列を作成する（拡張：整数型）
+        public static int[] RandomNumsCache(this int i)
+        {
+            return RandomDoublesCache().Select((e) => (int)(e * i)).Distinct().Take(i).ToArray();
+        }
+
+        //バイト配列の要素を指定された順番で並べ直した新たなバイト配列を作成する（拡張：バイト配列型）
+        public static byte[] BytesRandom(this byte[] bytes, int[] order)
+        {
+            byte[] newbytes = new byte[bytes.Length];
+            for (int i = 0; i < bytes.Length; i++)
+                newbytes[i] = bytes[order[i]];
+            return newbytes;
         }
 
         //バイト配列の要素を無作為な順番で並べ直した新たなバイト配列を作成する（拡張：バイト配列型）
         public static byte[] BytesRandom(this byte[] bytes)
         {
-            byte[] newbytes = new byte[bytes.Length];
-            int[] ramdomNum = bytes.Length.RandomNums();
-            for (int i = 0; i < bytes.Length; i++)
-                newbytes[i] = bytes[ramdomNum[i]];
-            return newbytes;
+            return bytes.BytesRandom(bytes.Length.RandomNums());
+        }
+
+        //バイト配列の要素を常に同一の無作為な順番で並べ直した新たなバイト配列を作成する（拡張：バイト配列型）
+        public static byte[] BytesRandomCache(this byte[] bytes)
+        {
+            return bytes.BytesRandom(bytes.Length.RandomNumsCache());
         }
 
         //バイト配列のSHA256ハッシュ値を計算する（拡張：バイト配列型）
@@ -489,6 +525,11 @@ namespace CREA2014
         }
 
         #endregion
+
+        public static void ConsoleWriteLine(this string text)
+        {
+            ((Action)(() => Console.WriteLine(text))).BeginExecuteInUIThread();
+        }
 
         public class TaskInformation : INTERNALDATA
         {
@@ -612,14 +653,6 @@ namespace CREA2014
                 type.RaiseError(message, level);
 
             return flag;
-        }
-
-        //通知ログイベントを発生させ、オブジェクトをそのまま返す（拡張：任意型）
-        public static T RaiseNotification<T>(this T self, Type type, Func<T, string> messageFunc, int level)
-        {
-            type.RaiseError(messageFunc(self), level);
-
-            return self;
         }
 
         //多言語化対応（拡張：文字列型）
@@ -2030,7 +2063,7 @@ namespace CREA2014
                 };
             }
 
-            public event EventHandler LogAdded = delegate { };
+            public event EventHandler<LogData> LogAdded = delegate { };
             public event EventHandler<LogFilter> FilterLogAdded = delegate { };
 
             private readonly object addLogLockSave = new object();
@@ -2047,7 +2080,7 @@ namespace CREA2014
                     logs.Insert(0, log);
                 }
 
-                LogAdded(this, EventArgs.Empty);
+                LogAdded(this, log);
 
                 if (settings.IsSave)
                 {
@@ -2724,6 +2757,8 @@ namespace CREA2014
                 {"server_started", (args) => string.Format("サーバのリッスンを開始しました：{0}:{1}".Multilanguage(104), args[0], args[1])}, 
                 {"server_ended", (args) => string.Format("サーバのリッスンを終了しました：{0}:{1}".Multilanguage(105), args[0], args[1])}, 
                 {"server_restart", (args) => string.Format("ポートが変更されました。現在起動しているサーバを停止し、新たなサーバを起動します：{0}:{1}".Multilanguage(106), args[0], args[1])}, 
+                {"aite_wrong_node_info", (args) => string.Format("ノードが申告したIPアドレスと実際のIPアドレスが異なります：{0}:{1}".Multilanguage(107), args[0], args[1])}, 
+                {"aite_wrong_network", (args) => string.Format("ノードが所属しているネットワークが異なります：{0}:{1}".Multilanguage(108), args[0], args[1])}, 
             };
 
             exceptionMessages = new Dictionary<string, Func<string>>() {
@@ -2748,10 +2783,6 @@ namespace CREA2014
                 Extension.Warned += (sender, e) => logger.AddLog(new LogData(e, LogData.LogKind.warning));
                 Extension.Errored += (sender, e) => logger.AddLog(new LogData(e, LogData.LogKind.error));
             }
-
-            //Test test = new Test(logger);
-
-            //return;
 
             Action<Exception, ExceptionKind> _OnException = (ex, exKind) =>
             {
@@ -2963,6 +2994,8 @@ namespace CREA2014
                     _FeatureControl("FEATURE_XMLHTTP", 1);
                 }
 
+                Test test = new Test(logger, _OnException);
+
                 core = new Core(basepath);
                 core.StartSystem();
 
@@ -3013,4 +3046,98 @@ namespace CREA2014
     }
 
     #endregion
+
+    public class Test
+    {
+        private readonly Program.Logger logger;
+        private readonly Action<Exception, Program.ExceptionKind> OnException;
+        private readonly bool isTest = true;
+
+        public Test(Program.Logger _logger, Action<Exception, Program.ExceptionKind> _OnException)
+        {
+            if (!isTest)
+                return;
+
+            logger = _logger;
+            OnException = _OnException;
+
+            CreaNetworkLocalTest();
+
+            Environment.Exit(0);
+        }
+
+        private void CreaNetworkLocalTest()
+        {
+            CreaNetworkLocalTest cnlt = new CreaNetworkLocalTest(logger, OnException);
+        }
+
+        private void CreaNodeTest()
+        {
+            CreaNodeLocalTest localTest = new CreaNodeLocalTestNotContinue(7777, 0, "test");
+            localTest.Start();
+
+            Thread.Sleep(3000);
+
+            string privateRsaParameters;
+            string publicRsaParameters;
+            using (RSACryptoServiceProvider rsacsp = new RSACryptoServiceProvider(2048))
+            {
+                privateRsaParameters = rsacsp.ToXmlString(true);
+                publicRsaParameters = rsacsp.ToXmlString(false);
+            }
+
+            NodeInformation nodeinfo = new NodeInformation(IPAddress.Loopback, 7778, Network.localtest, DateTime.Now, publicRsaParameters);
+
+            Client client = new Client(IPAddress.Loopback, 7777, RsaKeySize.rsa2048, privateRsaParameters, (ca, ip) =>
+            {
+                ca.WriteBytes(nodeinfo.ToBinary());
+                ca.WriteBytes(BitConverter.GetBytes(0));
+                ca.WriteBytes(BitConverter.GetBytes(0));
+                bool isSameNetwork = BitConverter.ToBoolean(ca.ReadBytes(), 0);
+                bool isOldCreaVersion = BitConverter.ToBoolean(ca.ReadBytes(), 0);
+                int sessionProtocolVersion = BitConverter.ToInt32(ca.ReadBytes(), 0);
+
+                if (sessionProtocolVersion == 0)
+                {
+
+                }
+            });
+            client.StartClient();
+
+            Thread.Sleep(1000000);
+        }
+
+        private void ClientServerTest()
+        {
+            Listener listener = new Listener(7777, RsaKeySize.rsa2048, (ca, ip) =>
+            {
+                string message = Encoding.UTF8.GetString(ca.ReadCompressedBytes());
+
+                MessageBox.Show(message);
+            });
+            listener.ReceiveTimeout = 1000;
+            listener.SendTimeout = 1000;
+            listener.ClientErrored += (sender, e) => MessageBox.Show("listener_client_error");
+            listener.StartListener();
+
+            Thread.Sleep(1000);
+
+            string privateRSAParameters;
+            using (RSACryptoServiceProvider rsacsp = new RSACryptoServiceProvider(2048))
+                privateRSAParameters = rsacsp.ToXmlString(true);
+
+            Client client = new Client(IPAddress.Loopback, 7777, RsaKeySize.rsa2048, privateRSAParameters, (ca, ip) =>
+            {
+                Thread.Sleep(3000);
+
+                ca.WriteCompreddedBytes(Encoding.UTF8.GetBytes("テストだよ～"));
+            });
+            client.ReceiveTimeout = 1000;
+            client.SendTimeout = 1000;
+            client.Errored += (sender, e) => MessageBox.Show("client_error");
+            client.StartClient();
+
+            Thread.Sleep(1000000);
+        }
+    }
 }

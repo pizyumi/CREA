@@ -1,14 +1,21 @@
 ﻿using System;
 using System.Collections;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
 using System.IO.Compression;
 using System.Linq;
 using System.Net;
 using System.Net.Sockets;
+using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Security;
 using System.Security.Cryptography;
+using System.Text;
+using System.Threading;
+using System.Windows;
+using System.Windows.Controls;
+using System.Windows.Media;
 
 namespace CREA2014
 {
@@ -101,10 +108,25 @@ namespace CREA2014
                 privateRsaParameters = rsacsp.ToXmlString(true);
         }
 
+        public class ListenerWrapper
+        {
+            private readonly Listener listener;
+
+            public ListenerWrapper(Listener _listener)
+            {
+                listener = _listener;
+            }
+
+            public void EndListener()
+            {
+                listener.EndListener();
+            }
+        }
+
         public event EventHandler ConnectionAdded = delegate { };
         public event EventHandler ConnectionRemoved = delegate { };
 
-        protected Listener NewListener(ushort port, Action<CommunicationApparatus, IPEndPoint> protocolProcess)
+        protected ListenerWrapper NewListener(ushort port, Action<CommunicationApparatus, IPEndPoint> protocolProcess)
         {
             Dictionary<SocketData, ConnectionData> listenerConnections = new Dictionary<SocketData, ConnectionData>();
 
@@ -142,10 +164,10 @@ namespace CREA2014
             };
             listener.StartListener();
 
-            return listener;
+            return new ListenerWrapper(listener);
         }
 
-        protected Client NewClient(IPAddress ipAddress, ushort port, Action<CommunicationApparatus, IPEndPoint> protocolProcess)
+        protected void NewClient(IPAddress ipAddress, ushort port, Action<CommunicationApparatus, IPEndPoint> protocolProcess)
         {
             ConnectionData connection = null;
 
@@ -164,8 +186,6 @@ namespace CREA2014
                     RegisterResult(e.Value1.IpAddress, false);
             };
             client.StartClient();
-
-            return client;
         }
 
         private void AddConnection(ConnectionData connection)
@@ -963,7 +983,169 @@ namespace CREA2014
 
     public abstract class CREANODEBASE : P2PNODE
     {
-        public enum MessageName { }
+        public enum MessageName
+        {
+            inv = 10,
+            getdata = 11,
+            tx = 12,
+            block = 13,
+            notfound = 14,
+        }
+
+        public abstract class Message : SHAREDDATA
+        {
+            public MessageName name { get; private set; }
+
+            public Message(int? _version, MessageName _name)
+                : base(_version)
+            {
+                name = _name;
+            }
+
+            public Message(MessageName _name) : this(null, _name) { }
+
+            protected override Func<ReaderWriter, IEnumerable<MainDataInfomation>> StreamInfo
+            {
+                get
+                {
+                    return (msrw) => new MainDataInfomation[]{
+                        new MainDataInfomation(typeof(int), () => (int)name, (o) => name = (MessageName)o), 
+                    };
+                }
+            }
+        }
+
+        public abstract class MessageSha256Hash : Message
+        {
+            public Sha256Hash hash { get; private set; }
+
+            public MessageSha256Hash(int? _version, MessageName _name, Sha256Hash _hash)
+                : base(_version, _name)
+            {
+                hash = _hash;
+            }
+
+            public MessageSha256Hash(MessageName _name, Sha256Hash _hash) : this(null, _name, _hash) { }
+
+            protected override Func<ReaderWriter, IEnumerable<MainDataInfomation>> StreamInfo
+            {
+                get
+                {
+                    return (msrw) => base.StreamInfo(msrw).Concat(new MainDataInfomation[]{
+                        new MainDataInfomation(typeof(Sha256Hash), null, () => hash, (o) => hash = (Sha256Hash)o), 
+                    });
+                }
+            }
+        }
+
+        public class Inv : MessageSha256Hash
+        {
+            public Inv(Sha256Hash _hash) : base(0, MessageName.inv, _hash) { }
+
+            public Inv() : this(new Sha256Hash()) { }
+
+            protected override Func<ReaderWriter, IEnumerable<MainDataInfomation>> StreamInfo
+            {
+                get
+                {
+                    if (Version == 0)
+                        return base.StreamInfo;
+                    else
+                        throw new NotSupportedException("inv_main_data_info");
+                }
+            }
+
+            public override bool IsVersioned
+            {
+                get { return true; }
+            }
+
+            public override bool IsCorruptionChecked
+            {
+                get
+                {
+                    if (Version <= 0)
+                        return true;
+                    else
+                        throw new NotSupportedException("inv_check");
+                }
+            }
+        }
+
+        public class Getdata : MessageSha256Hash
+        {
+            public Getdata(Sha256Hash _hash) : base(0, MessageName.inv, _hash) { }
+
+            protected override Func<ReaderWriter, IEnumerable<MainDataInfomation>> StreamInfo
+            {
+                get
+                {
+                    if (Version == 0)
+                        return base.StreamInfo;
+                    else
+                        throw new NotSupportedException("getdata_main_data_info");
+                }
+            }
+
+            public override bool IsVersioned
+            {
+                get { return true; }
+            }
+
+            public override bool IsCorruptionChecked
+            {
+                get
+                {
+                    if (Version <= 0)
+                        return true;
+                    else
+                        throw new NotSupportedException("getdata_check");
+                }
+            }
+        }
+
+        //試験用
+        public class TxTest : Message
+        {
+            public byte[] data { get; private set; }
+
+            public TxTest()
+                : base(0, MessageName.tx)
+            {
+                data = new byte[1024];
+                for (int i = 0; i < data.Length; i++)
+                    data[i] = (byte)256.RandomNum();
+            }
+
+            protected override Func<ReaderWriter, IEnumerable<MainDataInfomation>> StreamInfo
+            {
+                get
+                {
+                    if (Version == 0)
+                        return (msrw) => base.StreamInfo(msrw).Concat(new MainDataInfomation[]{
+                            new MainDataInfomation(typeof(byte[]), 1024, () => data, (o) => data = (byte[])o), 
+                        });
+                    else
+                        throw new NotSupportedException("tx_test_main_data_info");
+                }
+            }
+
+            public override bool IsVersioned
+            {
+                get { return true; }
+            }
+
+            public override bool IsCorruptionChecked
+            {
+                get
+                {
+                    if (Version <= 0)
+                        return true;
+                    else
+                        throw new NotSupportedException("tx_test_check");
+                }
+            }
+        }
 
         public class Header : SHAREDDATA
         {
@@ -972,6 +1154,8 @@ namespace CREA2014
             public int protocolVersion { get; private set; }
             public string client { get; private set; }
             public bool isTemporary { get; private set; }
+
+            public Header() { }
 
             public Header(NodeInformation _nodeInfo, int _creaVersion, int _protocolVersion, string _client, bool _isTemporary)
             {
@@ -987,15 +1171,20 @@ namespace CREA2014
 
             protected override Func<STREAMDATA<MainDataInfomation>.ReaderWriter, IEnumerable<MainDataInfomation>> StreamInfo
             {
+                get { return (msrw) => StreamInfoInner; }
+            }
+            private IEnumerable<MainDataInfomation> StreamInfoInner
+            {
                 get
                 {
-                    return (msrw) => new MainDataInfomation[]{
-                        new MainDataInfomation(typeof(NodeInformation), 0, () => nodeInfo, (o) => nodeInfo = (NodeInformation)o), 
-                        new MainDataInfomation(typeof(int), () => creaVersion, (o) => creaVersion = (int)o), 
-                        new MainDataInfomation(typeof(int), () => protocolVersion, (o) => protocolVersion = (int)o), 
-                        new MainDataInfomation(typeof(string), () => client, (o) => client = (string)o), 
-                        new MainDataInfomation(typeof(bool), () => isTemporary, (o) => isTemporary = (bool)o), 
-                    };
+                    bool isServer = nodeInfo != null;
+                    yield return new MainDataInfomation(typeof(bool), () => isServer, (o) => isServer = (bool)o);
+                    if (isServer)
+                        yield return new MainDataInfomation(typeof(NodeInformation), 0, () => nodeInfo, (o) => nodeInfo = (NodeInformation)o);
+                    yield return new MainDataInfomation(typeof(int), () => creaVersion, (o) => creaVersion = (int)o);
+                    yield return new MainDataInfomation(typeof(int), () => protocolVersion, (o) => protocolVersion = (int)o);
+                    yield return new MainDataInfomation(typeof(string), () => client, (o) => client = (string)o);
+                    yield return new MainDataInfomation(typeof(bool), () => isTemporary, (o) => isTemporary = (bool)o);
                 }
             }
         }
@@ -1003,16 +1192,20 @@ namespace CREA2014
         public class HeaderResponse : SHAREDDATA
         {
             public bool isSameNetwork { get; private set; }
+            public NodeInformation correctNodeInfo { get; private set; }
             public bool isOldCreaVersion { get; private set; }
             public int protocolVersion { get; private set; }
             public string client { get; private set; }
 
-            public HeaderResponse(bool _isSameNetwork, bool _isOldCreaVersion, int _protocolVersion, string _client)
+            public HeaderResponse() { }
+
+            public HeaderResponse(bool _isSameNetwork, NodeInformation _correctNodeInfo, bool _isOldCreaVersion, int _protocolVersion, string _client)
             {
                 if (_client.Length > 256)
                     throw new InvalidDataException("client_too_lengthy");
 
                 isSameNetwork = _isSameNetwork;
+                correctNodeInfo = _correctNodeInfo;
                 isOldCreaVersion = _isOldCreaVersion;
                 protocolVersion = _protocolVersion;
                 client = _client;
@@ -1020,14 +1213,20 @@ namespace CREA2014
 
             protected override Func<STREAMDATA<MainDataInfomation>.ReaderWriter, IEnumerable<MainDataInfomation>> StreamInfo
             {
+                get { return (msrw) => StreamInfoInner; }
+            }
+            private IEnumerable<MainDataInfomation> StreamInfoInner
+            {
                 get
                 {
-                    return (msrw) => new MainDataInfomation[]{
-                        new MainDataInfomation(typeof(bool), () => isSameNetwork, (o) => isSameNetwork = (bool)o), 
-                        new MainDataInfomation(typeof(bool), () => isOldCreaVersion, (o) => isOldCreaVersion = (bool)o), 
-                        new MainDataInfomation(typeof(int), () => protocolVersion, (o) => protocolVersion = (int)o), 
-                        new MainDataInfomation(typeof(string), () => client, (o) => client = (string)o), 
-                    };
+                    yield return new MainDataInfomation(typeof(bool), () => isSameNetwork, (o) => isSameNetwork = (bool)o);
+                    bool isCorrectNodeInfo = correctNodeInfo == null;
+                    yield return new MainDataInfomation(typeof(bool), () => isCorrectNodeInfo, (o) => isCorrectNodeInfo = (bool)o);
+                    if (!isCorrectNodeInfo)
+                        yield return new MainDataInfomation(typeof(NodeInformation), 0, () => correctNodeInfo, (o) => correctNodeInfo = (NodeInformation)o);
+                    yield return new MainDataInfomation(typeof(bool), () => isOldCreaVersion, (o) => isOldCreaVersion = (bool)o);
+                    yield return new MainDataInfomation(typeof(int), () => protocolVersion, (o) => protocolVersion = (int)o);
+                    yield return new MainDataInfomation(typeof(string), () => client, (o) => client = (string)o);
                 }
             }
         }
@@ -1042,7 +1241,7 @@ namespace CREA2014
             get { return port; }
         }
 
-        private IPAddress ipAddress;
+        protected IPAddress ipAddress;
         public IPAddress IpAddress
         {
             get
@@ -1054,7 +1253,7 @@ namespace CREA2014
             }
         }
 
-        private NodeInformation nodeInfo;
+        protected NodeInformation nodeInfo;
         public NodeInformation NodeInfo
         {
             get
@@ -1064,6 +1263,18 @@ namespace CREA2014
 
                 return nodeInfo;
             }
+        }
+
+        private bool isStarted;
+        public bool IsStarted
+        {
+            get { return isStarted; }
+        }
+
+        private bool isStartCompleted;
+        public bool IsStartCompleted
+        {
+            get { return isStartCompleted; }
         }
 
         public bool IsPort0
@@ -1093,17 +1304,21 @@ namespace CREA2014
         protected abstract Network Network { get; }
 
         protected abstract IPAddress GetIpAddress();
+        protected abstract RSACryptoServiceProvider GetRSACryptoServiceProvider();
         protected abstract void NotifyFirstNodeInfo();
         protected abstract FirstNodeInformation[] GetFirstNodeInfos();
+
+        protected abstract bool IsReject { get; }
+        protected abstract bool IsContinue { get; }
+        protected abstract bool IsCanContinue { get; }
 
         public event EventHandler ServerStarted = delegate { };
         public event EventHandler ServerChanged = delegate { };
         public event EventHandler ServerEnded = delegate { };
 
-        private Listener listener;
+        private ListenerWrapper listener;
         private string privateRsaParameters;
-        private bool isStarted;
-        private bool isStartCompleted;
+        private FirstNodeInformation[] firstNodeInfos;
 
         public void Start()
         {
@@ -1114,83 +1329,122 @@ namespace CREA2014
             {
                 isStarted = true;
 
-                this.Operate(() =>
-                {
-                    if (IsPort0)
+                if (IsPort0)
+                    this.RaiseNotification("port0".GetLogMessage(), 5);
+                else
+                    if ((ipAddress = GetIpAddress()) != null)
                     {
-                        this.RaiseNotification("port0".GetLogMessage(), 5);
-
-                        return;
-                    }
-
-                    if ((ipAddress = GetIpAddress()) == null)
-                        return;
-
-                    string publicRsaParameters;
-                    try
-                    {
-                        using (RSACryptoServiceProvider rsacsp = new RSACryptoServiceProvider(2048))
+                        RSACryptoServiceProvider rsacsp = GetRSACryptoServiceProvider();
+                        if (rsacsp != null)
                         {
                             privateRsaParameters = rsacsp.ToXmlString(true);
-                            publicRsaParameters = rsacsp.ToXmlString(false);
-                        }
-                    }
-                    catch (Exception)
-                    {
-                        this.RaiseError("rsa_key_cant_create".GetLogMessage(), 5);
-
-                        return;
-                    }
-
-                    this.RaiseNotification("rsa_key_create".GetLogMessage(), 5);
-
-                    nodeInfo = new NodeInformation(ipAddress, port, Network, DateTime.Now, publicRsaParameters);
-
-                    listener = new Listener(port, RsaKeySize.rsa2048, (ca, ipEndPoint) =>
-                    {
-                        Header header = SHAREDDATA.FromBinary<Header>(ca.ReadBytes());
-                        HeaderResponse headerResponse = new HeaderResponse(header.nodeInfo.Network == Network, header.creaVersion < creaVersion, protocolVersion, appnameWithVersion);
-
-                        if (!headerResponse.isSameNetwork)
-                            return;
-                        //<未実装>ノード情報更新
-
-                        if (header.creaVersion > creaVersion)
-                        {
-                            //相手のクライアントバージョンの方が大きい場合の処理
-                            //<未実装>使用者への通知
-                            //<未実装>自動ダウンロード、バージョンアップなど
-                            //ここで直接行うべきではなく、イベントを発令するべきだろう
-                        }
-
-                        ca.WriteBytes(headerResponse.ToBinary());
-
-                        int sessionProtocolVersion = Math.Min(header.protocolVersion, protocolVersion);
-                        if (sessionProtocolVersion == 0)
-                        {
-                            //一時接続
-                            if (header.isTemporary)
+                            nodeInfo = new NodeInformation(ipAddress, port, Network, DateTime.Now, rsacsp.ToXmlString(false));
+                            listener = NewListener(port, (ca, ipEndPoint) =>
                             {
+                                Header header = SHAREDDATA.FromBinary<Header>(ca.ReadBytes());
 
-                            }
+                                NodeInformation aiteNodeInfo = null;
+                                if (!header.nodeInfo.IpAddress.Equals(ipEndPoint.Address))
+                                {
+                                    this.RaiseNotification("aite_wrong_node_info".GetLogMessage(ipEndPoint.Address.ToString(), header.nodeInfo.Port.ToString()), 5);
 
-                            //常時接続
+                                    aiteNodeInfo = new NodeInformation(ipEndPoint.Address, header.nodeInfo.Port, header.nodeInfo.Network, header.nodeInfo.Participation, header.nodeInfo.PublicRSAParameters);
+                                }
+
+                                HeaderResponse headerResponse = new HeaderResponse(header.nodeInfo.Network == Network, aiteNodeInfo, header.creaVersion < creaVersion, protocolVersion, appnameWithVersion);
+
+                                if (aiteNodeInfo == null)
+                                    aiteNodeInfo = header.nodeInfo;
+
+                                if (!headerResponse.isSameNetwork)
+                                {
+                                    this.RaiseNotification("aite_wrong_network".GetLogMessage(aiteNodeInfo.IpAddress.ToString(), aiteNodeInfo.Port.ToString()), 5);
+
+                                    return;
+                                }
+                                if (IsReject)
+                                    return;
+                                //<未実装>ノード情報更新
+
+                                if (header.creaVersion > creaVersion)
+                                {
+                                    //相手のクライアントバージョンの方が大きい場合の処理
+                                    //<未実装>使用者への通知
+                                    //<未実装>自動ダウンロード、バージョンアップなど
+                                    //ここで直接行うべきではなく、イベントを発令するべきだろう
+                                }
+
+                                ca.WriteBytes(headerResponse.ToBinary());
+
+                                int sessionProtocolVersion = Math.Min(header.protocolVersion, protocolVersion);
+                                if (sessionProtocolVersion == 0)
+                                {
+                                    if (header.isTemporary)
+                                    {
+                                        string aite = string.Join(":", header.nodeInfo.IpAddress.ToString(), header.nodeInfo.Port.ToString());
+                                        string zibun = string.Join(":", ipAddress.ToString(), port.ToString());
+                                        string aiteZibun = string.Join("-->", aite, zibun);
+
+                                        Inv inv = SHAREDDATA.FromBinary<Inv>(ca.ReadBytes());
+                                        bool isNew = !txtests.Keys.Contains(inv.hash);
+                                        ca.WriteBytes(BitConverter.GetBytes(isNew));
+                                        if (isNew)
+                                        {
+                                            TxTest txtest = SHAREDDATA.FromBinary<TxTest>(ca.ReadBytes());
+                                            lock (txtestsLock)
+                                                if (!txtests.Keys.Contains(inv.hash))
+                                                    txtests.Add(inv.hash, txtest.data);
+                                                else
+                                                    return;
+
+                                            (aiteZibun + " txtest受信").ConsoleWriteLine();
+
+                                            TxtestReceived(this, nodeInfo);
+
+                                            this.StartTask(() => RequestInv(txtest, inv), string.Empty, string.Empty);
+                                        }
+                                        else
+                                        {
+                                            (aiteZibun + " txtest既に存在する").ConsoleWriteLine();
+
+                                            TxtestAlreadyExisted(this, nodeInfo);
+                                        }
+
+                                        //一時接続から常時接続に移行しない場合は終わり
+                                        return;
+                                    }
+
+                                    if (IsContinue && IsCanContinue)
+                                    {
+
+                                    }
+                                }
+                                else
+                                    throw new NotSupportedException("not_supported_protocol_ver");
+                            });
+
+                            this.RaiseNotification("server_started".GetLogMessage(ipAddress.ToString(), port.ToString()), 5);
+
+                            ServerStarted(this, EventArgs.Empty);
+
+                            NotifyFirstNodeInfo();
                         }
-                        else
-                            throw new NotSupportedException("not_supported_protocol_ver");
-                    });
-                    listener.StartListener();
+                    }
 
-                    this.RaiseNotification("server_started".GetLogMessage(ipAddress.ToString(), port.ToString()), 5);
+                if (nodeInfo == null)
+                    firstNodeInfos = GetFirstNodeInfos();
+                else
+                {
+                    FirstNodeInformation myfni = nodeInfo.FirstNodeInfo;
+                    List<FirstNodeInformation> fnislist = new List<FirstNodeInformation>();
+                    foreach (var fni in GetFirstNodeInfos())
+                        if (!fni.Equals(myfni))
+                            fnislist.Add(fni);
+                    firstNodeInfos = fnislist.ToArray();
+                }
 
-                    ServerStarted(this, EventArgs.Empty);
-
-                    NotifyFirstNodeInfo();
-                    FirstNodeInformation[] firstNodeInfos = GetFirstNodeInfos();
-
-                    //<未実装>初期ノードに接続して近接ノード取得
-                    //<未実装>近接ノードとの接続を維持
-                });
+                //<未実装>初期ノードに接続して近接ノード取得
+                //<未実装>近接ノードとの接続を維持
 
                 isStartCompleted = true;
             }, "creanode", string.Empty);
@@ -1208,6 +1462,78 @@ namespace CREA2014
             this.RaiseNotification("server_ended".GetLogMessage(ipAddress.ToString(), port.ToString()), 5);
 
             ServerEnded(this, EventArgs.Empty);
+        }
+
+        private readonly Dictionary<Sha256Hash, byte[]> txtests = new Dictionary<Sha256Hash, byte[]>();
+        private readonly object txtestsLock = new object();
+
+        public event EventHandler<NodeInformation> TxtestReceived = delegate { };
+        public event EventHandler<NodeInformation> TxtestAlreadyExisted = delegate { };
+
+        public void RequestInv(TxTest txtest, Inv inv)
+        {
+            bool isTemporary = true;
+
+            if (txtest == null && inv == null)
+            {
+                txtest = new TxTest();
+                inv = new Inv(new Sha256Hash(txtest.data.ComputeSha256()));
+
+                lock (txtestsLock)
+                    txtests.Add(inv.hash, txtest.data);
+
+                (string.Join(":", ipAddress.ToString(), port.ToString()) + " txtest作成").ConsoleWriteLine();
+            }
+
+            for (int i = 0; i < 16 && i < firstNodeInfos.Length; i++)
+            {
+                NewClient(firstNodeInfos[i].IpAddress, firstNodeInfos[i].Port, (ca, ipEndPoint) =>
+                {
+                    ca.WriteBytes(new Header(nodeInfo, creaVersion, protocolVersion, appnameWithVersion, isTemporary).ToBinary());
+                    HeaderResponse headerResponse = SHAREDDATA.FromBinary<HeaderResponse>(ca.ReadBytes());
+
+                    if (!headerResponse.isSameNetwork)
+                        return;
+                    if (headerResponse.correctNodeInfo != null)
+                    {
+                        //<未実装>ノード情報のIPアドレスが間違っている疑いがある場合の処理
+                        //　　　　他の幾つかのノードに問い合わせて本当に間違っていたら修正
+                    }
+                    //<未実装>ノード情報更新
+
+                    if (headerResponse.isOldCreaVersion)
+                    {
+                        //相手のクライアントバージョンの方が大きい場合の処理
+                        //<未実装>使用者への通知
+                        //<未実装>自動ダウンロード、バージョンアップなど
+                        //ここで直接行うべきではなく、イベントを発令するべきだろう
+                    }
+
+                    int sessionProtocolVersion = Math.Min(headerResponse.protocolVersion, protocolVersion);
+                    if (sessionProtocolVersion == 0)
+                    {
+                        //一時接続
+                        if (isTemporary)
+                        {
+                            ca.WriteBytes(inv.ToBinary());
+                            bool isNew = BitConverter.ToBoolean(ca.ReadBytes(), 0);
+                            if (isNew)
+                                ca.WriteBytes(txtest.ToBinary());
+
+
+                            //一時接続から常時接続に移行しない場合は終わり
+                            return;
+                        }
+
+                        //常時接続
+                        //別スレッドで行う必要あり
+                    }
+                    else
+                        throw new NotSupportedException("not_supported_protocol_ver");
+                });
+
+                //<未実装>接続に失敗した場合のノード情報更新
+            }
         }
     }
 
@@ -1227,7 +1553,21 @@ namespace CREA2014
             if (upnpws.IsNull().RaiseError(this.GetType(), "upnp_not_found".GetLogMessage(), 5))
                 return null;
 
-            return upnpws.GetExternalIPAddress().RaiseNotification(this.GetType(), (self) => "upnp_ipaddress".GetLogMessage(self.ToString()), 5);
+            return upnpws.GetExternalIPAddress().Operate((ip) => this.RaiseNotification("upnp_ipaddress".GetLogMessage(ip.ToString()), 5));
+        }
+
+        protected override RSACryptoServiceProvider GetRSACryptoServiceProvider()
+        {
+            try
+            {
+                return new RSACryptoServiceProvider(2048).Operate(() => this.RaiseNotification("rsa_key_create".GetLogMessage(), 5));
+            }
+            catch (Exception)
+            {
+                this.RaiseError("rsa_key_cant_create".GetLogMessage(), 5);
+
+                return null;
+            }
         }
 
         protected override void NotifyFirstNodeInfo()
@@ -1239,17 +1579,43 @@ namespace CREA2014
         {
             throw new NotImplementedException();
         }
+
+        protected override bool IsReject
+        {
+            get { throw new NotImplementedException(); }
+        }
+
+        protected override bool IsContinue
+        {
+            get { return true; }
+        }
+
+        protected override bool IsCanContinue
+        {
+            get { throw new NotImplementedException(); }
+        }
     }
 
-    public class CreaNodeLocalTest : CREANODEBASE
-    {
-        private readonly FirstNodeInformation[] firstNodeInfos;
+    #region 試験用
 
-        public CreaNodeLocalTest(ushort _port, FirstNodeInformation[] _firstNodeInfos, int _creaVersion, string _appnameWithVersion)
-            : base(_port, _creaVersion, _appnameWithVersion)
+    public abstract class CreaNodeLocalTest : CREANODEBASE
+    {
+        private static readonly object fnisLock = new object();
+        private static readonly List<FirstNodeInformation> firstNodeInfos;
+        private static readonly RSACryptoServiceProvider rsacsp;
+
+        static CreaNodeLocalTest()
         {
-            firstNodeInfos = _firstNodeInfos;
+            firstNodeInfos = new List<FirstNodeInformation>();
+
+            try
+            {
+                rsacsp = new RSACryptoServiceProvider(2048);
+            }
+            catch (Exception) { }
         }
+
+        public CreaNodeLocalTest(ushort _port, int _creaVersion, string _appnameWithVersion) : base(_port, _creaVersion, _appnameWithVersion) { }
 
         protected override Network Network
         {
@@ -1261,13 +1627,204 @@ namespace CREA2014
             return IPAddress.Loopback;
         }
 
-        protected override void NotifyFirstNodeInfo() { }
+        protected override RSACryptoServiceProvider GetRSACryptoServiceProvider()
+        {
+            return rsacsp;
+        }
+
+        protected override void NotifyFirstNodeInfo()
+        {
+            lock (fnisLock)
+            {
+                while (firstNodeInfos.Count >= 20)
+                    firstNodeInfos.RemoveAt(firstNodeInfos.Count - 1);
+                firstNodeInfos.Insert(0, nodeInfo.FirstNodeInfo);
+            }
+        }
 
         protected override FirstNodeInformation[] GetFirstNodeInfos()
         {
-            return firstNodeInfos;
+            lock (fnisLock)
+                return firstNodeInfos.ToArray();
         }
     }
+
+    public class CreaNodeLocalTestNotContinue : CreaNodeLocalTest
+    {
+        public CreaNodeLocalTestNotContinue(ushort _port, int _creaVersion, string _appnameWithVersion) : base(_port, _creaVersion, _appnameWithVersion) { }
+
+        protected override bool IsReject
+        {
+            get { return false; }
+        }
+
+        protected override bool IsContinue
+        {
+            get { return false; }
+        }
+
+        protected override bool IsCanContinue
+        {
+            get { return false; }
+        }
+    }
+
+    public class CreaNodeLocalTestContinue : CreaNodeLocalTest
+    {
+        public CreaNodeLocalTestContinue(ushort _port, int _creaVersion, string _appnameWithVersion) : base(_port, _creaVersion, _appnameWithVersion) { }
+
+        protected override bool IsReject
+        {
+            get { throw new NotImplementedException(); }
+        }
+
+        protected override bool IsContinue
+        {
+            get { throw new NotImplementedException(); }
+        }
+
+        protected override bool IsCanContinue
+        {
+            get { throw new NotImplementedException(); }
+        }
+    }
+
+    public class CreaNetworkLocalTest
+    {
+        public CreaNetworkLocalTest(Program.Logger _logger, Action<Exception, Program.ExceptionKind> _OnException)
+        {
+            App app = new App();
+            app.DispatcherUnhandledException += (sender, e) =>
+            {
+                _OnException(e.Exception, Program.ExceptionKind.wpf);
+            };
+            app.Startup += (sender, e) =>
+            {
+                TestWindow tw = new TestWindow(_logger);
+                tw.Show();
+            };
+            app.InitializeComponent();
+            app.Run();
+        }
+
+        public class TestWindow : Window
+        {
+            public TestWindow(Program.Logger _logger)
+            {
+                StackPanel sp = null;
+
+                Loaded += (sender, e) =>
+                {
+                    Grid grid = new Grid();
+                    grid.RowDefinitions.Add(new RowDefinition());
+                    grid.RowDefinitions.Add(new RowDefinition());
+                    grid.ColumnDefinitions.Add(new ColumnDefinition());
+
+                    ScrollViewer sv1 = new ScrollViewer();
+                    sv1.VerticalScrollBarVisibility = ScrollBarVisibility.Auto;
+                    sv1.SetValue(Grid.RowProperty, 0);
+                    sv1.SetValue(Grid.ColumnProperty, 0);
+
+                    StackPanel sp1 = sp = new StackPanel();
+                    sp1.Background = Brushes.Black;
+
+                    ScrollViewer sv2 = new ScrollViewer();
+                    sv2.VerticalScrollBarVisibility = ScrollBarVisibility.Auto;
+                    sv2.SetValue(Grid.RowProperty, 1);
+                    sv2.SetValue(Grid.ColumnProperty, 0);
+
+                    StackPanel sp2 = new StackPanel();
+                    sp2.Background = Brushes.Black;
+
+                    sv1.Content = sp1;
+                    sv2.Content = sp2;
+
+                    grid.Children.Add(sv1);
+                    grid.Children.Add(sv2);
+
+                    Content = grid;
+
+                    Console.SetOut(new TextBlockStreamWriter(sp1));
+
+                    _logger.LogAdded += (sender2, e2) => ((Action)(() =>
+                    {
+                        TextBlock tb = new TextBlock();
+                        tb.Text = e2.Text;
+                        tb.Foreground = e2.Kind == Program.LogData.LogKind.error ? Brushes.Red : Brushes.White;
+
+                        sp2.Children.Add(tb);
+                    })).BeginExecuteInUIThread();
+
+                    this.StartTask(() =>
+                    {
+                        Stopwatch stopwatch = new Stopwatch();
+                        int counter = 0;
+
+                        int numOfNodes = 100;
+                        CreaNodeLocalTest[] cnlts = new CreaNodeLocalTest[numOfNodes];
+                        for (int i = 0; i < numOfNodes; i++)
+                        {
+                            cnlts[i] = new CreaNodeLocalTestNotContinue((ushort)(7777 + i), 0, "test");
+                            cnlts[i].TxtestReceived += (sender2, e2) =>
+                            {
+                                counter++;
+                                (string.Join(":", e2.IpAddress.ToString(), e2.Port.ToString()) + " " + counter.ToString() + " " + ((double)counter / (double)numOfNodes).ToString() + " " + stopwatch.Elapsed.ToString()).ConsoleWriteLine();
+
+                                if (counter == numOfNodes - 1)
+                                    stopwatch.Stop();
+                            };
+                            cnlts[i].Start();
+                            while (!cnlts[i].IsStartCompleted)
+                                Thread.Sleep(100);
+                        }
+
+                        MessageBox.Show("start");
+
+                        stopwatch.Start();
+
+                        cnlts[numOfNodes - 1].RequestInv(null, null);
+                    }, string.Empty, string.Empty);
+                };
+
+                Closed += (sender, e) =>
+                {
+                    string fileText = string.Empty;
+                    foreach (var child in sp.Children)
+                        fileText += (child as TextBlock).Text + Environment.NewLine;
+
+                    File.AppendAllText(Path.Combine(new FileInfo(Assembly.GetEntryAssembly().Location).DirectoryName, "LogTest.txt"), fileText);
+                };
+            }
+
+            public class TextBlockStreamWriter : TextWriter
+            {
+                StackPanel sp = null;
+
+                public TextBlockStreamWriter(StackPanel _sp)
+                {
+                    sp = _sp;
+                }
+
+                public override void WriteLine(string value)
+                {
+                    base.WriteLine(value);
+
+                    TextBlock tb = new TextBlock();
+                    tb.Text = string.Join(" ", DateTime.Now.ToString(), value);
+                    tb.Foreground = Brushes.White;
+
+                    sp.Children.Add(tb);
+                }
+
+                public override Encoding Encoding
+                {
+                    get { return Encoding.UTF8; }
+                }
+            }
+        }
+    }
+
+    #endregion
 
     public class FirstNodeInformation : SHAREDDATA, IEquatable<FirstNodeInformation>
     {
@@ -1555,7 +2112,10 @@ namespace CREA2014
 
         public Sha256Hash(string value) : this(value.FromHexstring()) { }
 
-        public Sha256Hash() { }
+        public Sha256Hash()
+        {
+            bytes = new byte[32];
+        }
 
         protected override Func<ReaderWriter, IEnumerable<MainDataInfomation>> StreamInfo
         {
@@ -1606,7 +2166,8 @@ namespace CREA2014
             //ビットの並びをばらばらにしてから計算することにした
             //この実装でも0の数は変わらないので値が偏るのかもしれない
             //先頭の0を取り除いたものから計算するべきなのかもしれない
-            byte[] ramdomBytes = bytes.BytesRandom();
+            //2014/04/06 常に同一の並びでなければ値が毎回変わってしまう
+            byte[] ramdomBytes = bytes.BytesRandomCache();
             byte[] intByte = new byte[4];
             for (int i = 0; i < 4; i++)
                 for (int j = 0; j < 8; j++)
@@ -1641,7 +2202,10 @@ namespace CREA2014
 
         public Ripemd160Hash(string value) : this(value.FromHexstring()) { }
 
-        public Ripemd160Hash() { }
+        public Ripemd160Hash()
+        {
+            bytes = new byte[20];
+        }
 
         protected override Func<ReaderWriter, IEnumerable<MainDataInfomation>> StreamInfo
         {
@@ -1692,7 +2256,8 @@ namespace CREA2014
             //ビットの並びをばらばらにしてから計算することにした
             //この実装でも0の数は変わらないので値が偏るのかもしれない
             //先頭の0を取り除いたものから計算するべきなのかもしれない
-            byte[] ramdomBytes = bytes.BytesRandom();
+            //2014/04/06 常に同一の並びでなければ値が毎回変わってしまう
+            byte[] ramdomBytes = bytes.BytesRandomCache();
             byte[] intByte = new byte[4];
             for (int i = 0; i < 4; i++)
                 for (int j = 0; j < 5; j++)
