@@ -95,9 +95,9 @@ namespace CREA2014
                 action();
             else
                 if (Application.Current.Dispatcher.CheckAccess())
-                    action();
-                else
-                    Application.Current.Dispatcher.Invoke(new Action(() => action()));
+                action();
+            else
+                Application.Current.Dispatcher.Invoke(new Action(() => action()));
         }
 
         //UIスレッドで処理を同期的に実行する（拡張：関数型）
@@ -107,13 +107,13 @@ namespace CREA2014
                 return action();
             else
                 if (Application.Current.Dispatcher.CheckAccess())
-                    return action();
-                else
-                {
-                    T result = default(T);
-                    Application.Current.Dispatcher.Invoke(new Action(() => result = action()));
-                    return result;
-                }
+                return action();
+            else
+            {
+                T result = default(T);
+                Application.Current.Dispatcher.Invoke(new Action(() => result = action()));
+                return result;
+            }
         }
 
         //UIスレッドで処理を非同期的に実行する（拡張：操作型）
@@ -123,9 +123,9 @@ namespace CREA2014
                 action();
             else
                 if (Application.Current.Dispatcher.CheckAccess())
-                    action();
-                else
-                    Application.Current.Dispatcher.BeginInvoke(new Action(() => action()));
+                action();
+            else
+                Application.Current.Dispatcher.BeginInvoke(new Action(() => action()));
         }
 
         //UIスレッドで処理を同期的に実行する（拡張：関数型）
@@ -135,13 +135,13 @@ namespace CREA2014
                 return action();
             else
                 if (Application.Current.Dispatcher.CheckAccess())
-                    return action();
-                else
-                {
-                    T result = default(T);
-                    Application.Current.Dispatcher.BeginInvoke(new Action(() => result = action()));
-                    return result;
-                }
+                return action();
+            else
+            {
+                T result = default(T);
+                Application.Current.Dispatcher.BeginInvoke(new Action(() => result = action()));
+                return result;
+            }
         }
 
         //プライベートIPアドレスか（拡張：IPアドレス型）
@@ -637,11 +637,83 @@ namespace CREA2014
             Errored(self.GetType(), new LogInfomation(self.GetType(), string.Join(Environment.NewLine, message, ex.CreateMessage(0)), level, arguments));
         }
 
+        //真偽値が真のときのみ試験ログイベントを発生させ、真偽値をそのまま返す（拡張：真偽型）
+        public static bool RaiseTest(this bool flag, Type type, string message, int level)
+        {
+            if (flag)
+                type.RaiseTest(message, level);
+
+            return flag;
+        }
+
+        //真偽値が真のときのみ通知ログイベントを発生させ、真偽値をそのまま返す（拡張：真偽型）
+        public static bool RaiseNotification(this bool flag, Type type, string message, int level)
+        {
+            if (flag)
+                type.RaiseNotification(message, level);
+
+            return flag;
+        }
+
+        //真偽値が真のときのみ結果ログイベントを発生させ、真偽値をそのまま返す（拡張：真偽型）
+        public static bool RaiseResult(this bool flag, Type type, string message, int level)
+        {
+            if (flag)
+                type.RaiseResult(message, level);
+
+            return flag;
+        }
+
+        //真偽値が真のときのみ警告ログイベントを発生させ、真偽値をそのまま返す（拡張：真偽型）
+        public static bool RaiseWarning(this bool flag, Type type, string message, int level)
+        {
+            if (flag)
+                type.RaiseWarning(message, level);
+
+            return flag;
+        }
+
         //真偽値が真のときのみ過誤ログイベントを発生させ、真偽値をそのまま返す（拡張：真偽型）
         public static bool RaiseError(this bool flag, Type type, string message, int level)
         {
             if (flag)
                 type.RaiseError(message, level);
+
+            return flag;
+        }
+
+        //真偽値が偽のときのみ試験ログイベントを発生させ、真偽値をそのまま返す（拡張：真偽型）
+        public static bool NotRaiseTest(this bool flag, Type type, string message, int level)
+        {
+            if (!flag)
+                type.RaiseTest(message, level);
+
+            return flag;
+        }
+
+        //真偽値が偽のときのみ通知ログイベントを発生させ、真偽値をそのまま返す（拡張：真偽型）
+        public static bool NotRaiseNotification(this bool flag, Type type, string message, int level)
+        {
+            if (!flag)
+                type.RaiseNotification(message, level);
+
+            return flag;
+        }
+
+        //真偽値が偽のときのみ結果ログイベントを発生させ、真偽値をそのまま返す（拡張：真偽型）
+        public static bool NotRaiseResult(this bool flag, Type type, string message, int level)
+        {
+            if (!flag)
+                type.RaiseResult(message, level);
+
+            return flag;
+        }
+
+        //真偽値が偽のときのみ警告ログイベントを発生させ、真偽値をそのまま返す（拡張：真偽型）
+        public static bool NotRaiseWarning(this bool flag, Type type, string message, int level)
+        {
+            if (!flag)
+                type.RaiseWarning(message, level);
 
             return flag;
         }
@@ -1986,7 +2058,7 @@ namespace CREA2014
                     else if (Kind == LogKind.warning)
                         return "警告".Multilanguage(78);
                     else
-                        return "エラー".Multilanguage(79);
+                        return "過誤".Multilanguage(79);
                 }
             }
 
@@ -2220,11 +2292,11 @@ namespace CREA2014
                 get
                 {
                     return new MainDataInfomation[]{
-                        new MainDataInfomation(typeof(string), "Culture", () => culture, (o) => culture = (string)o), 
-                        new MainDataInfomation(typeof(string), "ErrorLog", () => errorLog, (o) => errorLog = (string)o), 
-                        new MainDataInfomation(typeof(string), "ErrorReport", () => errorReport, (o) => errorReport = (string)o), 
-                        new MainDataInfomation(typeof(bool), "IsLog", () => isLog, (o) => isLog = (bool)o), 
-                        new MainDataInfomation(typeof(LogSettings), "LogSettings", () => logSettings, (o) => logSettings = (LogSettings)o), 
+                        new MainDataInfomation(typeof(string), "Culture", () => culture, (o) => culture = (string)o),
+                        new MainDataInfomation(typeof(string), "ErrorLog", () => errorLog, (o) => errorLog = (string)o),
+                        new MainDataInfomation(typeof(string), "ErrorReport", () => errorReport, (o) => errorReport = (string)o),
+                        new MainDataInfomation(typeof(bool), "IsLog", () => isLog, (o) => isLog = (bool)o),
+                        new MainDataInfomation(typeof(LogSettings), "LogSettings", () => logSettings, (o) => logSettings = (LogSettings)o),
                     };
                 }
             }
@@ -2353,13 +2425,13 @@ namespace CREA2014
                 get
                 {
                     return new MainDataInfomation[]{
-                        new MainDataInfomation(typeof(int), "MinimalLevel", () => minimalLevel, (o) => minimalLevel = (int)o), 
-                        new MainDataInfomation(typeof(int), "MaximalHoldingCount", () => maximalHoldingCount, (o) => maximalHoldingCount = (int)o), 
-                        new MainDataInfomation(typeof(bool), "IsSave", () => isSave, (o) => isSave = (bool)o), 
-                        new MainDataInfomation(typeof(string), "SavePath", () => savePath, (o) => savePath = (string)o), 
-                        new MainDataInfomation(typeof(int), "SaveMeth", () => (int)saveMeth, (o) => saveMeth = (SaveMethod)o), 
-                        new MainDataInfomation(typeof(string), "Expression", () => expression, (o) => expression = (string)o), 
-                        new MainDataInfomation(typeof(LogFilter[]), "Filters", () => filters.ToArray(), (o) => filters = ((LogFilter[])o).ToList()), 
+                        new MainDataInfomation(typeof(int), "MinimalLevel", () => minimalLevel, (o) => minimalLevel = (int)o),
+                        new MainDataInfomation(typeof(int), "MaximalHoldingCount", () => maximalHoldingCount, (o) => maximalHoldingCount = (int)o),
+                        new MainDataInfomation(typeof(bool), "IsSave", () => isSave, (o) => isSave = (bool)o),
+                        new MainDataInfomation(typeof(string), "SavePath", () => savePath, (o) => savePath = (string)o),
+                        new MainDataInfomation(typeof(int), "SaveMeth", () => (int)saveMeth, (o) => saveMeth = (SaveMethod)o),
+                        new MainDataInfomation(typeof(string), "Expression", () => expression, (o) => expression = (string)o),
+                        new MainDataInfomation(typeof(LogFilter[]), "Filters", () => filters.ToArray(), (o) => filters = ((LogFilter[])o).ToList()),
                     };
                 }
             }
@@ -2594,19 +2666,19 @@ namespace CREA2014
                 get
                 {
                     return new MainDataInfomation[]{
-                        new MainDataInfomation(typeof(string), "Name", () => name, (o) => name = (string)o), 
-                        new MainDataInfomation(typeof(bool), "IsEnabled", () => isEnabled, (o) => isEnabled = (bool)o), 
-                        new MainDataInfomation(typeof(bool), "IsWordEnabled", () => isWordEnabled, (o) => isWordEnabled = (bool)o), 
-                        new MainDataInfomation(typeof(string), "Word", () => word, (o) => word = (string)o), 
-                        new MainDataInfomation(typeof(bool), "IsRegularExpressionEnabled", () => isRegularExpressionEnabled, (o) => isRegularExpressionEnabled = (bool)o), 
-                        new MainDataInfomation(typeof(string), "RegularExpression", () => regularExpression, (o) => regularExpression = (string)o), 
-                        new MainDataInfomation(typeof(bool), "IsLevelEnabled", () => isLevelEnabled, (o) => isLevelEnabled = (bool)o), 
-                        new MainDataInfomation(typeof(int), "MinimalLevel", () => minimalLevel, (o) => minimalLevel = (int)o), 
-                        new MainDataInfomation(typeof(int), "MaximalLevel", () => maximalLevel, (o) => maximalLevel = (int)o), 
-                        new MainDataInfomation(typeof(bool), "IsKindEnabled", () => isKindEnabled, (o) => isKindEnabled = (bool)o), 
-                        new MainDataInfomation(typeof(int), "Kind", () => (int)kind, (o) => kind = (LogData.LogKind)o), 
-                        new MainDataInfomation(typeof(bool), "IsGroundEnabled", () => isGroundEnabled, (o) => isGroundEnabled = (bool)o), 
-                        new MainDataInfomation(typeof(int), "Ground", () => (int)ground, (o) => ground = (LogData.LogGround)o), 
+                        new MainDataInfomation(typeof(string), "Name", () => name, (o) => name = (string)o),
+                        new MainDataInfomation(typeof(bool), "IsEnabled", () => isEnabled, (o) => isEnabled = (bool)o),
+                        new MainDataInfomation(typeof(bool), "IsWordEnabled", () => isWordEnabled, (o) => isWordEnabled = (bool)o),
+                        new MainDataInfomation(typeof(string), "Word", () => word, (o) => word = (string)o),
+                        new MainDataInfomation(typeof(bool), "IsRegularExpressionEnabled", () => isRegularExpressionEnabled, (o) => isRegularExpressionEnabled = (bool)o),
+                        new MainDataInfomation(typeof(string), "RegularExpression", () => regularExpression, (o) => regularExpression = (string)o),
+                        new MainDataInfomation(typeof(bool), "IsLevelEnabled", () => isLevelEnabled, (o) => isLevelEnabled = (bool)o),
+                        new MainDataInfomation(typeof(int), "MinimalLevel", () => minimalLevel, (o) => minimalLevel = (int)o),
+                        new MainDataInfomation(typeof(int), "MaximalLevel", () => maximalLevel, (o) => maximalLevel = (int)o),
+                        new MainDataInfomation(typeof(bool), "IsKindEnabled", () => isKindEnabled, (o) => isKindEnabled = (bool)o),
+                        new MainDataInfomation(typeof(int), "Kind", () => (int)kind, (o) => kind = (LogData.LogKind)o),
+                        new MainDataInfomation(typeof(bool), "IsGroundEnabled", () => isGroundEnabled, (o) => isGroundEnabled = (bool)o),
+                        new MainDataInfomation(typeof(int), "Ground", () => (int)ground, (o) => ground = (LogData.LogGround)o),
                     };
                 }
             }
@@ -2735,40 +2807,45 @@ namespace CREA2014
             taskDescriptions = new Dictionary<string, Func<string>>() { };
 
             logGrounds = new Dictionary<Type, LogData.LogGround>(){
-                {typeof(AccountHolderDatabase), LogData.LogGround.signData}, 
-                {typeof(Client), LogData.LogGround.networkBase}, 
-                {typeof(Listener), LogData.LogGround.networkBase}, 
-                {typeof(CREANODEBASE), LogData.LogGround.creaNetwork}, 
-                {typeof(CreaNode), LogData.LogGround.creaNetwork}, 
+                { typeof(AccountHolderDatabase), LogData.LogGround.signData},
+                { typeof(Client), LogData.LogGround.networkBase},
+                { typeof(Listener), LogData.LogGround.networkBase},
+                { typeof(CREANODEBASE), LogData.LogGround.creaNetwork},
+                { typeof(CreaNode), LogData.LogGround.creaNetwork },
+                { typeof(CreaNodeLocalTestContinue), LogData.LogGround.creaNetwork},
             };
 
-            logMessages = new Dictionary<string, Func<string[], string>>() { 
-                {"exist_same_name_account_holder", (args) => "同名の口座名義人が存在します。".Multilanguage(93)}, 
-                {"client_socket", (args) => "エラーが発生しました。".Multilanguage(94)}, 
-                {"listener_socket", (args) => "エラーが発生しました。".Multilanguage(95)}, 
-                {"task", (args) => "エラーが発生しました。".Multilanguage(96)}, 
-                {"task_aborted", (args) => "作業が強制終了されました。".Multilanguage(97)}, 
-                {"all_tasks_aborted", (args) => "全ての作業が強制終了されました。".Multilanguage(98)}, 
-                {"upnp_not_found", (args) => "UPnPによるグローバルIPアドレスの取得に失敗しました。サーバは起動されませんでした。".Multilanguage(99)}, 
-                {"port0", (args) => "ポート0です。サーバは起動されませんでした。".Multilanguage(100)}, 
-                {"rsa_key_cant_create", (args) => "RSA鍵の生成に失敗しました。サーバは起動されませんでした。".Multilanguage(101)}, 
-                {"rsa_key_create", (args) => "RSA鍵の生成に成功しました。".Multilanguage(102)}, 
-                {"upnp_ipaddress", (args) => string.Format("グローバルIPアドレスを取得しました：{0}".Multilanguage(103), args[0])}, 
-                {"server_started", (args) => string.Format("サーバのリッスンを開始しました：{0}:{1}".Multilanguage(104), args[0], args[1])}, 
-                {"server_ended", (args) => string.Format("サーバのリッスンを終了しました：{0}:{1}".Multilanguage(105), args[0], args[1])}, 
-                {"server_restart", (args) => string.Format("ポートが変更されました。現在起動しているサーバを停止し、新たなサーバを起動します：{0}:{1}".Multilanguage(106), args[0], args[1])}, 
-                {"aite_wrong_node_info", (args) => string.Format("ノードが申告したIPアドレスと実際のIPアドレスが異なります：{0}:{1}".Multilanguage(107), args[0], args[1])}, 
-                {"aite_wrong_network", (args) => string.Format("ノードが所属しているネットワークが異なります：{0}:{1}".Multilanguage(108), args[0], args[1])}, 
+            logMessages = new Dictionary<string, Func<string[], string>>() {
+                {"exist_same_name_account_holder", (args) => "同名の口座名義人が存在します。".Multilanguage(93)},
+                {"client_socket", (args) => "エラーが発生しました。".Multilanguage(94)},
+                {"listener_socket", (args) => "エラーが発生しました。".Multilanguage(95)},
+                {"task", (args) => "エラーが発生しました。".Multilanguage(96)},
+                {"task_aborted", (args) => "作業が強制終了されました。".Multilanguage(97)},
+                {"all_tasks_aborted", (args) => "全ての作業が強制終了されました。".Multilanguage(98)},
+                {"upnp_not_found", (args) => "UPnPによるグローバルIPアドレスの取得に失敗しました。サーバは起動されませんでした。".Multilanguage(99)},
+                {"port0", (args) => "ポート0です。サーバは起動されませんでした。".Multilanguage(100)},
+                {"rsa_key_cant_create", (args) => "RSA鍵の生成に失敗しました。サーバは起動されませんでした。".Multilanguage(101)},
+                {"rsa_key_create", (args) => "RSA鍵の生成に成功しました。".Multilanguage(102)},
+                {"upnp_ipaddress", (args) => string.Format("グローバルIPアドレスを取得しました：{0}".Multilanguage(103), args[0])},
+                {"server_started", (args) => string.Format("サーバのリッスンを開始しました：{0}:{1}".Multilanguage(104), args[0], args[1])},
+                {"server_ended", (args) => string.Format("サーバのリッスンを終了しました：{0}:{1}".Multilanguage(105), args[0], args[1])},
+                {"server_restart", (args) => string.Format("ポートが変更されました。現在起動しているサーバを停止し、新たなサーバを起動します：{0}:{1}".Multilanguage(106), args[0], args[1])},
+                {"aite_wrong_node_info", (args) => string.Format("ノードが申告したIPアドレスと実際のIPアドレスが異なります：{0}:{1}".Multilanguage(107), args[0], args[1])},
+                {"aite_wrong_network", (args) => string.Format("ノードが所属しているネットワークが異なります：{0}:{1}".Multilanguage(108), args[0], args[1])},
+                {"aite_already_connected", (args) => string.Format("既に接続しているノードから再び接続が要求されました：{0}:{1}".Multilanguage(109), args[0], args[1])},
+                {"wrong_network", (args) => string.Format("別のネットワークに所属しているノードに接続しました：{0}:{1}".Multilanguage(110), args[0], args[1])},
+                {"already_connected", (args) => string.Format("既に接続しているノードに接続しました：{0}:{1}".Multilanguage(111), args[0], args[1])},
+                { "keep_conn_completed", (args) => "常時接続が確立しました。".Multilanguage(112)},
             };
 
             exceptionMessages = new Dictionary<string, Func<string>>() {
-                {"already_starting", () => string.Format("{0}は既に起動しています。".Multilanguage(0), appname)}, 
-                {"ie_not_existing", () => string.Format("{0}の動作には Internet Explorer 10 以上が必要です。".Multilanguage(1), appname)}, 
-                {"ie_too_old", () => string.Format("{0}の動作には Internet Explorer 10 以上が必要です。".Multilanguage(2), appname)}, 
-                {"require_administrator", () => string.Format("{0}は管理者として実行する必要があります。".Multilanguage(3), appname)}, 
-                {"lisence_text_not_found", () => "ソフトウェア使用許諾契約書が見付かりません。".Multilanguage(90)}, 
-                {"web_server_data", () => "内部ウェブサーバデータが存在しません。".Multilanguage(91)}, 
-                {"wss_command", () => "内部ウェブソケット命令が存在しません。".Multilanguage(92)}, 
+                {"already_starting", () => string.Format("{0}は既に起動しています。".Multilanguage(0), appname)},
+                {"ie_not_existing", () => string.Format("{0}の動作には Internet Explorer 10 以上が必要です。".Multilanguage(1), appname)},
+                {"ie_too_old", () => string.Format("{0}の動作には Internet Explorer 10 以上が必要です。".Multilanguage(2), appname)},
+                {"require_administrator", () => string.Format("{0}は管理者として実行する必要があります。".Multilanguage(3), appname)},
+                {"lisence_text_not_found", () => "ソフトウェア使用許諾契約書が見付かりません。".Multilanguage(90)},
+                {"web_server_data", () => "内部ウェブサーバデータが存在しません。".Multilanguage(91)},
+                {"wss_command", () => "内部ウェブソケット命令が存在しません。".Multilanguage(92)},
             };
 
             Extension.Tasked += (sender, e) => tasker.New(new TaskData(e, taskNumber++));
@@ -2823,7 +2900,8 @@ namespace CREA2014
                                 if (mo["Name"] != null)
                                     cpu = mo["Name"].ToString();
                         }
-                        catch (Exception) { }
+                        catch (Exception)
+                        { }
 
                         string videoCard = string.Empty;
                         try
@@ -2834,7 +2912,8 @@ namespace CREA2014
                                 if (mo["Name"] != null)
                                     videoCard = mo["Name"].ToString();
                         }
-                        catch (Exception) { }
+                        catch (Exception)
+                        { }
 
                         string memory = string.Empty;
                         string architecture = string.Empty;
@@ -2850,7 +2929,8 @@ namespace CREA2014
                                     architecture = mo["OSArchitecture"].ToString() == "" ? "x86" : mo["OSArchitecture"].ToString();
                             }
                         }
-                        catch (Exception) { }
+                        catch (Exception)
+                        { }
 
                         string dotnetVerAll = string.Empty;
                         List<string> versions = new List<string>();
@@ -3086,7 +3166,7 @@ namespace CREA2014
                 publicRsaParameters = rsacsp.ToXmlString(false);
             }
 
-            NodeInformation nodeinfo = new NodeInformation(IPAddress.Loopback, 7778, Network.localtest, DateTime.Now, publicRsaParameters);
+            NodeInformation nodeinfo = new NodeInformation(IPAddress.Loopback, 7778, Network.localtest, publicRsaParameters);
 
             Client client = new Client(IPAddress.Loopback, 7777, RsaKeySize.rsa2048, privateRsaParameters, (ca, ip) =>
             {
@@ -3117,7 +3197,7 @@ namespace CREA2014
             });
             listener.ReceiveTimeout = 1000;
             listener.SendTimeout = 1000;
-            listener.ClientErrored += (sender, e) => MessageBox.Show("listener_client_error");
+            listener.ClientFailed += (sender, e) => MessageBox.Show("listener_client_error");
             listener.StartListener();
 
             Thread.Sleep(1000);
@@ -3134,7 +3214,7 @@ namespace CREA2014
             });
             client.ReceiveTimeout = 1000;
             client.SendTimeout = 1000;
-            client.Errored += (sender, e) => MessageBox.Show("client_error");
+            client.Failed += (sender, e) => MessageBox.Show("client_error");
             client.StartClient();
 
             Thread.Sleep(1000000);

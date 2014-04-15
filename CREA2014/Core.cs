@@ -95,7 +95,21 @@ namespace CREA2014
             get { return connectionHistories.ToArray(); }
         }
 
-        private readonly string privateRsaParameters;
+        private string privateRsaParametersCache;
+        protected virtual string PrivateRsaParameters
+        {
+            get
+            {
+                if (privateRsaParametersCache != null)
+                    return privateRsaParametersCache;
+                else
+                {
+                    using (RSACryptoServiceProvider rsacsp = new RSACryptoServiceProvider(2048))
+                        return privateRsaParametersCache = rsacsp.ToXmlString(true);
+                }
+            }
+        }
+
         private int connectionNumber;
 
         public P2PNODE()
@@ -103,30 +117,12 @@ namespace CREA2014
             connections = new List<ConnectionData>();
             connectionHistories = new List<ConnectionHistory>();
             connectionNumber = 0;
-
-            using (RSACryptoServiceProvider rsacsp = new RSACryptoServiceProvider(2048))
-                privateRsaParameters = rsacsp.ToXmlString(true);
-        }
-
-        public class ListenerWrapper
-        {
-            private readonly Listener listener;
-
-            public ListenerWrapper(Listener _listener)
-            {
-                listener = _listener;
-            }
-
-            public void EndListener()
-            {
-                listener.EndListener();
-            }
         }
 
         public event EventHandler ConnectionAdded = delegate { };
         public event EventHandler ConnectionRemoved = delegate { };
 
-        protected ListenerWrapper NewListener(ushort port, Action<CommunicationApparatus, IPEndPoint> protocolProcess)
+        protected Listener CreateListener(ushort port, Action<CommunicationApparatus, IPEndPoint> protocolProcess)
         {
             Dictionary<SocketData, ConnectionData> listenerConnections = new Dictionary<SocketData, ConnectionData>();
 
@@ -156,36 +152,38 @@ namespace CREA2014
 
                 RemoveConnection(connection);
             };
-            listener.ClientSuccessed += (sender, e) => RegisterResult(e.IpAddress, true);
-            listener.ClientErrored += (sender, e) =>
+            listener.ClientSucceeded += (sender, e) => RegisterResult(e.IpAddress, true);
+            listener.ClientFailed += (sender, e) =>
             {
                 if (e.Value2 is SocketException)
                     RegisterResult(e.Value1.IpAddress, false);
             };
-            listener.StartListener();
 
-            return new ListenerWrapper(listener);
+            return listener;
         }
 
-        protected void NewClient(IPAddress ipAddress, ushort port, Action<CommunicationApparatus, IPEndPoint> protocolProcess)
+        protected Client CreateClient(IPAddress ipAddress, ushort port, Action<CommunicationApparatus, IPEndPoint> protocolProcess)
         {
             ConnectionData connection = null;
 
-            Client client = new Client(ipAddress, port, RsaKeySize.rsa2048, privateRsaParameters, protocolProcess);
-            client.Connected += (sender, e) =>
+            Client client = new Client(ipAddress, port, RsaKeySize.rsa2048, PrivateRsaParameters, protocolProcess);
+            client.ConnectSucceeded += (sender, e) =>
             {
                 connection = new ConnectionData(connectionNumber++, e.IpAddress, e.Port, e.MyPort, ConnectionData.ConnectionDirection.down);
 
                 AddConnection(connection);
             };
             client.Disconnected += (sender, e) => RemoveConnection(connection);
-            client.Successed += (sender, e) => RegisterResult(e.IpAddress, true);
-            client.Errored += (sender, e) =>
+            //<未改良>接続失敗と接続成功後の通信失敗の場合のRegisterResultを区別するべきかも知れない
+            client.Succeeded += (sender, e) => RegisterResult(e.IpAddress, true);
+            client.Failed += (sender, e) =>
             {
                 if (e.Value2 is SocketException)
                     RegisterResult(e.Value1.IpAddress, false);
             };
-            client.StartClient();
+            client.ConnectFailed += (sender, e) => RegisterResult(client.IpAdress, false);
+
+            return client;
         }
 
         private void AddConnection(ConnectionData connection)
@@ -223,6 +221,8 @@ namespace CREA2014
                 connectionHistory.IncrementFailure();
         }
     }
+
+
 
     public class CommunicationApparatus
     {
@@ -322,14 +322,14 @@ namespace CREA2014
                 }
                 else
                     if (isCompressed)
-                    {
-                        using (DeflateStream ds = new DeflateStream(ms, CompressionMode.Decompress))
-                            ds.Read(data, 0, data.Length);
+                {
+                    using (DeflateStream ds = new DeflateStream(ms, CompressionMode.Decompress))
+                        ds.Read(data, 0, data.Length);
 
-                        return data;
-                    }
-                    else
-                        return readData;
+                    return data;
+                }
+                else
+                    return readData;
         }
 
         private void WriteBytesInner(byte[] data, bool isCompressed)
@@ -359,16 +359,16 @@ namespace CREA2014
                         }
                 else
                     if (isCompressed)
-                        using (DeflateStream ds = new DeflateStream(ms, CompressionMode.Compress))
-                        {
-                            ds.Write(data, 0, data.Length);
-                            ds.Flush();
-                        }
-                    else
+                    using (DeflateStream ds = new DeflateStream(ms, CompressionMode.Compress))
                     {
-                        ms.Write(data, 0, data.Length);
-                        ms.Flush();
+                        ds.Write(data, 0, data.Length);
+                        ds.Flush();
                     }
+                else
+                {
+                    ms.Write(data, 0, data.Length);
+                    ms.Flush();
+                }
 
                 writeData = ms.ToArray();
             }
@@ -488,10 +488,11 @@ namespace CREA2014
 
         public Client(IPAddress _ipAddress, ushort _port, Action<CommunicationApparatus, IPEndPoint> _protocolProcess) : this(_ipAddress, _port, RsaKeySize.rsa2048, null, _protocolProcess) { }
 
-        public event EventHandler<SocketData> Connected = delegate { };
+        public event EventHandler<SocketData> ConnectSucceeded = delegate { };
+        public event EventHandler ConnectFailed = delegate { };
         public event EventHandler<SocketData> Disconnected = delegate { };
-        public event EventHandler<SocketData> Successed = delegate { };
-        public event EventHandler<EventArgs<SocketData, Exception>> Errored = delegate { };
+        public event EventHandler<SocketData> Succeeded = delegate { };
+        public event EventHandler<EventArgs<SocketData, Exception>> Failed = delegate { };
 
         public void StartClient()
         {
@@ -500,19 +501,30 @@ namespace CREA2014
 
             this.StartTask(() =>
             {
-                SocketData socketData = null;
-
                 try
                 {
                     client = new Socket(ipAddress.AddressFamily, SocketType.Stream, ProtocolType.Tcp);
-                    client.Connect(ipAddress, port);
                     client.ReceiveTimeout = receiveTimeout;
                     client.SendTimeout = sendTimeout;
                     client.ReceiveBufferSize = receiveBufferSize;
                     client.SendBufferSize = sendBufferSize;
+                    client.Connect(ipAddress, port);
+                }
+                catch (Exception ex)
+                {
+                    this.RaiseError("client_socket".GetLogMessage(), 5, ex);
 
-                    socketData = new SocketData(ipAddress, port, (ushort)((IPEndPoint)client.LocalEndPoint).Port);
+                    EndClient();
 
+                    ConnectFailed(this, EventArgs.Empty);
+                }
+
+                SocketData socketData = new SocketData(ipAddress, port, (ushort)((IPEndPoint)client.LocalEndPoint).Port);
+
+                ConnectSucceeded(this, socketData);
+
+                try
+                {
                     using (NetworkStream ns = new NetworkStream(client))
                     {
                         RijndaelManaged rm = null;
@@ -546,13 +558,10 @@ namespace CREA2014
                             rm.IV = rsapkcs1ked.DecryptKeyExchange(encryptedIv);
                         }
 
-                        Connected(this, socketData);
-
                         protocolProcess(new CommunicationApparatus(ns, rm), (IPEndPoint)client.RemoteEndPoint);
-
-                        Disconnected(this, socketData);
-                        Successed(this, socketData);
                     }
+
+                    Succeeded(this, socketData);
                 }
                 catch (Exception ex)
                 {
@@ -560,13 +569,16 @@ namespace CREA2014
 
                     EndClient();
 
+                    Failed(this, new EventArgs<SocketData, Exception>(socketData, ex));
+                }
+                finally
+                {
                     Disconnected(this, socketData);
-                    Errored(this, new EventArgs<SocketData, Exception>(socketData, ex));
                 }
             }, "client", string.Empty);
         }
 
-        public void EndClient()
+        private void EndClient()
         {
             if (client == null)
                 throw new InvalidOperationException("client_not_started");
@@ -689,11 +701,11 @@ namespace CREA2014
 
         public Listener(ushort _port, Action<CommunicationApparatus, IPEndPoint> _protocolProcess) : this(_port, false, RsaKeySize.rsa2048, _protocolProcess) { }
 
-        public event EventHandler<Exception> Errored = delegate { };
+        public event EventHandler<Exception> Failed = delegate { };
         public event EventHandler<SocketData> ClientConnected = delegate { };
         public event EventHandler<SocketData> ClientDisconnected = delegate { };
-        public event EventHandler<SocketData> ClientSuccessed = delegate { };
-        public event EventHandler<EventArgs<SocketData, Exception>> ClientErrored = delegate { };
+        public event EventHandler<SocketData> ClientSucceeded = delegate { };
+        public event EventHandler<EventArgs<SocketData, Exception>> ClientFailed = delegate { };
 
         public void StartListener()
         {
@@ -711,10 +723,82 @@ namespace CREA2014
                     while (true)
                     {
                         Socket client = listener.Accept();
+                        client.ReceiveTimeout = receiveTimeout;
+                        client.SendTimeout = sendTimeout;
+                        client.ReceiveBufferSize = receiveBufferSize;
+                        client.SendBufferSize = sendBufferSize;
+
+                        SocketData socketData = new SocketData(((IPEndPoint)client.RemoteEndPoint).Address, (ushort)((IPEndPoint)client.RemoteEndPoint).Port, (ushort)((IPEndPoint)client.LocalEndPoint).Port);
+
+                        ClientConnected(this, socketData);
+
                         lock (lobject)
                             clients.Add(client);
 
-                        StartClient(client);
+                        this.StartTask(() =>
+                        {
+                            try
+                            {
+                                using (NetworkStream ns = new NetworkStream(client))
+                                {
+                                    RijndaelManaged rm = null;
+
+                                    if (isEncrypted)
+                                    {
+                                        byte[] modulus = keySize == RsaKeySize.rsa1024 ? new byte[128] : new byte[256];
+                                        byte[] exponent = new byte[3];
+
+                                        ns.Read(modulus, 0, modulus.Length);
+                                        ns.Read(exponent, 0, exponent.Length);
+
+                                        RSACryptoServiceProvider rsacsp = new RSACryptoServiceProvider();
+                                        RSAParameters rsaParameters = new RSAParameters();
+                                        rsaParameters.Modulus = modulus;
+                                        rsaParameters.Exponent = exponent;
+                                        rsacsp.ImportParameters(rsaParameters);
+
+                                        RSAPKCS1KeyExchangeFormatter rsapkcs1kef = new RSAPKCS1KeyExchangeFormatter(rsacsp);
+
+                                        rm = new RijndaelManaged();
+                                        rm.Padding = PaddingMode.Zeros;
+
+                                        byte[] encryptedKey = rsapkcs1kef.CreateKeyExchange(rm.Key);
+                                        byte[] encryptedIv = rsapkcs1kef.CreateKeyExchange(rm.IV);
+
+                                        ns.Write(encryptedKey, 0, encryptedKey.GetLength(0));
+                                        ns.Write(encryptedIv, 0, encryptedIv.GetLength(0));
+                                    }
+
+                                    protocolProcess(new CommunicationApparatus(ns, rm), (IPEndPoint)client.RemoteEndPoint);
+
+                                    ClientSucceeded(this, socketData);
+                                }
+                            }
+                            catch (Exception ex)
+                            {
+                                this.RaiseError("listner_socket".GetLogMessage(), 5, ex);
+
+                                try
+                                {
+                                    lock (lobject)
+                                        clients.Remove(client);
+
+                                    if (client.Connected)
+                                        client.Shutdown(SocketShutdown.Both);
+                                    client.Close();
+                                }
+                                catch (Exception ex2)
+                                {
+                                    this.RaiseError("listner_socket".GetLogMessage(), 5, ex2);
+                                }
+
+                                ClientFailed(this, new EventArgs<SocketData, Exception>(socketData, ex));
+                            }
+                            finally
+                            {
+                                ClientDisconnected(this, socketData);
+                            }
+                        }, "listener_client", string.Empty);
                     }
                 }
                 catch (Exception ex)
@@ -723,7 +807,7 @@ namespace CREA2014
 
                     EndListener();
 
-                    Errored(this, ex);
+                    Failed(this, ex);
                 }
             }, "listener", string.Empty);
         }
@@ -744,88 +828,6 @@ namespace CREA2014
                             client.Shutdown(SocketShutdown.Both);
                         client.Close();
                     }
-            }
-            catch (Exception ex)
-            {
-                this.RaiseError("listner_socket".GetLogMessage(), 5, ex);
-            }
-        }
-
-        private void StartClient(Socket client)
-        {
-            this.StartTask(() =>
-            {
-                IPEndPoint ipEndPoint = (IPEndPoint)client.RemoteEndPoint;
-
-                SocketData socketData = new SocketData(ipEndPoint.Address, (ushort)ipEndPoint.Port, (ushort)((IPEndPoint)client.LocalEndPoint).Port);
-
-                try
-                {
-                    client.ReceiveTimeout = receiveTimeout;
-                    client.SendTimeout = sendTimeout;
-                    client.ReceiveBufferSize = receiveBufferSize;
-                    client.SendBufferSize = sendBufferSize;
-
-                    using (NetworkStream ns = new NetworkStream(client))
-                    {
-                        RijndaelManaged rm = null;
-
-                        if (isEncrypted)
-                        {
-                            byte[] modulus = keySize == RsaKeySize.rsa1024 ? new byte[128] : new byte[256];
-                            byte[] exponent = new byte[3];
-
-                            ns.Read(modulus, 0, modulus.Length);
-                            ns.Read(exponent, 0, exponent.Length);
-
-                            RSACryptoServiceProvider rsacsp = new RSACryptoServiceProvider();
-                            RSAParameters rsaParameters = new RSAParameters();
-                            rsaParameters.Modulus = modulus;
-                            rsaParameters.Exponent = exponent;
-                            rsacsp.ImportParameters(rsaParameters);
-
-                            RSAPKCS1KeyExchangeFormatter rsapkcs1kef = new RSAPKCS1KeyExchangeFormatter(rsacsp);
-
-                            rm = new RijndaelManaged();
-                            rm.Padding = PaddingMode.Zeros;
-
-                            byte[] encryptedKey = rsapkcs1kef.CreateKeyExchange(rm.Key);
-                            byte[] encryptedIv = rsapkcs1kef.CreateKeyExchange(rm.IV);
-
-                            ns.Write(encryptedKey, 0, encryptedKey.GetLength(0));
-                            ns.Write(encryptedIv, 0, encryptedIv.GetLength(0));
-                        }
-
-                        ClientConnected(this, socketData);
-
-                        protocolProcess(new CommunicationApparatus(ns, rm), (IPEndPoint)client.RemoteEndPoint);
-
-                        ClientDisconnected(this, socketData);
-                        ClientSuccessed(this, socketData);
-                    }
-                }
-                catch (Exception ex)
-                {
-                    this.RaiseError("listner_socket".GetLogMessage(), 5, ex);
-
-                    EndClient(client);
-
-                    ClientDisconnected(this, socketData);
-                    ClientErrored(this, new EventArgs<SocketData, Exception>(socketData, ex));
-                }
-            }, "listener_client", string.Empty);
-        }
-
-        private void EndClient(Socket client)
-        {
-            try
-            {
-                lock (lobject)
-                    clients.Remove(client);
-
-                if (client.Connected)
-                    client.Shutdown(SocketShutdown.Both);
-                client.Close();
             }
             catch (Exception ex)
             {
@@ -992,55 +994,119 @@ namespace CREA2014
             notfound = 14,
         }
 
-        public abstract class Message : SHAREDDATA
+        public class Message : SHAREDDATA
         {
-            public MessageName name { get; private set; }
+            public MessageBase messageBase { get; private set; }
 
-            public Message(int? _version, MessageName _name)
-                : base(_version)
+            public MessageName name
             {
-                name = _name;
+                get
+                {
+                    if (messageBase is Inv)
+                        return MessageName.inv;
+                    else if (messageBase is Getdata)
+                        return MessageName.getdata;
+                    else if (messageBase is TxTest)
+                        return MessageName.tx;
+                    else
+                        throw new NotSupportedException("massage_base_not_supported");
+                }
             }
 
-            public Message(MessageName _name) : this(null, _name) { }
+            public Message(MessageBase _messageBase)
+                : base(0)
+            {
+                messageBase = _messageBase;
+            }
+
+            public Message() : this(null) { }
+
+            protected override Func<ReaderWriter, IEnumerable<MainDataInfomation>> StreamInfo
+            {
+                get { return (msrw) => StreamInfoInner; }
+            }
+            private IEnumerable<MainDataInfomation> StreamInfoInner
+            {
+                get
+                {
+                    if (Version == 0)
+                    {
+                        MessageName mn;
+                        yield return new MainDataInfomation(typeof(int), () => (int)name, (o) =>
+                        {
+                            mn = (MessageName)o;
+                            if (mn == MessageName.inv)
+                                messageBase = new Inv();
+                            else if (mn == MessageName.getdata)
+                                messageBase = new Getdata();
+                            else if (mn == MessageName.tx)
+                                messageBase = new TxTest();
+                            else
+                                throw new NotSupportedException("message_name_not_supported");
+                        });
+                        foreach (var mdi in messageBase.PublicStreamInfo(null))
+                            yield return mdi;
+                    }
+                    else
+                        throw new NotSupportedException("message_main_data_info");
+                }
+            }
+
+            public override bool IsVersioned
+            {
+                get { return true; }
+            }
+
+            public override bool IsCorruptionChecked
+            {
+                get
+                {
+                    if (Version <= 0)
+                        return true;
+                    else
+                        throw new NotSupportedException("message_check");
+                }
+            }
+        }
+
+        public abstract class MessageBase : SHAREDDATA
+        {
+            public MessageBase(int? _version) : base(_version) { }
+
+            public MessageBase() : base(null) { }
+
+            public virtual Func<ReaderWriter, IEnumerable<MainDataInfomation>> PublicStreamInfo
+            {
+                get { return StreamInfo; }
+            }
+        }
+
+        public abstract class MessageSha256Hash : MessageBase
+        {
+            public Sha256Hash hash { get; private set; }
+
+            public MessageSha256Hash(int? _version, Sha256Hash _hash)
+                : base(_version)
+            {
+                hash = _hash;
+            }
+
+            public MessageSha256Hash(Sha256Hash _hash) : this(null, _hash) { }
 
             protected override Func<ReaderWriter, IEnumerable<MainDataInfomation>> StreamInfo
             {
                 get
                 {
                     return (msrw) => new MainDataInfomation[]{
-                        new MainDataInfomation(typeof(int), () => (int)name, (o) => name = (MessageName)o), 
+                        new MainDataInfomation(typeof(Sha256Hash), null, () => hash, (o) => hash = (Sha256Hash)o),
                     };
-                }
-            }
-        }
-
-        public abstract class MessageSha256Hash : Message
-        {
-            public Sha256Hash hash { get; private set; }
-
-            public MessageSha256Hash(int? _version, MessageName _name, Sha256Hash _hash)
-                : base(_version, _name)
-            {
-                hash = _hash;
-            }
-
-            public MessageSha256Hash(MessageName _name, Sha256Hash _hash) : this(null, _name, _hash) { }
-
-            protected override Func<ReaderWriter, IEnumerable<MainDataInfomation>> StreamInfo
-            {
-                get
-                {
-                    return (msrw) => base.StreamInfo(msrw).Concat(new MainDataInfomation[]{
-                        new MainDataInfomation(typeof(Sha256Hash), null, () => hash, (o) => hash = (Sha256Hash)o), 
-                    });
                 }
             }
         }
 
         public class Inv : MessageSha256Hash
         {
-            public Inv(Sha256Hash _hash) : base(0, MessageName.inv, _hash) { }
+            public Inv(Sha256Hash _hash) : base(0, _hash) { }
 
             public Inv() : this(new Sha256Hash()) { }
 
@@ -1074,7 +1140,9 @@ namespace CREA2014
 
         public class Getdata : MessageSha256Hash
         {
-            public Getdata(Sha256Hash _hash) : base(0, MessageName.inv, _hash) { }
+            public Getdata(Sha256Hash _hash) : base(0, _hash) { }
+
+            public Getdata() : this(new Sha256Hash()) { }
 
             protected override Func<ReaderWriter, IEnumerable<MainDataInfomation>> StreamInfo
             {
@@ -1105,12 +1173,12 @@ namespace CREA2014
         }
 
         //試験用
-        public class TxTest : Message
+        public class TxTest : MessageBase
         {
             public byte[] data { get; private set; }
 
             public TxTest()
-                : base(0, MessageName.tx)
+                : base(0)
             {
                 data = new byte[1024];
                 for (int i = 0; i < data.Length; i++)
@@ -1122,9 +1190,9 @@ namespace CREA2014
                 get
                 {
                     if (Version == 0)
-                        return (msrw) => base.StreamInfo(msrw).Concat(new MainDataInfomation[]{
-                            new MainDataInfomation(typeof(byte[]), 1024, () => data, (o) => data = (byte[])o), 
-                        });
+                        return (msrw) => new MainDataInfomation[]{
+                            new MainDataInfomation(typeof(byte[]), 1024, () => data, (o) => data = (byte[])o),
+                        };
                     else
                         throw new NotSupportedException("tx_test_main_data_info");
                 }
@@ -1155,9 +1223,10 @@ namespace CREA2014
             public string client { get; private set; }
             public bool isTemporary { get; private set; }
 
-            public Header() { }
+            public Header() : base(0) { }
 
             public Header(NodeInformation _nodeInfo, int _creaVersion, int _protocolVersion, string _client, bool _isTemporary)
+                : base(0)
             {
                 if (_client.Length > 256)
                     throw new InvalidDataException("client_too_lengthy");
@@ -1169,7 +1238,7 @@ namespace CREA2014
                 isTemporary = _isTemporary;
             }
 
-            protected override Func<STREAMDATA<MainDataInfomation>.ReaderWriter, IEnumerable<MainDataInfomation>> StreamInfo
+            protected override Func<ReaderWriter, IEnumerable<MainDataInfomation>> StreamInfo
             {
                 get { return (msrw) => StreamInfoInner; }
             }
@@ -1177,41 +1246,67 @@ namespace CREA2014
             {
                 get
                 {
-                    bool isServer = nodeInfo != null;
-                    yield return new MainDataInfomation(typeof(bool), () => isServer, (o) => isServer = (bool)o);
-                    if (isServer)
-                        yield return new MainDataInfomation(typeof(NodeInformation), 0, () => nodeInfo, (o) => nodeInfo = (NodeInformation)o);
-                    yield return new MainDataInfomation(typeof(int), () => creaVersion, (o) => creaVersion = (int)o);
-                    yield return new MainDataInfomation(typeof(int), () => protocolVersion, (o) => protocolVersion = (int)o);
-                    yield return new MainDataInfomation(typeof(string), () => client, (o) => client = (string)o);
-                    yield return new MainDataInfomation(typeof(bool), () => isTemporary, (o) => isTemporary = (bool)o);
+                    if (Version == 0)
+                    {
+                        bool isInBound = nodeInfo != null;
+                        yield return new MainDataInfomation(typeof(bool), () => isInBound, (o) => isInBound = (bool)o);
+                        if (isInBound)
+                            yield return new MainDataInfomation(typeof(NodeInformation), 0, () => nodeInfo, (o) => nodeInfo = (NodeInformation)o);
+                        yield return new MainDataInfomation(typeof(int), () => creaVersion, (o) => creaVersion = (int)o);
+                        yield return new MainDataInfomation(typeof(int), () => protocolVersion, (o) => protocolVersion = (int)o);
+                        yield return new MainDataInfomation(typeof(string), () => client, (o) => client = (string)o);
+                        yield return new MainDataInfomation(typeof(bool), () => isTemporary, (o) => isTemporary = (bool)o);
+                    }
+                    else
+                        throw new NotSupportedException("header_stream_info");
+                }
+            }
+
+            public override bool IsVersioned
+            {
+                get { return true; }
+            }
+
+            public override bool IsCorruptionChecked
+            {
+                get
+                {
+                    if (Version <= 0)
+                        return true;
+                    else
+                        throw new NotSupportedException("header_corruption_checked");
                 }
             }
         }
 
         public class HeaderResponse : SHAREDDATA
         {
+            public NodeInformation nodeInfo { get; private set; }
             public bool isSameNetwork { get; private set; }
+            public bool isAlreadyConnected { get; private set; }
             public NodeInformation correctNodeInfo { get; private set; }
             public bool isOldCreaVersion { get; private set; }
             public int protocolVersion { get; private set; }
             public string client { get; private set; }
 
-            public HeaderResponse() { }
+            public HeaderResponse() : base(0) { }
 
-            public HeaderResponse(bool _isSameNetwork, NodeInformation _correctNodeInfo, bool _isOldCreaVersion, int _protocolVersion, string _client)
+            public HeaderResponse(NodeInformation _nodeInfo, bool _isSameNetwork, bool _isAlreadyConnected, NodeInformation _correctNodeInfo, bool _isOldCreaVersion, int _protocolVersion, string _client)
+                : base(0)
             {
                 if (_client.Length > 256)
                     throw new InvalidDataException("client_too_lengthy");
 
+                nodeInfo = _nodeInfo;
                 isSameNetwork = _isSameNetwork;
+                isAlreadyConnected = _isAlreadyConnected;
                 correctNodeInfo = _correctNodeInfo;
                 isOldCreaVersion = _isOldCreaVersion;
                 protocolVersion = _protocolVersion;
                 client = _client;
             }
 
-            protected override Func<STREAMDATA<MainDataInfomation>.ReaderWriter, IEnumerable<MainDataInfomation>> StreamInfo
+            protected override Func<ReaderWriter, IEnumerable<MainDataInfomation>> StreamInfo
             {
                 get { return (msrw) => StreamInfoInner; }
             }
@@ -1219,14 +1314,37 @@ namespace CREA2014
             {
                 get
                 {
-                    yield return new MainDataInfomation(typeof(bool), () => isSameNetwork, (o) => isSameNetwork = (bool)o);
-                    bool isCorrectNodeInfo = correctNodeInfo == null;
-                    yield return new MainDataInfomation(typeof(bool), () => isCorrectNodeInfo, (o) => isCorrectNodeInfo = (bool)o);
-                    if (!isCorrectNodeInfo)
-                        yield return new MainDataInfomation(typeof(NodeInformation), 0, () => correctNodeInfo, (o) => correctNodeInfo = (NodeInformation)o);
-                    yield return new MainDataInfomation(typeof(bool), () => isOldCreaVersion, (o) => isOldCreaVersion = (bool)o);
-                    yield return new MainDataInfomation(typeof(int), () => protocolVersion, (o) => protocolVersion = (int)o);
-                    yield return new MainDataInfomation(typeof(string), () => client, (o) => client = (string)o);
+                    if (Version == 0)
+                    {
+                        yield return new MainDataInfomation(typeof(NodeInformation), 0, () => nodeInfo, (o) => nodeInfo = (NodeInformation)o);
+                        yield return new MainDataInfomation(typeof(bool), () => isSameNetwork, (o) => isSameNetwork = (bool)o);
+                        bool isCorrectNodeInfo = correctNodeInfo == null;
+                        yield return new MainDataInfomation(typeof(bool), () => isCorrectNodeInfo, (o) => isCorrectNodeInfo = (bool)o);
+                        if (!isCorrectNodeInfo)
+                            yield return new MainDataInfomation(typeof(NodeInformation), 0, () => correctNodeInfo, (o) => correctNodeInfo = (NodeInformation)o);
+                        yield return new MainDataInfomation(typeof(bool), () => isOldCreaVersion, (o) => isOldCreaVersion = (bool)o);
+                        yield return new MainDataInfomation(typeof(bool), () => isAlreadyConnected, (o) => isAlreadyConnected = (bool)o);
+                        yield return new MainDataInfomation(typeof(int), () => protocolVersion, (o) => protocolVersion = (int)o);
+                        yield return new MainDataInfomation(typeof(string), () => client, (o) => client = (string)o);
+                    }
+                    else
+                        throw new NotSupportedException("header_stream_info");
+                }
+            }
+
+            public override bool IsVersioned
+            {
+                get { return true; }
+            }
+
+            public override bool IsCorruptionChecked
+            {
+                get
+                {
+                    if (Version <= 0)
+                        return true;
+                    else
+                        throw new NotSupportedException("header_res_corruption_checked");
                 }
             }
         }
@@ -1301,24 +1419,90 @@ namespace CREA2014
             protocolVersion = 0;
         }
 
-        protected abstract Network Network { get; }
+        private Listener listener;
+        protected FirstNodeInformation[] firstNodeInfos;
+
+        private string privateRsaParameters;
+        protected override string PrivateRsaParameters
+        {
+            get
+            {
+                if (privateRsaParameters != null)
+                    return privateRsaParameters;
+                else
+                    return base.PrivateRsaParameters;
+            }
+        }
 
         protected abstract IPAddress GetIpAddress();
         protected abstract RSACryptoServiceProvider GetRSACryptoServiceProvider();
         protected abstract void NotifyFirstNodeInfo();
         protected abstract FirstNodeInformation[] GetFirstNodeInfos();
+        protected abstract void UpdateNodeState(NodeInformation nodeInfo, bool isSucceeded);
+        protected abstract void KeepConnections();
+        protected abstract bool IsAlreadyConnected(NodeInformation nodeInfo);
+        protected abstract bool IsListenerCanContinue(NodeInformation nodeInfo);
+        protected abstract bool IsWantToContinue(NodeInformation nodeInfo);
+        protected abstract bool IsClientCanContinue(NodeInformation nodeInfo);
 
-        protected abstract bool IsReject { get; }
+        protected abstract Network Network { get; }
         protected abstract bool IsContinue { get; }
-        protected abstract bool IsCanContinue { get; }
+
+        protected virtual void ServerProtocol(Message message, CommunicationApparatus ca, Action<string> _ConsoleWriteLine)
+        {
+            if (message.name == MessageName.inv)
+            {
+                Inv inv = message.messageBase as Inv;
+                bool isNew = !txtests.Keys.Contains(inv.hash);
+                ca.WriteBytes(BitConverter.GetBytes(isNew));
+                if (isNew)
+                {
+                    TxTest txtest = SHAREDDATA.FromBinary<TxTest>(ca.ReadBytes());
+                    lock (txtestsLock)
+                        if (!txtests.Keys.Contains(inv.hash))
+                            txtests.Add(inv.hash, txtest.data);
+                        else
+                            return;
+
+                    _ConsoleWriteLine("txtest受信");
+
+                    TxtestReceived(this, nodeInfo);
+
+                    this.StartTask(() => DiffuseInv(txtest, inv), string.Empty, string.Empty);
+                }
+                else
+                {
+                    _ConsoleWriteLine("txtest既に存在する");
+
+                    TxtestAlreadyExisted(this, nodeInfo);
+                }
+            }
+            else
+                throw new NotSupportedException("protocol_not_supported");
+        }
+
+        protected virtual void ClientProtocol(MessageBase[] messages, CommunicationApparatus ca, Action<string> _ConsoleWriteLine)
+        {
+            Message message = new Message(messages[0]);
+
+            ca.WriteBytes(message.ToBinary());
+            if (message.name == MessageName.inv)
+            {
+                bool isNew = BitConverter.ToBoolean(ca.ReadBytes(), 0);
+                if (isNew)
+                    ca.WriteBytes(messages[1].ToBinary());
+            }
+            else
+                throw new NotSupportedException("protocol_not_supported");
+        }
+
+        protected virtual void ClientContinue(NodeInformation nodeInfo, CommunicationApparatus ca, Action<string> _ConsoleWriteLine) { }
+
+        protected virtual void ListenerContinue(NodeInformation nodeInfo, CommunicationApparatus ca, Action<string> _ConsoleWriteLine) { }
 
         public event EventHandler ServerStarted = delegate { };
         public event EventHandler ServerChanged = delegate { };
         public event EventHandler ServerEnded = delegate { };
-
-        private ListenerWrapper listener;
-        private string privateRsaParameters;
-        private FirstNodeInformation[] firstNodeInfos;
 
         public void Start()
         {
@@ -1331,105 +1515,94 @@ namespace CREA2014
 
                 if (IsPort0)
                     this.RaiseNotification("port0".GetLogMessage(), 5);
-                else
-                    if ((ipAddress = GetIpAddress()) != null)
+                else if ((ipAddress = GetIpAddress()) != null && (RSACryptoServiceProvider rsacsp = GetRSACryptoServiceProvider()) != null)
+                {
+                    privateRsaParameters = rsacsp.ToXmlString(true);
+                    nodeInfo = new NodeInformation(ipAddress, port, Network, rsacsp.ToXmlString(false));
+                    listener = CreateListener(port, (ca, ipEndPoint) =>
                     {
-                        RSACryptoServiceProvider rsacsp = GetRSACryptoServiceProvider();
-                        if (rsacsp != null)
+                        Header header = SHAREDDATA.FromBinary<Header>(ca.ReadBytes());
+
+                        NodeInformation aiteNodeInfo = null;
+                        if (!header.nodeInfo.IpAddress.Equals(ipEndPoint.Address))
                         {
-                            privateRsaParameters = rsacsp.ToXmlString(true);
-                            nodeInfo = new NodeInformation(ipAddress, port, Network, DateTime.Now, rsacsp.ToXmlString(false));
-                            listener = NewListener(port, (ca, ipEndPoint) =>
-                            {
-                                Header header = SHAREDDATA.FromBinary<Header>(ca.ReadBytes());
+                            this.RaiseNotification("aite_wrong_node_info".GetLogMessage(ipEndPoint.Address.ToString(), header.nodeInfo.Port.ToString()), 5);
 
-                                NodeInformation aiteNodeInfo = null;
-                                if (!header.nodeInfo.IpAddress.Equals(ipEndPoint.Address))
-                                {
-                                    this.RaiseNotification("aite_wrong_node_info".GetLogMessage(ipEndPoint.Address.ToString(), header.nodeInfo.Port.ToString()), 5);
-
-                                    aiteNodeInfo = new NodeInformation(ipEndPoint.Address, header.nodeInfo.Port, header.nodeInfo.Network, header.nodeInfo.Participation, header.nodeInfo.PublicRSAParameters);
-                                }
-
-                                HeaderResponse headerResponse = new HeaderResponse(header.nodeInfo.Network == Network, aiteNodeInfo, header.creaVersion < creaVersion, protocolVersion, appnameWithVersion);
-
-                                if (aiteNodeInfo == null)
-                                    aiteNodeInfo = header.nodeInfo;
-
-                                if (!headerResponse.isSameNetwork)
-                                {
-                                    this.RaiseNotification("aite_wrong_network".GetLogMessage(aiteNodeInfo.IpAddress.ToString(), aiteNodeInfo.Port.ToString()), 5);
-
-                                    return;
-                                }
-                                if (IsReject)
-                                    return;
-                                //<未実装>ノード情報更新
-
-                                if (header.creaVersion > creaVersion)
-                                {
-                                    //相手のクライアントバージョンの方が大きい場合の処理
-                                    //<未実装>使用者への通知
-                                    //<未実装>自動ダウンロード、バージョンアップなど
-                                    //ここで直接行うべきではなく、イベントを発令するべきだろう
-                                }
-
-                                ca.WriteBytes(headerResponse.ToBinary());
-
-                                int sessionProtocolVersion = Math.Min(header.protocolVersion, protocolVersion);
-                                if (sessionProtocolVersion == 0)
-                                {
-                                    if (header.isTemporary)
-                                    {
-                                        string aite = string.Join(":", header.nodeInfo.IpAddress.ToString(), header.nodeInfo.Port.ToString());
-                                        string zibun = string.Join(":", ipAddress.ToString(), port.ToString());
-                                        string aiteZibun = string.Join("-->", aite, zibun);
-
-                                        Inv inv = SHAREDDATA.FromBinary<Inv>(ca.ReadBytes());
-                                        bool isNew = !txtests.Keys.Contains(inv.hash);
-                                        ca.WriteBytes(BitConverter.GetBytes(isNew));
-                                        if (isNew)
-                                        {
-                                            TxTest txtest = SHAREDDATA.FromBinary<TxTest>(ca.ReadBytes());
-                                            lock (txtestsLock)
-                                                if (!txtests.Keys.Contains(inv.hash))
-                                                    txtests.Add(inv.hash, txtest.data);
-                                                else
-                                                    return;
-
-                                            (aiteZibun + " txtest受信").ConsoleWriteLine();
-
-                                            TxtestReceived(this, nodeInfo);
-
-                                            this.StartTask(() => RequestInv(txtest, inv), string.Empty, string.Empty);
-                                        }
-                                        else
-                                        {
-                                            (aiteZibun + " txtest既に存在する").ConsoleWriteLine();
-
-                                            TxtestAlreadyExisted(this, nodeInfo);
-                                        }
-
-                                        //一時接続から常時接続に移行しない場合は終わり
-                                        return;
-                                    }
-
-                                    if (IsContinue && IsCanContinue)
-                                    {
-
-                                    }
-                                }
-                                else
-                                    throw new NotSupportedException("not_supported_protocol_ver");
-                            });
-
-                            this.RaiseNotification("server_started".GetLogMessage(ipAddress.ToString(), port.ToString()), 5);
-
-                            ServerStarted(this, EventArgs.Empty);
-
-                            NotifyFirstNodeInfo();
+                            aiteNodeInfo = new NodeInformation(ipEndPoint.Address, header.nodeInfo.Port, header.nodeInfo.Network, header.nodeInfo.PublicRSAParameters);
                         }
-                    }
+
+                        HeaderResponse headerResponse = new HeaderResponse(nodeInfo, header.nodeInfo.Network == Network, IsAlreadyConnected(header.nodeInfo), aiteNodeInfo, header.creaVersion < creaVersion, protocolVersion, appnameWithVersion);
+
+                        if (aiteNodeInfo == null)
+                            aiteNodeInfo = header.nodeInfo;
+
+                        if ((!headerResponse.isSameNetwork).RaiseNotification(GetType(), "aite_wrong_network".GetLogMessage(aiteNodeInfo.IpAddress.ToString(), aiteNodeInfo.Port.ToString()), 5))
+                            return;
+                        if (headerResponse.isAlreadyConnected.RaiseNotification(GetType(), "aite_already_connected".GetLogMessage(aiteNodeInfo.IpAddress.ToString(), aiteNodeInfo.Port.ToString()), 5))
+                            return;
+                        //<未実装>不良ノードは拒否する？
+
+                        UpdateNodeState(aiteNodeInfo, true);
+
+                        if (header.creaVersion > creaVersion)
+                        {
+                            //相手のクライアントバージョンの方が大きい場合の処理
+                            //<未実装>使用者への通知
+                            //<未実装>自動ダウンロード、バージョンアップなど
+                            //ここで直接行うべきではなく、イベントを発令するべきだろう
+                        }
+
+                        ca.WriteBytes(headerResponse.ToBinary());
+
+                        int sessionProtocolVersion = Math.Min(header.protocolVersion, protocolVersion);
+                        if (sessionProtocolVersion == 0)
+                        {
+                            string aite = string.Join(":", header.nodeInfo.IpAddress.ToString(), header.nodeInfo.Port.ToString());
+                            string zibun = string.Join(":", ipAddress.ToString(), port.ToString());
+                            string aiteZibun = string.Join("-->", aite, zibun);
+
+                            Action<string> _ConsoleWriteLine = (text) => string.Join(" ", aiteZibun, text).ConsoleWriteLine();
+
+                            if (header.isTemporary)
+                            {
+                                ServerProtocol(SHAREDDATA.FromBinary<Message>(ca.ReadBytes()), ca, _ConsoleWriteLine);
+
+                                if (IsContinue)
+                                {
+                                    bool isWantToContinue = IsWantToContinue(header.nodeInfo);
+                                    ca.WriteBytes(BitConverter.GetBytes(isWantToContinue));
+                                    if (isWantToContinue)
+                                    {
+                                        bool isClientCanContinue = BitConverter.ToBoolean(ca.ReadBytes(), 0);
+                                        if (isClientCanContinue)
+                                            ListenerContinue(aiteNodeInfo, ca, _ConsoleWriteLine);
+                                    }
+                                }
+                            }
+                            else if (IsContinue)
+                            {
+                                bool isCanListenerContinue = IsListenerCanContinue(header.nodeInfo);
+                                ca.WriteBytes(BitConverter.GetBytes(isCanListenerContinue));
+                                if (isCanListenerContinue)
+                                    ListenerContinue(aiteNodeInfo, ca, _ConsoleWriteLine);
+                            }
+                        }
+                        else
+                            throw new NotSupportedException("not_supported_protocol_ver");
+                    });
+                    listener.ClientFailed += (sender, e) =>
+                    {
+                        //<未実装>接続成功後通信に失敗した場合はどうすれば良いか？
+                        //　　　　ノード離脱と推測してノード情報を更新するべきか？
+                    };
+                    listener.StartListener();
+
+                    this.RaiseNotification("server_started".GetLogMessage(ipAddress.ToString(), port.ToString()), 5);
+
+                    ServerStarted(this, EventArgs.Empty);
+
+                    NotifyFirstNodeInfo();
+                }
 
                 if (nodeInfo == null)
                     firstNodeInfos = GetFirstNodeInfos();
@@ -1443,8 +1616,7 @@ namespace CREA2014
                     firstNodeInfos = fnislist.ToArray();
                 }
 
-                //<未実装>初期ノードに接続して近接ノード取得
-                //<未実装>近接ノードとの接続を維持
+                KeepConnections();
 
                 isStartCompleted = true;
             }, "creanode", string.Empty);
@@ -1470,10 +1642,96 @@ namespace CREA2014
         public event EventHandler<NodeInformation> TxtestReceived = delegate { };
         public event EventHandler<NodeInformation> TxtestAlreadyExisted = delegate { };
 
-        public void RequestInv(TxTest txtest, Inv inv)
+        protected Client Connect(IPAddress aiteIpAddress, ushort aitePort, bool isTemporary, Action _Continued, params MessageBase[] messages)
         {
-            bool isTemporary = true;
+            NodeInformation aiteNodeInfo = null;
+            Client client = CreateClient(aiteIpAddress, aitePort, (ca, ipEndPoint) =>
+            {
+                ca.WriteBytes(new Header(nodeInfo, creaVersion, protocolVersion, appnameWithVersion, isTemporary).ToBinary());
+                HeaderResponse headerResponse = SHAREDDATA.FromBinary<HeaderResponse>(ca.ReadBytes());
 
+                aiteNodeInfo = headerResponse.nodeInfo;
+
+                if ((!headerResponse.isSameNetwork).RaiseNotification(GetType(), "wrong_network".GetLogMessage(aiteIpAddress.ToString(), aitePort.ToString()), 5))
+                    return;
+                if (headerResponse.isAlreadyConnected.RaiseNotification(GetType(), "already_connected".GetLogMessage(aiteIpAddress.ToString(), aitePort.ToString()), 5))
+                    return;
+                if (headerResponse.correctNodeInfo != null)
+                {
+                    //<未実装>ノード情報のIPアドレスが間違っている疑いがある場合の処理
+                    //　　　　他の幾つかのノードに問い合わせて本当に間違っていたら修正
+                }
+
+                UpdateNodeState(headerResponse.nodeInfo, true);
+
+                if (headerResponse.isOldCreaVersion)
+                {
+                    //相手のクライアントバージョンの方が大きい場合の処理
+                    //<未実装>使用者への通知
+                    //<未実装>自動ダウンロード、バージョンアップなど
+                    //ここで直接行うべきではなく、イベントを発令するべきだろう
+                }
+
+                int sessionProtocolVersion = Math.Min(headerResponse.protocolVersion, protocolVersion);
+                if (sessionProtocolVersion == 0)
+                {
+                    string zibun = string.Join(":", ipAddress.ToString(), port.ToString());
+                    string aite = string.Join(":", aiteIpAddress.ToString(), aitePort.ToString());
+                    string zibunAite = string.Join("-->", zibun, aite);
+
+                    Action<string> _ConsoleWriteLine = (text) => string.Join(" ", zibunAite, text).ConsoleWriteLine();
+
+                    if (isTemporary)
+                    {
+                        ClientProtocol(messages, ca, _ConsoleWriteLine);
+
+                        if (IsContinue)
+                        {
+                            bool isWantToContinue = BitConverter.ToBoolean(ca.ReadBytes(), 0);
+                            if (isWantToContinue)
+                            {
+                                bool isClientCanContinue = IsClientCanContinue(headerResponse.nodeInfo);
+                                ca.WriteBytes(BitConverter.GetBytes(isClientCanContinue));
+                                if (isClientCanContinue)
+                                {
+                                    _Continued();
+
+                                    ClientContinue(headerResponse.nodeInfo, ca, _ConsoleWriteLine);
+                                }
+                            }
+                        }
+                    }
+                    else if (IsContinue)
+                    {
+                        bool isListenerCanContinue = BitConverter.ToBoolean(ca.ReadBytes(), 0);
+                        if (isListenerCanContinue)
+                        {
+                            _Continued();
+
+                            ClientContinue(headerResponse.nodeInfo, ca, _ConsoleWriteLine);
+                        }
+                    }
+                }
+                else
+                    throw new NotSupportedException("not_supported_protocol_ver");
+            });
+            client.ConnectFailed += (sender, e) =>
+            {
+                //<未実装>接続に失敗した場合のノード情報更新
+            };
+            client.Failed += (sender, e) =>
+            {
+                //<未実装>接続成功後通信に失敗した場合はどうすれば良いか？
+                //　　　　ノード離脱と推測してノード情報を更新するべきか？
+            };
+            return client;
+        }
+
+        protected abstract void Request(NodeInformation nodeinfo, params MessageBase[] messages);
+        protected abstract void Diffuse(params MessageBase[] messages);
+
+        public void DiffuseInv(TxTest txtest, Inv inv)
+        {
             if (txtest == null && inv == null)
             {
                 txtest = new TxTest();
@@ -1485,54 +1743,18 @@ namespace CREA2014
                 (string.Join(":", ipAddress.ToString(), port.ToString()) + " txtest作成").ConsoleWriteLine();
             }
 
-            for (int i = 0; i < 16 && i < firstNodeInfos.Length; i++)
+            Diffuse(inv, txtest);
+        }
+
+        public class NodeState
+        {
+            public DateTime connectedTime { get; private set; }
+
+            public NodeState() { }
+
+            public void Connected()
             {
-                NewClient(firstNodeInfos[i].IpAddress, firstNodeInfos[i].Port, (ca, ipEndPoint) =>
-                {
-                    ca.WriteBytes(new Header(nodeInfo, creaVersion, protocolVersion, appnameWithVersion, isTemporary).ToBinary());
-                    HeaderResponse headerResponse = SHAREDDATA.FromBinary<HeaderResponse>(ca.ReadBytes());
-
-                    if (!headerResponse.isSameNetwork)
-                        return;
-                    if (headerResponse.correctNodeInfo != null)
-                    {
-                        //<未実装>ノード情報のIPアドレスが間違っている疑いがある場合の処理
-                        //　　　　他の幾つかのノードに問い合わせて本当に間違っていたら修正
-                    }
-                    //<未実装>ノード情報更新
-
-                    if (headerResponse.isOldCreaVersion)
-                    {
-                        //相手のクライアントバージョンの方が大きい場合の処理
-                        //<未実装>使用者への通知
-                        //<未実装>自動ダウンロード、バージョンアップなど
-                        //ここで直接行うべきではなく、イベントを発令するべきだろう
-                    }
-
-                    int sessionProtocolVersion = Math.Min(headerResponse.protocolVersion, protocolVersion);
-                    if (sessionProtocolVersion == 0)
-                    {
-                        //一時接続
-                        if (isTemporary)
-                        {
-                            ca.WriteBytes(inv.ToBinary());
-                            bool isNew = BitConverter.ToBoolean(ca.ReadBytes(), 0);
-                            if (isNew)
-                                ca.WriteBytes(txtest.ToBinary());
-
-
-                            //一時接続から常時接続に移行しない場合は終わり
-                            return;
-                        }
-
-                        //常時接続
-                        //別スレッドで行う必要あり
-                    }
-                    else
-                        throw new NotSupportedException("not_supported_protocol_ver");
-                });
-
-                //<未実装>接続に失敗した場合のノード情報更新
+                connectedTime = DateTime.Now;
             }
         }
     }
@@ -1580,9 +1802,34 @@ namespace CREA2014
             throw new NotImplementedException();
         }
 
-        protected override bool IsReject
+        protected override void UpdateNodeState(NodeInformation nodeInfo, bool isSecceeded)
         {
-            get { throw new NotImplementedException(); }
+            throw new NotImplementedException();
+        }
+
+        protected override void KeepConnections()
+        {
+            throw new NotImplementedException();
+        }
+
+        protected override bool IsAlreadyConnected(NodeInformation nodeInfo)
+        {
+            throw new NotImplementedException();
+        }
+
+        protected override bool IsListenerCanContinue(NodeInformation nodeInfo)
+        {
+            throw new NotImplementedException();
+        }
+
+        protected override bool IsWantToContinue(NodeInformation nodeInfo)
+        {
+            throw new NotImplementedException();
+        }
+
+        protected override bool IsClientCanContinue(NodeInformation nodeInfo)
+        {
+            throw new NotImplementedException();
         }
 
         protected override bool IsContinue
@@ -1590,9 +1837,34 @@ namespace CREA2014
             get { return true; }
         }
 
-        protected override bool IsCanContinue
+        protected override void ServerProtocol(Message message, CommunicationApparatus ca, Action<string> _ConsoleWriteLine)
         {
-            get { throw new NotImplementedException(); }
+            throw new NotImplementedException();
+        }
+
+        protected override void ClientProtocol(MessageBase[] messages, CommunicationApparatus ca, Action<string> _ConsoleWriteLine)
+        {
+            throw new NotImplementedException();
+        }
+
+        protected override void ClientContinue(NodeInformation nodeInfo, CommunicationApparatus ca, Action<string> _ConsoleWriteLine)
+        {
+            throw new NotImplementedException();
+        }
+
+        protected override void ListenerContinue(NodeInformation nodeInfo, CommunicationApparatus ca, Action<string> _ConsoleWriteLine)
+        {
+            throw new NotImplementedException();
+        }
+
+        protected override void Request(NodeInformation nodeinfo, params MessageBase[] messages)
+        {
+            throw new NotImplementedException();
+        }
+
+        protected override void Diffuse(params MessageBase[] messages)
+        {
+            throw new NotImplementedException();
         }
     }
 
@@ -1601,18 +1873,20 @@ namespace CREA2014
     public abstract class CreaNodeLocalTest : CREANODEBASE
     {
         private static readonly object fnisLock = new object();
-        private static readonly List<FirstNodeInformation> firstNodeInfos;
+        private static readonly List<FirstNodeInformation> fnis;
         private static readonly RSACryptoServiceProvider rsacsp;
 
         static CreaNodeLocalTest()
         {
-            firstNodeInfos = new List<FirstNodeInformation>();
+            fnis = new List<FirstNodeInformation>();
 
             try
             {
                 rsacsp = new RSACryptoServiceProvider(2048);
             }
-            catch (Exception) { }
+            catch (Exception)
+            {
+            }
         }
 
         public CreaNodeLocalTest(ushort _port, int _creaVersion, string _appnameWithVersion) : base(_port, _creaVersion, _appnameWithVersion) { }
@@ -1636,16 +1910,16 @@ namespace CREA2014
         {
             lock (fnisLock)
             {
-                while (firstNodeInfos.Count >= 20)
-                    firstNodeInfos.RemoveAt(firstNodeInfos.Count - 1);
-                firstNodeInfos.Insert(0, nodeInfo.FirstNodeInfo);
+                while (fnis.Count >= 20)
+                    fnis.RemoveAt(fnis.Count - 1);
+                fnis.Insert(0, nodeInfo.FirstNodeInfo);
             }
         }
 
         protected override FirstNodeInformation[] GetFirstNodeInfos()
         {
             lock (fnisLock)
-                return firstNodeInfos.ToArray();
+                return fnis.ToArray();
         }
     }
 
@@ -1653,39 +1927,260 @@ namespace CREA2014
     {
         public CreaNodeLocalTestNotContinue(ushort _port, int _creaVersion, string _appnameWithVersion) : base(_port, _creaVersion, _appnameWithVersion) { }
 
-        protected override bool IsReject
-        {
-            get { return false; }
-        }
+        protected override bool IsAlreadyConnected(NodeInformation nodeInfo) { return false; }
+
+        protected override void UpdateNodeState(NodeInformation nodeInfo, bool isSecceeded) { }
+
+        protected override void KeepConnections() { }
 
         protected override bool IsContinue
         {
             get { return false; }
         }
 
-        protected override bool IsCanContinue
+        protected override bool IsListenerCanContinue(NodeInformation nodeInfo) { return false; }
+
+        protected override bool IsWantToContinue(NodeInformation nodeInfo) { return false; }
+
+        protected override bool IsClientCanContinue(NodeInformation nodeInfo) { return false; }
+
+        protected override void Request(NodeInformation nodeinfo, params MessageBase[] messages)
         {
-            get { return false; }
+            Connect(nodeInfo.IpAddress, nodeInfo.Port, true, () => { }, messages).StartClient();
+        }
+
+        protected override void Diffuse(params MessageBase[] messages)
+        {
+            for (int i = 0; i < 16 && i < firstNodeInfos.Length; i++)
+                Connect(firstNodeInfos[i].IpAddress, firstNodeInfos[i].Port, true, () => { }, messages).StartClient();
         }
     }
 
     public class CreaNodeLocalTestContinue : CreaNodeLocalTest
     {
-        public CreaNodeLocalTestContinue(ushort _port, int _creaVersion, string _appnameWithVersion) : base(_port, _creaVersion, _appnameWithVersion) { }
+        private readonly object nodeStatesLock = new object();
+        private Dictionary<NodeInformation, NodeState> nodeStates;
+        private readonly object clientNodesLock = new object();
+        private Dictionary<NodeInformation, CommunicationQueue> clientNodes;
+        private readonly object listenerNodesLock = new object();
+        private Dictionary<NodeInformation, CommunicationQueue> listenerNodes;
 
-        protected override bool IsReject
+        public CreaNodeLocalTestContinue(ushort _port, int _creaVersion, string _appnameWithVersion) : base(_port, _creaVersion, _appnameWithVersion)
         {
-            get { throw new NotImplementedException(); }
+            nodeStates = new Dictionary<NodeInformation, NodeState>();
+            clientNodes = new Dictionary<NodeInformation, CommunicationQueue>();
+            listenerNodes = new Dictionary<NodeInformation, CommunicationQueue>();
+        }
+
+        public event EventHandler KeepConnectionsCompleted = delegate { };
+
+        protected override void UpdateNodeState(NodeInformation nodeInfo, bool isSecceeded)
+        {
+            lock (nodeStatesLock)
+                if (isSecceeded)
+                {
+                    if (!nodeStates.Keys.Contains(nodeInfo))
+                        nodeStates.Add(nodeInfo, new NodeState());
+                    nodeStates[nodeInfo].Connected();
+                }
+                else if (nodeStates.Keys.Contains(nodeInfo))
+                    nodeStates.Remove(nodeInfo);
+        }
+
+        protected override void KeepConnections()
+        {
+            if (firstNodeInfos.Length == 0)
+            {
+                //<未実装>初期ノード情報がない場合の処理
+            }
+            else
+            {
+                for (int i = 0; i < firstNodeInfos.Length; i++)
+                {
+                    int count;
+                    lock (clientNodesLock)
+                        count = clientNodes.Count;
+
+                    AutoResetEvent are = new AutoResetEvent(false);
+
+                    if (count < 8)
+                    {
+                        Client client = Connect(firstNodeInfos[i].IpAddress, firstNodeInfos[i].Port, false, () => are.Set());
+                        client.ConnectFailed += (sender, e) => are.Set();
+                        client.Failed += (sender, e) => are.Set();
+                        client.StartClient();
+                    }
+
+                    are.WaitOne();
+                }
+
+                this.RaiseNotification("keep_conn_completed".GetLogMessage(), 5);
+
+                KeepConnectionsCompleted(this, EventArgs.Empty);
+            }
+        }
+
+        protected override bool IsAlreadyConnected(NodeInformation nodeInfo)
+        {
+            lock (clientNodesLock)
+                if (clientNodes.Keys.Contains(nodeInfo))
+                    return true;
+            lock (listenerNodesLock)
+                if (listenerNodes.Keys.Contains(nodeInfo))
+                    return true;
+            return false;
+        }
+
+        protected override bool IsListenerCanContinue(NodeInformation nodeInfo)
+        {
+            lock (listenerNodesLock)
+                return listenerNodes.Count < 16;
+        }
+
+        protected override bool IsWantToContinue(NodeInformation nodeInfo)
+        {
+            lock (listenerNodesLock)
+                return listenerNodes.Count < 16;
+        }
+
+        protected override bool IsClientCanContinue(NodeInformation nodeInfo)
+        {
+            lock (clientNodesLock)
+                return clientNodes.Count < 8;
+        }
+
+        protected override void ClientContinue(NodeInformation nodeInfo, CommunicationApparatus ca, Action<string> _ConsoleWriteLine)
+        {
+            lock (clientNodesLock)
+                clientNodes.Add(nodeInfo, new CommunicationQueue(ca, _ConsoleWriteLine));
+
+            try
+            {
+                Continue(nodeInfo, ca, _ConsoleWriteLine);
+            }
+            finally
+            {
+                lock (clientNodesLock)
+                    clientNodes.Remove(nodeInfo);
+            }
+        }
+
+        protected override void ListenerContinue(NodeInformation nodeInfo, CommunicationApparatus ca, Action<string> _ConsoleWriteLine)
+        {
+            lock (listenerNodesLock)
+                listenerNodes.Add(nodeInfo, new CommunicationQueue(ca, _ConsoleWriteLine));
+
+            try
+            {
+                Continue(nodeInfo, ca, _ConsoleWriteLine);
+            }
+            finally
+            {
+                lock (listenerNodesLock)
+                    listenerNodes.Remove(nodeInfo);
+            }
+        }
+
+        private void Continue(NodeInformation nodeInfo, CommunicationApparatus ca, Action<string> _ConsoleWriteLine)
+        {
+            _ConsoleWriteLine("常時接続" + string.Join(",", clientNodes.Count.ToString(), listenerNodes.Count.ToString()));
+
+            while (true)
+                try
+                {
+                    ServerProtocol(SHAREDDATA.FromBinary<Message>(ca.ReadBytes()), ca, _ConsoleWriteLine);
+                }
+                catch (IOException ex)
+                {
+                    if (ex.InnerException is SocketException && (ex.InnerException as SocketException).ErrorCode == 10060)
+                        _ConsoleWriteLine("WSAETIMEDOUT");
+                    else
+                        throw ex;
+                }
+        }
+
+        protected override void Request(NodeInformation nodeinfo, params MessageBase[] messages)
+        {
+            CommunicationQueue cq = null;
+
+            lock (clientNodesLock)
+                if (clientNodes.Keys.Contains(nodeinfo))
+                    cq = clientNodes[nodeinfo];
+            lock (listenerNodesLock)
+                if (listenerNodes.Keys.Contains(nodeinfo))
+                    cq = listenerNodes[nodeinfo];
+
+            if (cq != null)
+                try
+                {
+                    ClientProtocol(messages, cq.ca, cq._ConsoleWriteLine);
+                }
+                catch (Exception ex)
+                {
+                    this.RaiseError("client_socket".GetLogMessage(), 5, ex);
+
+                    //<未実装>通信失敗の場合の処理
+                }
+            else
+                Connect(nodeInfo.IpAddress, nodeInfo.Port, true, () => { }, messages).StartClient();
+        }
+
+        protected override void Diffuse(params MessageBase[] messages)
+        {
+            List<KeyValuePair<NodeInformation, CommunicationQueue>> cqs = new List<KeyValuePair<NodeInformation, CommunicationQueue>>();
+            lock (clientNodesLock)
+                foreach (var cq in clientNodes)
+                    cqs.Add(cq);
+            lock (listenerNodesLock)
+                foreach (var cq in listenerNodes)
+                    cqs.Add(cq);
+
+            foreach (var cq in cqs)
+                try
+                {
+                    ClientProtocol(messages, cq.Value.ca, cq.Value._ConsoleWriteLine);
+                }
+                catch (Exception ex)
+                {
+                    this.RaiseError("client_socket".GetLogMessage(), 5, ex);
+
+                    //<未実装>通信失敗の場合の処理
+                }
+        }
+
+        public class CommunicationQueue
+        {
+            public CommunicationApparatus ca { get; private set; }
+            public Action<string> _ConsoleWriteLine { get; private set; }
+
+            public CommunicationQueue(CommunicationApparatus _ca, Action<string> __ConsoleWriteLine)
+            {
+                ca = _ca;
+                _ConsoleWriteLine = __ConsoleWriteLine;
+            }
+
+            public Session NewSession()
+            {
+                return null;
+            }
+        }
+
+        public class Session
+        {
+            public void Close()
+            {
+
+            }
+        }
+
+        public class SessionMessage
+        {
+
         }
 
         protected override bool IsContinue
         {
-            get { throw new NotImplementedException(); }
-        }
-
-        protected override bool IsCanContinue
-        {
-            get { throw new NotImplementedException(); }
+            get { return true; }
         }
     }
 
@@ -1722,6 +2217,7 @@ namespace CREA2014
 
                     ScrollViewer sv1 = new ScrollViewer();
                     sv1.VerticalScrollBarVisibility = ScrollBarVisibility.Auto;
+                    sv1.HorizontalScrollBarVisibility = ScrollBarVisibility.Auto;
                     sv1.SetValue(Grid.RowProperty, 0);
                     sv1.SetValue(Grid.ColumnProperty, 0);
 
@@ -1730,6 +2226,7 @@ namespace CREA2014
 
                     ScrollViewer sv2 = new ScrollViewer();
                     sv2.VerticalScrollBarVisibility = ScrollBarVisibility.Auto;
+                    sv2.HorizontalScrollBarVisibility = ScrollBarVisibility.Auto;
                     sv2.SetValue(Grid.RowProperty, 1);
                     sv2.SetValue(Grid.ColumnProperty, 0);
 
@@ -1755,35 +2252,7 @@ namespace CREA2014
                         sp2.Children.Add(tb);
                     })).BeginExecuteInUIThread();
 
-                    this.StartTask(() =>
-                    {
-                        Stopwatch stopwatch = new Stopwatch();
-                        int counter = 0;
-
-                        int numOfNodes = 100;
-                        CreaNodeLocalTest[] cnlts = new CreaNodeLocalTest[numOfNodes];
-                        for (int i = 0; i < numOfNodes; i++)
-                        {
-                            cnlts[i] = new CreaNodeLocalTestNotContinue((ushort)(7777 + i), 0, "test");
-                            cnlts[i].TxtestReceived += (sender2, e2) =>
-                            {
-                                counter++;
-                                (string.Join(":", e2.IpAddress.ToString(), e2.Port.ToString()) + " " + counter.ToString() + " " + ((double)counter / (double)numOfNodes).ToString() + " " + stopwatch.Elapsed.ToString()).ConsoleWriteLine();
-
-                                if (counter == numOfNodes - 1)
-                                    stopwatch.Stop();
-                            };
-                            cnlts[i].Start();
-                            while (!cnlts[i].IsStartCompleted)
-                                Thread.Sleep(100);
-                        }
-
-                        MessageBox.Show("start");
-
-                        stopwatch.Start();
-
-                        cnlts[numOfNodes - 1].RequestInv(null, null);
-                    }, string.Empty, string.Empty);
+                    this.StartTask(() => Test2NodesContinue(), string.Empty, string.Empty);
                 };
 
                 Closed += (sender, e) =>
@@ -1794,6 +2263,63 @@ namespace CREA2014
 
                     File.AppendAllText(Path.Combine(new FileInfo(Assembly.GetEntryAssembly().Location).DirectoryName, "LogTest.txt"), fileText);
                 };
+            }
+
+            private void Test2NodesContinue()
+            {
+                CreaNodeLocalTestContinue cnltc1 = new CreaNodeLocalTestContinue(7777, 0, "test");
+                cnltc1.Start();
+                while (!cnltc1.IsStartCompleted)
+                    Thread.Sleep(100);
+                CreaNodeLocalTestContinue cnltc2 = new CreaNodeLocalTestContinue(7778, 0, "test");
+                cnltc2.KeepConnectionsCompleted += (sender, e) => cnltc2.DiffuseInv(null, null);
+                cnltc2.Start();
+                while (!cnltc2.IsStartCompleted)
+                    Thread.Sleep(100);
+            }
+
+            private void Test2NodesInv()
+            {
+                CreaNodeLocalTestNotContinue cnlt1 = new CreaNodeLocalTestNotContinue(7777, 0, "test");
+                cnlt1.Start();
+                while (!cnlt1.IsStartCompleted)
+                    Thread.Sleep(100);
+                CreaNodeLocalTestNotContinue cnlt2 = new CreaNodeLocalTestNotContinue(7778, 0, "test");
+                cnlt2.Start();
+                while (!cnlt2.IsStartCompleted)
+                    Thread.Sleep(100);
+
+                cnlt2.DiffuseInv(null, null);
+            }
+
+            private void Test100NodesInv()
+            {
+                Stopwatch stopwatch = new Stopwatch();
+                int counter = 0;
+
+                int numOfNodes = 100;
+                CreaNodeLocalTest[] cnlts = new CreaNodeLocalTest[numOfNodes];
+                for (int i = 0; i < numOfNodes; i++)
+                {
+                    cnlts[i] = new CreaNodeLocalTestNotContinue((ushort)(7777 + i), 0, "test");
+                    cnlts[i].TxtestReceived += (sender2, e2) =>
+                    {
+                        counter++;
+                        (string.Join(":", e2.IpAddress.ToString(), e2.Port.ToString()) + " " + counter.ToString() + " " + ((double)counter / (double)numOfNodes).ToString() + " " + stopwatch.Elapsed.ToString()).ConsoleWriteLine();
+
+                        if (counter == numOfNodes - 1)
+                            stopwatch.Stop();
+                    };
+                    cnlts[i].Start();
+                    while (!cnlts[i].IsStartCompleted)
+                        Thread.Sleep(100);
+                }
+
+                MessageBox.Show("start");
+
+                stopwatch.Start();
+
+                cnlts[numOfNodes - 1].DiffuseInv(null, null);
             }
 
             public class TextBlockStreamWriter : TextWriter
@@ -1956,12 +2482,12 @@ namespace CREA2014
             }
         }
 
-        protected override Func<STREAMDATA<MainDataInfomation>.ReaderWriter, IEnumerable<MainDataInfomation>> StreamInfo
+        protected override Func<ReaderWriter, IEnumerable<MainDataInfomation>> StreamInfo
         {
             get
             {
                 return (msrw) => new MainDataInfomation[]{
-                    new MainDataInfomation(typeof(string), () => Hex, (o) => Hex = (string)o), 
+                    new MainDataInfomation(typeof(string), () => Hex, (o) => Hex = (string)o),
                 };
             }
         }
@@ -1995,12 +2521,6 @@ namespace CREA2014
             get { return participation; }
         }
 
-        private DateTime publication;
-        public DateTime Publication
-        {
-            get { return publication; }
-        }
-
         private string publicRSAParameters;
         public string PublicRSAParameters
         {
@@ -2009,12 +2529,10 @@ namespace CREA2014
 
         public NodeInformation() : base(0) { }
 
-        public NodeInformation(IPAddress _ipAddress, ushort _port, Network _network, DateTime _participation, string _publicRSAParameters)
+        public NodeInformation(IPAddress _ipAddress, ushort _port, Network _network, string _publicRSAParameters)
             : base(0, _ipAddress, _port, _network)
         {
-            participation = _participation;
-            //取り敢えず現在時刻を代入するようにしておくがもっと別の実装を考えるべきかもしれない
-            publication = DateTime.Now;
+            participation = DateTime.Now;
             publicRSAParameters = _publicRSAParameters;
         }
 
@@ -2024,7 +2542,7 @@ namespace CREA2014
             get
             {
                 if (idCache == null)
-                    return idCache = new Sha256Hash(IpAddress.GetAddressBytes().Combine(BitConverter.GetBytes(Port)).ComputeSha256());
+                    return idCache = new Sha256Hash(IpAddress.GetAddressBytes().Combine(BitConverter.GetBytes(Port), Encoding.UTF8.GetBytes(publicRSAParameters)).ComputeSha256());
                 else
                     return idCache;
             }
@@ -2036,17 +2554,15 @@ namespace CREA2014
             get { return new FirstNodeInformation(IpAddress, Port, Network); }
         }
 
-        protected override Func<STREAMDATA<MainDataInfomation>.ReaderWriter, IEnumerable<MainDataInfomation>> StreamInfo
+        protected override Func<ReaderWriter, IEnumerable<MainDataInfomation>> StreamInfo
         {
             get
             {
                 if (Version == 0)
-                    return (msrw) => new MainDataInfomation[]{
-                        new MainDataInfomation(typeof(string), () => Hex, (o) => Hex = (string)o), 
-                        new MainDataInfomation(typeof(DateTime), () => participation, (o) => participation = (DateTime)o), 
-                        new MainDataInfomation(typeof(DateTime), () => publication, (o) => publication = (DateTime)o), 
-                        new MainDataInfomation(typeof(string), () => publicRSAParameters, (o) => publicRSAParameters = (string)o), 
-                    };
+                    return (msrw) => base.StreamInfo(msrw).Concat(new MainDataInfomation[]{
+                        new MainDataInfomation(typeof(DateTime), () => participation, (o) => participation = (DateTime)o),
+                        new MainDataInfomation(typeof(string), () => publicRSAParameters, (o) => publicRSAParameters = (string)o),
+                    });
                 else
                     throw new NotSupportedException("node_info_stream_info");
             }
@@ -2122,7 +2638,7 @@ namespace CREA2014
             get
             {
                 return (msrw) => new MainDataInfomation[]{
-                    new MainDataInfomation(typeof(byte[]), 32, () => bytes, (o) => bytes = (byte[])o), 
+                    new MainDataInfomation(typeof(byte[]), 32, () => bytes, (o) => bytes = (byte[])o),
                 };
             }
         }
@@ -2212,7 +2728,7 @@ namespace CREA2014
             get
             {
                 return (msrw) => new MainDataInfomation[]{
-                    new MainDataInfomation(typeof(byte[]), 20, () => bytes, (o) => bytes = (byte[])o), 
+                    new MainDataInfomation(typeof(byte[]), 20, () => bytes, (o) => bytes = (byte[])o),
                 };
             }
         }
@@ -2325,9 +2841,9 @@ namespace CREA2014
                 if (Version == 0)
                 {
                     return (msrw) => new MainDataInfomation[]{
-                        new MainDataInfomation(typeof(int), () => (int)keyLength, (o) => keyLength = (EcdsaKeyLength)o), 
-                        new MainDataInfomation(typeof(byte[]), null, () => publicKey, (o) => publicKey = (byte[])o), 
-                        new MainDataInfomation(typeof(byte[]), null, () => privateKey, (o) => privateKey = (byte[])o), 
+                        new MainDataInfomation(typeof(int), () => (int)keyLength, (o) => keyLength = (EcdsaKeyLength)o),
+                        new MainDataInfomation(typeof(byte[]), null, () => publicKey, (o) => publicKey = (byte[])o),
+                        new MainDataInfomation(typeof(byte[]), null, () => privateKey, (o) => privateKey = (byte[])o),
                     };
                 }
                 else
@@ -2491,9 +3007,9 @@ namespace CREA2014
             {
                 if (Version == 0)
                     return (msrw) => new MainDataInfomation[]{
-                        new MainDataInfomation(typeof(string), () => name, (o) => name = (string)o), 
-                        new MainDataInfomation(typeof(string), () => description, (o) => description = (string)o), 
-                        new MainDataInfomation(typeof(EcdsaKey), 0, () => key, (o) => key = (EcdsaKey)o), 
+                        new MainDataInfomation(typeof(string), () => name, (o) => name = (string)o),
+                        new MainDataInfomation(typeof(string), () => description, (o) => description = (string)o),
+                        new MainDataInfomation(typeof(EcdsaKey), 0, () => key, (o) => key = (EcdsaKey)o),
                     };
                 else
                     throw new NotSupportedException("account_main_data_info");
@@ -2550,12 +3066,12 @@ namespace CREA2014
             get
             {
                 return (msrw) => new MainDataInfomation[]{
-                    new MainDataInfomation(typeof(Account[]), 0, null, () => accounts.ToArray(), (o) => 
+                    new MainDataInfomation(typeof(Account[]), 0, null, () => accounts.ToArray(), (o) =>
                     {
                         accounts = ((Account[])o).ToList();
                         foreach (var account in accounts)
                             account.AccountChanged += account_changed;
-                    }), 
+                    }),
                 };
             }
         }
@@ -2677,8 +3193,8 @@ namespace CREA2014
             {
                 if (Version == 0)
                     return (msrw) => base.StreamInfo(msrw).Concat(new MainDataInfomation[]{
-                        new MainDataInfomation(typeof(string), () => name, (o) => name = (string)o), 
-                        new MainDataInfomation(typeof(EcdsaKey), 0, () => key, (o) => key = (EcdsaKey)o), 
+                        new MainDataInfomation(typeof(string), () => name, (o) => name = (string)o),
+                        new MainDataInfomation(typeof(EcdsaKey), 0, () => key, (o) => key = (EcdsaKey)o),
                     });
                 else
                     throw new NotSupportedException("pah_main_data_info");
@@ -2752,18 +3268,18 @@ namespace CREA2014
             {
                 if (Version == 0)
                     return (mswr) => new MainDataInfomation[]{
-                        new MainDataInfomation(typeof(AnonymousAccountHolder), 0, () => anonymousAccountHolder, (o) => 
+                        new MainDataInfomation(typeof(AnonymousAccountHolder), 0, () => anonymousAccountHolder, (o) =>
                         {
                             anonymousAccountHolder = (AnonymousAccountHolder)o;
                             anonymousAccountHolder.AccountHolderChanged += accountHolders_changed;
-                        }), 
-                        new MainDataInfomation(typeof(PseudonymousAccountHolder[]), 0, null, () => pseudonymousAccountHolders.ToArray(), (o) => 
+                        }),
+                        new MainDataInfomation(typeof(PseudonymousAccountHolder[]), 0, null, () => pseudonymousAccountHolders.ToArray(), (o) =>
                         {
                             pseudonymousAccountHolders = ((PseudonymousAccountHolder[])o).ToList();
                             foreach (var pah in pseudonymousAccountHolders)
                                 pah.AccountHolderChanged += accountHolders_changed;
-                        }), 
-                        new MainDataInfomation(typeof(PseudonymousAccountHolder[]), 0, null, () => candidateAccountHolders.ToArray(), (o) => candidateAccountHolders = ((PseudonymousAccountHolder[])o).ToList()), 
+                        }),
+                        new MainDataInfomation(typeof(PseudonymousAccountHolder[]), 0, null, () => candidateAccountHolders.ToArray(), (o) => candidateAccountHolders = ((PseudonymousAccountHolder[])o).ToList()),
                     };
                 else
                     throw new NotSupportedException("account_holder_database_main_data_info");
