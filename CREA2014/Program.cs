@@ -88,6 +88,18 @@ namespace CREA2014
     {
         #region 一般
 
+        //操作型を受け取ってそのまま返す（拡張：操作型）
+        public static Action Lambda<T>(this T dummy, Action action)
+        {
+            return action;
+        }
+
+        //関数型を受け取ってそのまま返す（拡張：関数型）
+        public static Func<U> Lambda<T, U>(this T dummy, Func<U> func)
+        {
+            return func;
+        }
+
         //UIスレッドで処理を同期的に実行する（拡張：操作型）
         public static void ExecuteInUIThread(this Action action)
         {
@@ -95,9 +107,9 @@ namespace CREA2014
                 action();
             else
                 if (Application.Current.Dispatcher.CheckAccess())
-                action();
-            else
-                Application.Current.Dispatcher.Invoke(new Action(() => action()));
+                    action();
+                else
+                    Application.Current.Dispatcher.Invoke(new Action(() => action()));
         }
 
         //UIスレッドで処理を同期的に実行する（拡張：関数型）
@@ -107,13 +119,13 @@ namespace CREA2014
                 return action();
             else
                 if (Application.Current.Dispatcher.CheckAccess())
-                return action();
-            else
-            {
-                T result = default(T);
-                Application.Current.Dispatcher.Invoke(new Action(() => result = action()));
-                return result;
-            }
+                    return action();
+                else
+                {
+                    T result = default(T);
+                    Application.Current.Dispatcher.Invoke(new Action(() => result = action()));
+                    return result;
+                }
         }
 
         //UIスレッドで処理を非同期的に実行する（拡張：操作型）
@@ -123,9 +135,9 @@ namespace CREA2014
                 action();
             else
                 if (Application.Current.Dispatcher.CheckAccess())
-                action();
-            else
-                Application.Current.Dispatcher.BeginInvoke(new Action(() => action()));
+                    action();
+                else
+                    Application.Current.Dispatcher.BeginInvoke(new Action(() => action()));
         }
 
         //UIスレッドで処理を同期的に実行する（拡張：関数型）
@@ -135,13 +147,13 @@ namespace CREA2014
                 return action();
             else
                 if (Application.Current.Dispatcher.CheckAccess())
-                return action();
-            else
-            {
-                T result = default(T);
-                Application.Current.Dispatcher.BeginInvoke(new Action(() => result = action()));
-                return result;
-            }
+                    return action();
+                else
+                {
+                    T result = default(T);
+                    Application.Current.Dispatcher.BeginInvoke(new Action(() => result = action()));
+                    return result;
+                }
         }
 
         //プライベートIPアドレスか（拡張：IPアドレス型）
@@ -796,6 +808,7 @@ namespace CREA2014
             public abstract void WriteBytes(byte[] data, int? length);
             public abstract void WriteBool(bool data);
             public abstract void WriteInt(int data);
+            public abstract void WriteUint(uint data);
             public abstract void WriteFloat(float data);
             public abstract void WriteLong(long data);
             public abstract void WriteDouble(double data);
@@ -809,6 +822,7 @@ namespace CREA2014
             public abstract byte[] ReadBytes(int? length);
             public abstract bool ReadBool();
             public abstract int ReadInt();
+            public abstract uint ReadUint();
             public abstract float ReadFloat();
             public abstract long ReadLong();
             public abstract double ReadDouble();
@@ -977,6 +991,8 @@ namespace CREA2014
                     writer.WriteBool((bool)o);
                 else if (type == typeof(int))
                     writer.WriteInt((int)o);
+                else if (type == typeof(uint))
+                    writer.WriteUint((uint)o);
                 else if (type == typeof(float))
                     writer.WriteFloat((float)o);
                 else if (type == typeof(long))
@@ -1025,6 +1041,8 @@ namespace CREA2014
                     return reader.ReadBool();
                 else if (type == typeof(int))
                     return reader.ReadInt();
+                else if (type == typeof(uint))
+                    return reader.ReadUint();
                 else if (type == typeof(float))
                     return reader.ReadFloat();
                 else if (type == typeof(long))
@@ -1068,9 +1086,9 @@ namespace CREA2014
 
         public class CommunicationApparatusWriter : STREAMWRITER
         {
-            private readonly CommunicationApparatus ca;
+            private readonly ICommunicationApparatus ca;
 
-            public CommunicationApparatusWriter(CommunicationApparatus _ca)
+            public CommunicationApparatusWriter(ICommunicationApparatus _ca)
             {
                 ca = _ca;
             }
@@ -1086,6 +1104,11 @@ namespace CREA2014
             }
 
             public override void WriteInt(int data)
+            {
+                ca.WriteBytes(BitConverter.GetBytes(data));
+            }
+
+            public override void WriteUint(uint data)
             {
                 ca.WriteBytes(BitConverter.GetBytes(data));
             }
@@ -1131,9 +1154,9 @@ namespace CREA2014
 
         public class CommunicationApparatusReader : STREAMREADER
         {
-            private readonly CommunicationApparatus ca;
+            private readonly ICommunicationApparatus ca;
 
-            public CommunicationApparatusReader(CommunicationApparatus _ca)
+            public CommunicationApparatusReader(ICommunicationApparatus _ca)
             {
                 ca = _ca;
             }
@@ -1151,6 +1174,11 @@ namespace CREA2014
             public override int ReadInt()
             {
                 return BitConverter.ToInt32(ca.ReadBytes(), 0);
+            }
+
+            public override uint ReadUint()
+            {
+                return BitConverter.ToUInt32(ca.ReadBytes(), 0);
             }
 
             public override float ReadFloat()
@@ -1229,7 +1257,7 @@ namespace CREA2014
             }
         }
 
-        protected void Communicate(CommunicationApparatus ca, ClientOrServer clientOrServer)
+        protected void Communicate(ICommunicationApparatus ca, ClientOrServer clientOrServer)
         {
             CommunicationApparatusWriter writer = new CommunicationApparatusWriter(ca);
             CommunicationApparatusReader reader = new CommunicationApparatusReader(ca);
@@ -1300,6 +1328,11 @@ namespace CREA2014
             }
 
             public override void WriteInt(int data)
+            {
+                stream.Write(BitConverter.GetBytes(data), 0, 4);
+            }
+
+            public override void WriteUint(uint data)
             {
                 stream.Write(BitConverter.GetBytes(data), 0, 4);
             }
@@ -1383,6 +1416,13 @@ namespace CREA2014
                 byte[] bytes = new byte[4];
                 stream.Read(bytes, 0, 4);
                 return BitConverter.ToInt32(bytes, 0);
+            }
+
+            public override uint ReadUint()
+            {
+                byte[] bytes = new byte[4];
+                stream.Read(bytes, 0, 4);
+                return BitConverter.ToUInt32(bytes, 0);
             }
 
             public override float ReadFloat()
@@ -2817,8 +2857,9 @@ namespace CREA2014
 
             logMessages = new Dictionary<string, Func<string[], string>>() {
                 {"exist_same_name_account_holder", (args) => "同名の口座名義人が存在します。".Multilanguage(93)},
-                {"client_socket", (args) => "エラーが発生しました。".Multilanguage(94)},
-                {"listener_socket", (args) => "エラーが発生しました。".Multilanguage(95)},
+                {"outbound_chennel", (args) => "エラーが発生しました。".Multilanguage(94)},
+                {"inbound_channel", (args) => "エラーが発生しました。".Multilanguage(95)},
+                {"inbound_channels", (args) => "エラーが発生しました。".Multilanguage(113)},
                 {"task", (args) => "エラーが発生しました。".Multilanguage(96)},
                 {"task_aborted", (args) => "作業が強制終了されました。".Multilanguage(97)},
                 {"all_tasks_aborted", (args) => "全ての作業が強制終了されました。".Multilanguage(98)},

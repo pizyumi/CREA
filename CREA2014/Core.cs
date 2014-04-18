@@ -222,9 +222,13 @@ namespace CREA2014
         }
     }
 
+    public interface ICommunicationApparatus
+    {
+        byte[] ReadBytes();
+        void WriteBytes(byte[] data);
+    }
 
-
-    public class CommunicationApparatus
+    public class CommunicationApparatus : ICommunicationApparatus
     {
         private readonly NetworkStream ns;
         private readonly RijndaelManaged rm;
@@ -322,14 +326,14 @@ namespace CREA2014
                 }
                 else
                     if (isCompressed)
-                {
-                    using (DeflateStream ds = new DeflateStream(ms, CompressionMode.Decompress))
-                        ds.Read(data, 0, data.Length);
+                    {
+                        using (DeflateStream ds = new DeflateStream(ms, CompressionMode.Decompress))
+                            ds.Read(data, 0, data.Length);
 
-                    return data;
-                }
-                else
-                    return readData;
+                        return data;
+                    }
+                    else
+                        return readData;
         }
 
         private void WriteBytesInner(byte[] data, bool isCompressed)
@@ -359,16 +363,16 @@ namespace CREA2014
                         }
                 else
                     if (isCompressed)
-                    using (DeflateStream ds = new DeflateStream(ms, CompressionMode.Compress))
+                        using (DeflateStream ds = new DeflateStream(ms, CompressionMode.Compress))
+                        {
+                            ds.Write(data, 0, data.Length);
+                            ds.Flush();
+                        }
+                    else
                     {
-                        ds.Write(data, 0, data.Length);
-                        ds.Flush();
+                        ms.Write(data, 0, data.Length);
+                        ms.Flush();
                     }
-                else
-                {
-                    ms.Write(data, 0, data.Length);
-                    ms.Flush();
-                }
 
                 writeData = ms.ToArray();
             }
@@ -1515,93 +1519,97 @@ namespace CREA2014
 
                 if (IsPort0)
                     this.RaiseNotification("port0".GetLogMessage(), 5);
-                else if ((ipAddress = GetIpAddress()) != null && (RSACryptoServiceProvider rsacsp = GetRSACryptoServiceProvider()) != null)
+                else if ((ipAddress = GetIpAddress()) != null)
                 {
-                    privateRsaParameters = rsacsp.ToXmlString(true);
-                    nodeInfo = new NodeInformation(ipAddress, port, Network, rsacsp.ToXmlString(false));
-                    listener = CreateListener(port, (ca, ipEndPoint) =>
+                    RSACryptoServiceProvider rsacsp = GetRSACryptoServiceProvider();
+                    if (rsacsp != null)
                     {
-                        Header header = SHAREDDATA.FromBinary<Header>(ca.ReadBytes());
-
-                        NodeInformation aiteNodeInfo = null;
-                        if (!header.nodeInfo.IpAddress.Equals(ipEndPoint.Address))
+                        privateRsaParameters = rsacsp.ToXmlString(true);
+                        nodeInfo = new NodeInformation(ipAddress, port, Network, rsacsp.ToXmlString(false));
+                        listener = CreateListener(port, (ca, ipEndPoint) =>
                         {
-                            this.RaiseNotification("aite_wrong_node_info".GetLogMessage(ipEndPoint.Address.ToString(), header.nodeInfo.Port.ToString()), 5);
+                            Header header = SHAREDDATA.FromBinary<Header>(ca.ReadBytes());
 
-                            aiteNodeInfo = new NodeInformation(ipEndPoint.Address, header.nodeInfo.Port, header.nodeInfo.Network, header.nodeInfo.PublicRSAParameters);
-                        }
-
-                        HeaderResponse headerResponse = new HeaderResponse(nodeInfo, header.nodeInfo.Network == Network, IsAlreadyConnected(header.nodeInfo), aiteNodeInfo, header.creaVersion < creaVersion, protocolVersion, appnameWithVersion);
-
-                        if (aiteNodeInfo == null)
-                            aiteNodeInfo = header.nodeInfo;
-
-                        if ((!headerResponse.isSameNetwork).RaiseNotification(GetType(), "aite_wrong_network".GetLogMessage(aiteNodeInfo.IpAddress.ToString(), aiteNodeInfo.Port.ToString()), 5))
-                            return;
-                        if (headerResponse.isAlreadyConnected.RaiseNotification(GetType(), "aite_already_connected".GetLogMessage(aiteNodeInfo.IpAddress.ToString(), aiteNodeInfo.Port.ToString()), 5))
-                            return;
-                        //<未実装>不良ノードは拒否する？
-
-                        UpdateNodeState(aiteNodeInfo, true);
-
-                        if (header.creaVersion > creaVersion)
-                        {
-                            //相手のクライアントバージョンの方が大きい場合の処理
-                            //<未実装>使用者への通知
-                            //<未実装>自動ダウンロード、バージョンアップなど
-                            //ここで直接行うべきではなく、イベントを発令するべきだろう
-                        }
-
-                        ca.WriteBytes(headerResponse.ToBinary());
-
-                        int sessionProtocolVersion = Math.Min(header.protocolVersion, protocolVersion);
-                        if (sessionProtocolVersion == 0)
-                        {
-                            string aite = string.Join(":", header.nodeInfo.IpAddress.ToString(), header.nodeInfo.Port.ToString());
-                            string zibun = string.Join(":", ipAddress.ToString(), port.ToString());
-                            string aiteZibun = string.Join("-->", aite, zibun);
-
-                            Action<string> _ConsoleWriteLine = (text) => string.Join(" ", aiteZibun, text).ConsoleWriteLine();
-
-                            if (header.isTemporary)
+                            NodeInformation aiteNodeInfo = null;
+                            if (!header.nodeInfo.IpAddress.Equals(ipEndPoint.Address))
                             {
-                                ServerProtocol(SHAREDDATA.FromBinary<Message>(ca.ReadBytes()), ca, _ConsoleWriteLine);
+                                this.RaiseNotification("aite_wrong_node_info".GetLogMessage(ipEndPoint.Address.ToString(), header.nodeInfo.Port.ToString()), 5);
 
-                                if (IsContinue)
+                                aiteNodeInfo = new NodeInformation(ipEndPoint.Address, header.nodeInfo.Port, header.nodeInfo.Network, header.nodeInfo.PublicRSAParameters);
+                            }
+
+                            HeaderResponse headerResponse = new HeaderResponse(nodeInfo, header.nodeInfo.Network == Network, IsAlreadyConnected(header.nodeInfo), aiteNodeInfo, header.creaVersion < creaVersion, protocolVersion, appnameWithVersion);
+
+                            if (aiteNodeInfo == null)
+                                aiteNodeInfo = header.nodeInfo;
+
+                            if ((!headerResponse.isSameNetwork).RaiseNotification(GetType(), "aite_wrong_network".GetLogMessage(aiteNodeInfo.IpAddress.ToString(), aiteNodeInfo.Port.ToString()), 5))
+                                return;
+                            if (headerResponse.isAlreadyConnected.RaiseNotification(GetType(), "aite_already_connected".GetLogMessage(aiteNodeInfo.IpAddress.ToString(), aiteNodeInfo.Port.ToString()), 5))
+                                return;
+                            //<未実装>不良ノードは拒否する？
+
+                            UpdateNodeState(aiteNodeInfo, true);
+
+                            if (header.creaVersion > creaVersion)
+                            {
+                                //相手のクライアントバージョンの方が大きい場合の処理
+                                //<未実装>使用者への通知
+                                //<未実装>自動ダウンロード、バージョンアップなど
+                                //ここで直接行うべきではなく、イベントを発令するべきだろう
+                            }
+
+                            ca.WriteBytes(headerResponse.ToBinary());
+
+                            int sessionProtocolVersion = Math.Min(header.protocolVersion, protocolVersion);
+                            if (sessionProtocolVersion == 0)
+                            {
+                                string aite = string.Join(":", header.nodeInfo.IpAddress.ToString(), header.nodeInfo.Port.ToString());
+                                string zibun = string.Join(":", ipAddress.ToString(), port.ToString());
+                                string aiteZibun = string.Join("-->", aite, zibun);
+
+                                Action<string> _ConsoleWriteLine = (text) => string.Join(" ", aiteZibun, text).ConsoleWriteLine();
+
+                                if (header.isTemporary)
                                 {
-                                    bool isWantToContinue = IsWantToContinue(header.nodeInfo);
-                                    ca.WriteBytes(BitConverter.GetBytes(isWantToContinue));
-                                    if (isWantToContinue)
+                                    ServerProtocol(SHAREDDATA.FromBinary<Message>(ca.ReadBytes()), ca, _ConsoleWriteLine);
+
+                                    if (IsContinue)
                                     {
-                                        bool isClientCanContinue = BitConverter.ToBoolean(ca.ReadBytes(), 0);
-                                        if (isClientCanContinue)
-                                            ListenerContinue(aiteNodeInfo, ca, _ConsoleWriteLine);
+                                        bool isWantToContinue = IsWantToContinue(header.nodeInfo);
+                                        ca.WriteBytes(BitConverter.GetBytes(isWantToContinue));
+                                        if (isWantToContinue)
+                                        {
+                                            bool isClientCanContinue = BitConverter.ToBoolean(ca.ReadBytes(), 0);
+                                            if (isClientCanContinue)
+                                                ListenerContinue(aiteNodeInfo, ca, _ConsoleWriteLine);
+                                        }
                                     }
                                 }
+                                else if (IsContinue)
+                                {
+                                    bool isCanListenerContinue = IsListenerCanContinue(header.nodeInfo);
+                                    ca.WriteBytes(BitConverter.GetBytes(isCanListenerContinue));
+                                    if (isCanListenerContinue)
+                                        ListenerContinue(aiteNodeInfo, ca, _ConsoleWriteLine);
+                                }
                             }
-                            else if (IsContinue)
-                            {
-                                bool isCanListenerContinue = IsListenerCanContinue(header.nodeInfo);
-                                ca.WriteBytes(BitConverter.GetBytes(isCanListenerContinue));
-                                if (isCanListenerContinue)
-                                    ListenerContinue(aiteNodeInfo, ca, _ConsoleWriteLine);
-                            }
-                        }
-                        else
-                            throw new NotSupportedException("not_supported_protocol_ver");
-                    });
-                    listener.ClientFailed += (sender, e) =>
-                    {
-                        //<未実装>接続成功後通信に失敗した場合はどうすれば良いか？
-                        //　　　　ノード離脱と推測してノード情報を更新するべきか？
-                    };
-                    listener.StartListener();
+                            else
+                                throw new NotSupportedException("not_supported_protocol_ver");
+                        });
+                        listener.ClientFailed += (sender, e) =>
+                        {
+                            //<未実装>接続成功後通信に失敗した場合はどうすれば良いか？
+                            //　　　　ノード離脱と推測してノード情報を更新するべきか？
+                        };
+                        listener.StartListener();
 
-                    this.RaiseNotification("server_started".GetLogMessage(ipAddress.ToString(), port.ToString()), 5);
+                        this.RaiseNotification("server_started".GetLogMessage(ipAddress.ToString(), port.ToString()), 5);
 
-                    ServerStarted(this, EventArgs.Empty);
+                        ServerStarted(this, EventArgs.Empty);
 
-                    NotifyFirstNodeInfo();
+                        NotifyFirstNodeInfo();
+                    }
                 }
 
                 if (nodeInfo == null)
@@ -1965,7 +1973,8 @@ namespace CREA2014
         private readonly object listenerNodesLock = new object();
         private Dictionary<NodeInformation, CommunicationQueue> listenerNodes;
 
-        public CreaNodeLocalTestContinue(ushort _port, int _creaVersion, string _appnameWithVersion) : base(_port, _creaVersion, _appnameWithVersion)
+        public CreaNodeLocalTestContinue(ushort _port, int _creaVersion, string _appnameWithVersion)
+            : base(_port, _creaVersion, _appnameWithVersion)
         {
             nodeStates = new Dictionary<NodeInformation, NodeState>();
             clientNodes = new Dictionary<NodeInformation, CommunicationQueue>();
@@ -2173,9 +2182,27 @@ namespace CREA2014
             }
         }
 
-        public class SessionMessage
+        public class SessionMessage : Message
         {
+            public uint id { get; private set; }
 
+            public SessionMessage(MessageBase _messageBase, uint _id)
+                : base(_messageBase)
+            {
+                id = _id;
+            }
+
+            public SessionMessage() : base(null) { }
+
+            protected override Func<ReaderWriter, IEnumerable<MainDataInfomation>> StreamInfo
+            {
+                get
+                {
+                    return (msrw) => base.StreamInfo(msrw).Concat(new MainDataInfomation[]{
+                        new MainDataInfomation(typeof(uint), () => id, (o) => id = (uint)o),
+                    });
+                }
+            }
         }
 
         protected override bool IsContinue
@@ -2252,7 +2279,56 @@ namespace CREA2014
                         sp2.Children.Add(tb);
                     })).BeginExecuteInUIThread();
 
-                    this.StartTask(() => Test2NodesContinue(), string.Empty, string.Empty);
+                    this.StartTask(() =>
+                    {
+                        RealInboundChennel ric = new RealInboundChennel(7777, 100);
+                        ric.Accepted += (sender2, e2) =>
+                        {
+                            this.Lambda(() => Console.WriteLine("accepted")).BeginExecuteInUIThread();
+
+                            for (int i = 0; i < 4; i++)
+                            {
+                                byte[] bytes = e2.ReadBytes();
+
+                                uint id = BitConverter.ToUInt32(bytes, 0);
+                                string text = Encoding.UTF8.GetString(bytes, 4, bytes.Length - 4);
+
+                                this.Lambda(() => Console.WriteLine(string.Join(":", id.ToString(), text))).BeginExecuteInUIThread();
+                            }
+
+                            //string str = Encoding.UTF8.GetString(e2.ReadBytes());
+
+                            //this.Lambda(() => Console.WriteLine(str)).BeginExecuteInUIThread();
+                        };
+                        ric.RequestAcceptanceStart();
+
+                        Thread.Sleep(1000);
+
+                        RealOutboundChannel roc = new RealOutboundChannel(IPAddress.Loopback, 7777);
+                        roc.Connected += (sender2, e2) =>
+                        {
+                            SessionChannel sc1 = e2.NewSession();
+
+                            sc1.WriteBytes(Encoding.UTF8.GetBytes("test1-sc1"));
+
+                            SessionChannel sc2 = e2.NewSession();
+
+                            sc2.WriteBytes(Encoding.UTF8.GetBytes("test2-sc2"));
+
+                            sc1.WriteBytes(Encoding.UTF8.GetBytes("test3-sc1"));
+
+                            sc2.WriteBytes(Encoding.UTF8.GetBytes("test4-sc2"));
+
+                            //this.Lambda(() => Console.WriteLine("connected")).BeginExecuteInUIThread();
+
+                            //string str = "test";
+
+                            //e2.WriteBytes(Encoding.UTF8.GetBytes(str));
+                        };
+                        roc.RequestConnection();
+
+                        //Test2NodesContinue();
+                    }, string.Empty, string.Empty);
                 };
 
                 Closed += (sender, e) =>
@@ -2272,7 +2348,7 @@ namespace CREA2014
                 while (!cnltc1.IsStartCompleted)
                     Thread.Sleep(100);
                 CreaNodeLocalTestContinue cnltc2 = new CreaNodeLocalTestContinue(7778, 0, "test");
-                cnltc2.KeepConnectionsCompleted += (sender, e) => cnltc2.DiffuseInv(null, null);
+                //cnltc2.KeepConnectionsCompleted += (sender, e) => cnltc2.DiffuseInv(null, null);
                 cnltc2.Start();
                 while (!cnltc2.IsStartCompleted)
                     Thread.Sleep(100);
