@@ -80,6 +80,32 @@ namespace CREA2014
         }
     }
 
+    public class MultipleReturn<T, U>
+    {
+        public MultipleReturn(T _value1)
+        {
+            Value1 = _value1;
+        }
+
+        public MultipleReturn(U _value2)
+        {
+            Value2 = _value2;
+        }
+
+        public T Value1 { get; private set; }
+        public U Value2 { get; private set; }
+
+        public bool IsValue1
+        {
+            get { return Value1 != null; }
+        }
+
+        public bool IsValue2
+        {
+            get { return Value2 != null; }
+        }
+    }
+
     #endregion
 
     #region 拡張メソッド
@@ -472,6 +498,22 @@ namespace CREA2014
                 Array.Copy(array[i], 0, combined, index, array[i].Length);
 
             return combined;
+        }
+
+        //配列を分解する（拡張：任意の配列型）
+        public static T[] Decompose<T>(this T[] self, int start)
+        {
+            T[] decomposed = new T[self.Length - start];
+            Array.Copy(self, start, decomposed, 0, decomposed.Length);
+            return decomposed;
+        }
+
+        //配列を複製する（拡張：任意の配列型）
+        public static T[] Reprecate<T>(this T[] self)
+        {
+            T[] reprecated = new T[self.Length];
+            Array.Copy(self, reprecated, self.Length);
+            return reprecated;
         }
 
         //繰り返し文字列を作る（拡張：文字列型）
@@ -2848,11 +2890,15 @@ namespace CREA2014
 
             logGrounds = new Dictionary<Type, LogData.LogGround>(){
                 { typeof(AccountHolderDatabase), LogData.LogGround.signData},
+                { typeof(InboundChannelsBase), LogData.LogGround.networkBase},
+                { typeof(OutboundChannelBase), LogData.LogGround.networkBase},
+                { typeof(SocketChannel), LogData.LogGround.networkBase},
                 { typeof(Client), LogData.LogGround.networkBase},
                 { typeof(Listener), LogData.LogGround.networkBase},
                 { typeof(CREANODEBASE), LogData.LogGround.creaNetwork},
                 { typeof(CreaNode), LogData.LogGround.creaNetwork },
                 { typeof(CreaNodeLocalTestContinue), LogData.LogGround.creaNetwork},
+                { typeof(Cremlia), LogData.LogGround.cremlia},
             };
 
             logMessages = new Dictionary<string, Func<string[], string>>() {
@@ -2860,6 +2906,8 @@ namespace CREA2014
                 {"outbound_chennel", (args) => "エラーが発生しました。".Multilanguage(94)},
                 {"inbound_channel", (args) => "エラーが発生しました。".Multilanguage(95)},
                 {"inbound_channels", (args) => "エラーが発生しました。".Multilanguage(113)},
+                {"socket_channel_write", (args) => "エラーが発生しました。".Multilanguage(114)},
+                {"socket_channel_read", (args) => "エラーが発生しました。".Multilanguage(115)},
                 {"task", (args) => "エラーが発生しました。".Multilanguage(96)},
                 {"task_aborted", (args) => "作業が強制終了されました。".Multilanguage(97)},
                 {"all_tasks_aborted", (args) => "全ての作業が強制終了されました。".Multilanguage(98)},
@@ -2875,8 +2923,10 @@ namespace CREA2014
                 {"aite_wrong_network", (args) => string.Format("ノードが所属しているネットワークが異なります：{0}:{1}".Multilanguage(108), args[0], args[1])},
                 {"aite_already_connected", (args) => string.Format("既に接続しているノードから再び接続が要求されました：{0}:{1}".Multilanguage(109), args[0], args[1])},
                 {"wrong_network", (args) => string.Format("別のネットワークに所属しているノードに接続しました：{0}:{1}".Multilanguage(110), args[0], args[1])},
-                {"already_connected", (args) => string.Format("既に接続しているノードに接続しました：{0}:{1}".Multilanguage(111), args[0], args[1])},
+                {"already_connected", (args) => string.Format("既に接続しているノードに接続しました：{0}:{1}".Multilanguage(111), args[0], args[1])}, 
                 { "keep_conn_completed", (args) => "常時接続が確立しました。".Multilanguage(112)},
+                { "find_table_already_added", (args) => string.Format(string.Join(Environment.NewLine, "DHTの検索リスト項目は既に登録されています。".Multilanguage(116), "距離：{0}".Multilanguage(117), "ノード1：{1}".Multilanguage(118), "ノード2：{2}".Multilanguage(119)), args[0], args[1], args[3])}, 
+                {"find_nodes", (args) => string.Format("{0}個の近接ノードを発見しました。".Multilanguage(120), args[0])},
             };
 
             exceptionMessages = new Dictionary<string, Func<string>>() {

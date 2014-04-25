@@ -129,7 +129,7 @@ namespace CREA2014
             Listener listener = new Listener(port, RsaKeySize.rsa2048, protocolProcess);
             listener.ClientConnected += (sender, e) =>
             {
-                ConnectionData connection = new ConnectionData(connectionNumber++, e.IpAddress, e.Port, e.MyPort, ConnectionData.ConnectionDirection.up);
+                ConnectionData connection = new ConnectionData(e.IpAddress, e.Port, e.MyPort, ChannelDirection.inbound, DateTime.Now);
 
                 lock (listenerConnections)
                     listenerConnections.Add(e, connection);
@@ -169,7 +169,7 @@ namespace CREA2014
             Client client = new Client(ipAddress, port, RsaKeySize.rsa2048, PrivateRsaParameters, protocolProcess);
             client.ConnectSucceeded += (sender, e) =>
             {
-                connection = new ConnectionData(connectionNumber++, e.IpAddress, e.Port, e.MyPort, ConnectionData.ConnectionDirection.down);
+                connection = new ConnectionData(e.IpAddress, e.Port, e.MyPort, ChannelDirection.outbound, DateTime.Now);
 
                 AddConnection(connection);
             };
@@ -212,7 +212,7 @@ namespace CREA2014
         {
             ConnectionHistory connectionHistory;
             lock (connectionHistoriesLock)
-                if ((connectionHistory = connectionHistories.Where((e) => e.IpAddress.Equals(ipAddress)).FirstOrDefault()) == null)
+                if ((connectionHistory = connectionHistories.Where((e) => e.ipAddress.Equals(ipAddress)).FirstOrDefault()) == null)
                     connectionHistories.Add(connectionHistory = new ConnectionHistory(ipAddress));
 
             if (isSucceeded)
@@ -842,91 +842,46 @@ namespace CREA2014
 
     public class ConnectionData : INTERNALDATA
     {
-        private readonly int number;
-        public int Number
-        {
-            get { return number; }
-        }
+        public ConnectionData(SocketChannel _sc) : this(_sc.aiteIpAddress, _sc.aitePortNumber, _sc.zibunPortNumber, _sc.direction, _sc.connectionTime) { }
 
-        private readonly IPAddress ipAddress;
-        public IPAddress IpAddress
+        public ConnectionData(IPAddress _ipAddress, ushort _portNumber, ushort _myPortNumber, ChannelDirection _direction, DateTime _connectionTime)
         {
-            get { return ipAddress; }
-        }
-
-        private readonly ushort port;
-        public ushort Port
-        {
-            get { return port; }
-        }
-
-        private readonly ushort myPort;
-        public ushort MyPort
-        {
-            get { return myPort; }
-        }
-
-        private readonly ConnectionDirection direction;
-        public ConnectionDirection Direction
-        {
-            get { return direction; }
-        }
-
-        private readonly DateTime connectedTime;
-        public DateTime ConnectedTime
-        {
-            get { return connectedTime; }
-        }
-
-        public enum ConnectionDirection { up, down }
-
-        public ConnectionData(int _number, IPAddress _ipAddress, ushort _port, ushort _myPort, ConnectionDirection _direction)
-        {
-            number = _number;
             ipAddress = _ipAddress;
-            port = _port;
-            myPort = _myPort;
+            portNumber = _portNumber;
+            myPortNumber = _myPortNumber;
             direction = _direction;
-            connectedTime = DateTime.Now;
+            connectionTime = _connectionTime;
         }
+
+        public readonly IPAddress ipAddress;
+        public readonly ushort portNumber;
+        public readonly ushort myPortNumber;
+        public readonly ChannelDirection direction;
+        public readonly DateTime connectionTime;
 
         public TimeSpan Duration
         {
-            get { return DateTime.Now - connectedTime; }
+            get { return DateTime.Now - connectionTime; }
         }
     }
 
     public class ConnectionHistory
     {
-        private readonly IPAddress ipAddress;
-        public IPAddress IpAddress
-        {
-            get { return ipAddress; }
-        }
-
-        private int success;
-        public int Success
-        {
-            get { return success; }
-        }
-
-        private int failure;
-        public int Failure
-        {
-            get { return failure; }
-        }
-
-        private readonly object failureTimeLock = new object();
-        private List<DateTime> failureTime;
-        public DateTime[] FailureTime
-        {
-            get { return failureTime.ToArray(); }
-        }
-
         public ConnectionHistory(IPAddress _ipAddress)
         {
             ipAddress = _ipAddress;
-            failureTime = new List<DateTime>();
+        }
+
+        public readonly IPAddress ipAddress;
+
+        public int success { get; private set; }
+        public int failure { get; private set; }
+
+        private readonly object failureTimeLock = new object();
+        private readonly List<DateTime> failureTime = new List<DateTime>();
+        public DateTime[] FailureTime
+        {
+            get { return failureTime.ToArray(); }
         }
 
         public int Connection
@@ -962,7 +917,7 @@ namespace CREA2014
         {
             success++;
 
-            lock (failureTime)
+            lock (failureTimeLock)
                 failureTime.Clear();
         }
 
@@ -970,7 +925,7 @@ namespace CREA2014
         {
             failure++;
 
-            lock (failureTime)
+            lock (failureTimeLock)
             {
                 if (failureTime.Count >= 2)
                     while (failureTime.Count >= 2)
@@ -987,372 +942,369 @@ namespace CREA2014
 
     public enum Network { localtest = 0, global = 1 }
 
+    public enum MessageName
+    {
+        inv = 10,
+        getdata = 11,
+        tx = 12,
+        block = 13,
+        notfound = 14,
+    }
+
+    public class Message : SHAREDDATA
+    {
+        public Message() : this(null) { }
+
+        public Message(MessageBase _messageBase)
+            : base(0)
+        {
+            messageBase = _messageBase;
+        }
+
+        public MessageBase messageBase { get; private set; }
+
+        public MessageName name
+        {
+            get
+            {
+                if (messageBase is Inv)
+                    return MessageName.inv;
+                else if (messageBase is Getdata)
+                    return MessageName.getdata;
+                else if (messageBase is TxTest)
+                    return MessageName.tx;
+                else
+                    throw new NotSupportedException("massage_base_not_supported");
+            }
+        }
+
+        protected override Func<ReaderWriter, IEnumerable<MainDataInfomation>> StreamInfo
+        {
+            get { return (msrw) => StreamInfoInner(msrw); }
+        }
+        private IEnumerable<MainDataInfomation> StreamInfoInner(ReaderWriter msrw)
+        {
+            if (Version == 0)
+            {
+                MessageName mn;
+                yield return new MainDataInfomation(typeof(int), () => (int)name, (o) =>
+                {
+                    mn = (MessageName)o;
+                    if (mn == MessageName.inv)
+                        messageBase = new Inv();
+                    else if (mn == MessageName.getdata)
+                        messageBase = new Getdata();
+                    else if (mn == MessageName.tx)
+                        messageBase = new TxTest();
+                    else
+                        throw new NotSupportedException("message_name_not_supported");
+                });
+                foreach (var mdi in messageBase.PublicStreamInfo(null))
+                    yield return mdi;
+            }
+            else
+                throw new NotSupportedException("message_main_data_info");
+        }
+
+        public override bool IsVersioned
+        {
+            get { return true; }
+        }
+
+        public override bool IsCorruptionChecked
+        {
+            get
+            {
+                if (Version <= 0)
+                    return false;
+                else
+                    throw new NotSupportedException("message_check");
+            }
+        }
+    }
+
+    public abstract class MessageBase : SHAREDDATA
+    {
+        public MessageBase() : base(null) { }
+
+        public MessageBase(int? _version) : base(_version) { }
+
+        public Func<ReaderWriter, IEnumerable<MainDataInfomation>> PublicStreamInfo
+        {
+            get { return StreamInfo; }
+        }
+    }
+
+    public abstract class MessageSha256Hash : MessageBase
+    {
+        public MessageSha256Hash(Sha256Hash _hash) : this(null, _hash) { }
+
+        public MessageSha256Hash(int? _version, Sha256Hash _hash)
+            : base(_version)
+        {
+            hash = _hash;
+        }
+
+        public Sha256Hash hash { get; private set; }
+
+        protected override Func<ReaderWriter, IEnumerable<MainDataInfomation>> StreamInfo
+        {
+            get
+            {
+                return (msrw) => new MainDataInfomation[]{
+                    new MainDataInfomation(typeof(Sha256Hash), null, () => hash, (o) => hash = (Sha256Hash)o),
+                };
+            }
+        }
+    }
+
+    public class Inv : MessageSha256Hash
+    {
+        public Inv() : this(new Sha256Hash()) { }
+
+        public Inv(Sha256Hash _hash) : base(0, _hash) { }
+
+        protected override Func<ReaderWriter, IEnumerable<MainDataInfomation>> StreamInfo
+        {
+            get
+            {
+                if (Version == 0)
+                    return base.StreamInfo;
+                else
+                    throw new NotSupportedException("inv_main_data_info");
+            }
+        }
+
+        public override bool IsVersioned
+        {
+            get { return true; }
+        }
+
+        public override bool IsCorruptionChecked
+        {
+            get
+            {
+                if (Version <= 0)
+                    return false;
+                else
+                    throw new NotSupportedException("inv_check");
+            }
+        }
+    }
+
+    public class Getdata : MessageSha256Hash
+    {
+        public Getdata() : this(new Sha256Hash()) { }
+
+        public Getdata(Sha256Hash _hash) : base(0, _hash) { }
+
+        protected override Func<ReaderWriter, IEnumerable<MainDataInfomation>> StreamInfo
+        {
+            get
+            {
+                if (Version == 0)
+                    return base.StreamInfo;
+                else
+                    throw new NotSupportedException("getdata_main_data_info");
+            }
+        }
+
+        public override bool IsVersioned
+        {
+            get { return true; }
+        }
+
+        public override bool IsCorruptionChecked
+        {
+            get
+            {
+                if (Version <= 0)
+                    return false;
+                else
+                    throw new NotSupportedException("getdata_check");
+            }
+        }
+    }
+
+    //試験用
+    public class TxTest : MessageBase
+    {
+        public TxTest()
+            : base(0)
+        {
+            data = new byte[1024];
+            for (int i = 0; i < data.Length; i++)
+                data[i] = (byte)256.RandomNum();
+        }
+
+        public byte[] data { get; private set; }
+
+        protected override Func<ReaderWriter, IEnumerable<MainDataInfomation>> StreamInfo
+        {
+            get
+            {
+                if (Version == 0)
+                    return (msrw) => new MainDataInfomation[]{
+                        new MainDataInfomation(typeof(byte[]), 1024, () => data, (o) => data = (byte[])o),
+                    };
+                else
+                    throw new NotSupportedException("tx_test_main_data_info");
+            }
+        }
+
+        public override bool IsVersioned
+        {
+            get { return true; }
+        }
+
+        public override bool IsCorruptionChecked
+        {
+            get
+            {
+                if (Version <= 0)
+                    return false;
+                else
+                    throw new NotSupportedException("tx_test_check");
+            }
+        }
+    }
+
+    public class Header : SHAREDDATA
+    {
+        public Header() : base(0) { }
+
+        public Header(NodeInformation _nodeInfo, int _creaVersion, int _protocolVersion, string _client, bool _isTemporary)
+            : base(0)
+        {
+            if (_client.Length > 256)
+                throw new InvalidDataException("client_too_lengthy");
+
+            nodeInfo = _nodeInfo;
+            creaVersion = _creaVersion;
+            protocolVersion = _protocolVersion;
+            client = _client;
+            isTemporary = _isTemporary;
+        }
+
+        public NodeInformation nodeInfo { get; private set; }
+        public int creaVersion { get; private set; }
+        public int protocolVersion { get; private set; }
+        public string client { get; private set; }
+        public bool isTemporary { get; private set; }
+
+        protected override Func<ReaderWriter, IEnumerable<MainDataInfomation>> StreamInfo
+        {
+            get { return (msrw) => StreamInfoInner; }
+        }
+        private IEnumerable<MainDataInfomation> StreamInfoInner
+        {
+            get
+            {
+                if (Version == 0)
+                {
+                    bool isInBound = nodeInfo != null;
+                    yield return new MainDataInfomation(typeof(bool), () => isInBound, (o) => isInBound = (bool)o);
+                    if (isInBound)
+                        yield return new MainDataInfomation(typeof(NodeInformation), 0, () => nodeInfo, (o) => nodeInfo = (NodeInformation)o);
+                    yield return new MainDataInfomation(typeof(int), () => creaVersion, (o) => creaVersion = (int)o);
+                    yield return new MainDataInfomation(typeof(int), () => protocolVersion, (o) => protocolVersion = (int)o);
+                    yield return new MainDataInfomation(typeof(string), () => client, (o) => client = (string)o);
+                    yield return new MainDataInfomation(typeof(bool), () => isTemporary, (o) => isTemporary = (bool)o);
+                }
+                else
+                    throw new NotSupportedException("header_stream_info");
+            }
+        }
+
+        public override bool IsVersioned
+        {
+            get { return true; }
+        }
+
+        public override bool IsCorruptionChecked
+        {
+            get
+            {
+                if (Version <= 0)
+                    return false;
+                else
+                    throw new NotSupportedException("header_corruption_checked");
+            }
+        }
+    }
+
+    public class HeaderResponse : SHAREDDATA
+    {
+        public HeaderResponse() : base(0) { }
+
+        public HeaderResponse(NodeInformation _nodeInfo, bool _isSameNetwork, bool _isAlreadyConnected, NodeInformation _correctNodeInfo, bool _isOldCreaVersion, int _protocolVersion, string _client)
+            : base(0)
+        {
+            if (_client.Length > 256)
+                throw new InvalidDataException("client_too_lengthy");
+
+            nodeInfo = _nodeInfo;
+            isSameNetwork = _isSameNetwork;
+            isAlreadyConnected = _isAlreadyConnected;
+            correctNodeInfo = _correctNodeInfo;
+            isOldCreaVersion = _isOldCreaVersion;
+            protocolVersion = _protocolVersion;
+            client = _client;
+        }
+
+        public NodeInformation nodeInfo { get; private set; }
+        public bool isSameNetwork { get; private set; }
+        public bool isAlreadyConnected { get; private set; }
+        public NodeInformation correctNodeInfo { get; private set; }
+        public bool isOldCreaVersion { get; private set; }
+        public int protocolVersion { get; private set; }
+        public string client { get; private set; }
+
+        protected override Func<ReaderWriter, IEnumerable<MainDataInfomation>> StreamInfo
+        {
+            get { return (msrw) => StreamInfoInner; }
+        }
+        private IEnumerable<MainDataInfomation> StreamInfoInner
+        {
+            get
+            {
+                if (Version == 0)
+                {
+                    yield return new MainDataInfomation(typeof(NodeInformation), 0, () => nodeInfo, (o) => nodeInfo = (NodeInformation)o);
+                    yield return new MainDataInfomation(typeof(bool), () => isSameNetwork, (o) => isSameNetwork = (bool)o);
+                    bool isCorrectNodeInfo = correctNodeInfo == null;
+                    yield return new MainDataInfomation(typeof(bool), () => isCorrectNodeInfo, (o) => isCorrectNodeInfo = (bool)o);
+                    if (!isCorrectNodeInfo)
+                        yield return new MainDataInfomation(typeof(NodeInformation), 0, () => correctNodeInfo, (o) => correctNodeInfo = (NodeInformation)o);
+                    yield return new MainDataInfomation(typeof(bool), () => isOldCreaVersion, (o) => isOldCreaVersion = (bool)o);
+                    yield return new MainDataInfomation(typeof(bool), () => isAlreadyConnected, (o) => isAlreadyConnected = (bool)o);
+                    yield return new MainDataInfomation(typeof(int), () => protocolVersion, (o) => protocolVersion = (int)o);
+                    yield return new MainDataInfomation(typeof(string), () => client, (o) => client = (string)o);
+                }
+                else
+                    throw new NotSupportedException("header_res_stream_info");
+            }
+        }
+
+        public override bool IsVersioned
+        {
+            get { return true; }
+        }
+
+        public override bool IsCorruptionChecked
+        {
+            get
+            {
+                if (Version <= 0)
+                    return false;
+                else
+                    throw new NotSupportedException("header_res_corruption_checked");
+            }
+        }
+    }
+
     public abstract class CREANODEBASE : P2PNODE
     {
-        public enum MessageName
-        {
-            inv = 10,
-            getdata = 11,
-            tx = 12,
-            block = 13,
-            notfound = 14,
-        }
-
-        public class Message : SHAREDDATA
-        {
-            public MessageBase messageBase { get; private set; }
-
-            public MessageName name
-            {
-                get
-                {
-                    if (messageBase is Inv)
-                        return MessageName.inv;
-                    else if (messageBase is Getdata)
-                        return MessageName.getdata;
-                    else if (messageBase is TxTest)
-                        return MessageName.tx;
-                    else
-                        throw new NotSupportedException("massage_base_not_supported");
-                }
-            }
-
-            public Message(MessageBase _messageBase)
-                : base(0)
-            {
-                messageBase = _messageBase;
-            }
-
-            public Message() : this(null) { }
-
-            protected override Func<ReaderWriter, IEnumerable<MainDataInfomation>> StreamInfo
-            {
-                get { return (msrw) => StreamInfoInner; }
-            }
-            private IEnumerable<MainDataInfomation> StreamInfoInner
-            {
-                get
-                {
-                    if (Version == 0)
-                    {
-                        MessageName mn;
-                        yield return new MainDataInfomation(typeof(int), () => (int)name, (o) =>
-                        {
-                            mn = (MessageName)o;
-                            if (mn == MessageName.inv)
-                                messageBase = new Inv();
-                            else if (mn == MessageName.getdata)
-                                messageBase = new Getdata();
-                            else if (mn == MessageName.tx)
-                                messageBase = new TxTest();
-                            else
-                                throw new NotSupportedException("message_name_not_supported");
-                        });
-                        foreach (var mdi in messageBase.PublicStreamInfo(null))
-                            yield return mdi;
-                    }
-                    else
-                        throw new NotSupportedException("message_main_data_info");
-                }
-            }
-
-            public override bool IsVersioned
-            {
-                get { return true; }
-            }
-
-            public override bool IsCorruptionChecked
-            {
-                get
-                {
-                    if (Version <= 0)
-                        return true;
-                    else
-                        throw new NotSupportedException("message_check");
-                }
-            }
-        }
-
-        public abstract class MessageBase : SHAREDDATA
-        {
-            public MessageBase(int? _version) : base(_version) { }
-
-            public MessageBase() : base(null) { }
-
-            public virtual Func<ReaderWriter, IEnumerable<MainDataInfomation>> PublicStreamInfo
-            {
-                get { return StreamInfo; }
-            }
-        }
-
-        public abstract class MessageSha256Hash : MessageBase
-        {
-            public Sha256Hash hash { get; private set; }
-
-            public MessageSha256Hash(int? _version, Sha256Hash _hash)
-                : base(_version)
-            {
-                hash = _hash;
-            }
-
-            public MessageSha256Hash(Sha256Hash _hash) : this(null, _hash) { }
-
-            protected override Func<ReaderWriter, IEnumerable<MainDataInfomation>> StreamInfo
-            {
-                get
-                {
-                    return (msrw) => new MainDataInfomation[]{
-                        new MainDataInfomation(typeof(Sha256Hash), null, () => hash, (o) => hash = (Sha256Hash)o),
-                    };
-                }
-            }
-        }
-
-        public class Inv : MessageSha256Hash
-        {
-            public Inv(Sha256Hash _hash) : base(0, _hash) { }
-
-            public Inv() : this(new Sha256Hash()) { }
-
-            protected override Func<ReaderWriter, IEnumerable<MainDataInfomation>> StreamInfo
-            {
-                get
-                {
-                    if (Version == 0)
-                        return base.StreamInfo;
-                    else
-                        throw new NotSupportedException("inv_main_data_info");
-                }
-            }
-
-            public override bool IsVersioned
-            {
-                get { return true; }
-            }
-
-            public override bool IsCorruptionChecked
-            {
-                get
-                {
-                    if (Version <= 0)
-                        return true;
-                    else
-                        throw new NotSupportedException("inv_check");
-                }
-            }
-        }
-
-        public class Getdata : MessageSha256Hash
-        {
-            public Getdata(Sha256Hash _hash) : base(0, _hash) { }
-
-            public Getdata() : this(new Sha256Hash()) { }
-
-            protected override Func<ReaderWriter, IEnumerable<MainDataInfomation>> StreamInfo
-            {
-                get
-                {
-                    if (Version == 0)
-                        return base.StreamInfo;
-                    else
-                        throw new NotSupportedException("getdata_main_data_info");
-                }
-            }
-
-            public override bool IsVersioned
-            {
-                get { return true; }
-            }
-
-            public override bool IsCorruptionChecked
-            {
-                get
-                {
-                    if (Version <= 0)
-                        return true;
-                    else
-                        throw new NotSupportedException("getdata_check");
-                }
-            }
-        }
-
-        //試験用
-        public class TxTest : MessageBase
-        {
-            public byte[] data { get; private set; }
-
-            public TxTest()
-                : base(0)
-            {
-                data = new byte[1024];
-                for (int i = 0; i < data.Length; i++)
-                    data[i] = (byte)256.RandomNum();
-            }
-
-            protected override Func<ReaderWriter, IEnumerable<MainDataInfomation>> StreamInfo
-            {
-                get
-                {
-                    if (Version == 0)
-                        return (msrw) => new MainDataInfomation[]{
-                            new MainDataInfomation(typeof(byte[]), 1024, () => data, (o) => data = (byte[])o),
-                        };
-                    else
-                        throw new NotSupportedException("tx_test_main_data_info");
-                }
-            }
-
-            public override bool IsVersioned
-            {
-                get { return true; }
-            }
-
-            public override bool IsCorruptionChecked
-            {
-                get
-                {
-                    if (Version <= 0)
-                        return true;
-                    else
-                        throw new NotSupportedException("tx_test_check");
-                }
-            }
-        }
-
-        public class Header : SHAREDDATA
-        {
-            public NodeInformation nodeInfo { get; private set; }
-            public int creaVersion { get; private set; }
-            public int protocolVersion { get; private set; }
-            public string client { get; private set; }
-            public bool isTemporary { get; private set; }
-
-            public Header() : base(0) { }
-
-            public Header(NodeInformation _nodeInfo, int _creaVersion, int _protocolVersion, string _client, bool _isTemporary)
-                : base(0)
-            {
-                if (_client.Length > 256)
-                    throw new InvalidDataException("client_too_lengthy");
-
-                nodeInfo = _nodeInfo;
-                creaVersion = _creaVersion;
-                protocolVersion = _protocolVersion;
-                client = _client;
-                isTemporary = _isTemporary;
-            }
-
-            protected override Func<ReaderWriter, IEnumerable<MainDataInfomation>> StreamInfo
-            {
-                get { return (msrw) => StreamInfoInner; }
-            }
-            private IEnumerable<MainDataInfomation> StreamInfoInner
-            {
-                get
-                {
-                    if (Version == 0)
-                    {
-                        bool isInBound = nodeInfo != null;
-                        yield return new MainDataInfomation(typeof(bool), () => isInBound, (o) => isInBound = (bool)o);
-                        if (isInBound)
-                            yield return new MainDataInfomation(typeof(NodeInformation), 0, () => nodeInfo, (o) => nodeInfo = (NodeInformation)o);
-                        yield return new MainDataInfomation(typeof(int), () => creaVersion, (o) => creaVersion = (int)o);
-                        yield return new MainDataInfomation(typeof(int), () => protocolVersion, (o) => protocolVersion = (int)o);
-                        yield return new MainDataInfomation(typeof(string), () => client, (o) => client = (string)o);
-                        yield return new MainDataInfomation(typeof(bool), () => isTemporary, (o) => isTemporary = (bool)o);
-                    }
-                    else
-                        throw new NotSupportedException("header_stream_info");
-                }
-            }
-
-            public override bool IsVersioned
-            {
-                get { return true; }
-            }
-
-            public override bool IsCorruptionChecked
-            {
-                get
-                {
-                    if (Version <= 0)
-                        return true;
-                    else
-                        throw new NotSupportedException("header_corruption_checked");
-                }
-            }
-        }
-
-        public class HeaderResponse : SHAREDDATA
-        {
-            public NodeInformation nodeInfo { get; private set; }
-            public bool isSameNetwork { get; private set; }
-            public bool isAlreadyConnected { get; private set; }
-            public NodeInformation correctNodeInfo { get; private set; }
-            public bool isOldCreaVersion { get; private set; }
-            public int protocolVersion { get; private set; }
-            public string client { get; private set; }
-
-            public HeaderResponse() : base(0) { }
-
-            public HeaderResponse(NodeInformation _nodeInfo, bool _isSameNetwork, bool _isAlreadyConnected, NodeInformation _correctNodeInfo, bool _isOldCreaVersion, int _protocolVersion, string _client)
-                : base(0)
-            {
-                if (_client.Length > 256)
-                    throw new InvalidDataException("client_too_lengthy");
-
-                nodeInfo = _nodeInfo;
-                isSameNetwork = _isSameNetwork;
-                isAlreadyConnected = _isAlreadyConnected;
-                correctNodeInfo = _correctNodeInfo;
-                isOldCreaVersion = _isOldCreaVersion;
-                protocolVersion = _protocolVersion;
-                client = _client;
-            }
-
-            protected override Func<ReaderWriter, IEnumerable<MainDataInfomation>> StreamInfo
-            {
-                get { return (msrw) => StreamInfoInner; }
-            }
-            private IEnumerable<MainDataInfomation> StreamInfoInner
-            {
-                get
-                {
-                    if (Version == 0)
-                    {
-                        yield return new MainDataInfomation(typeof(NodeInformation), 0, () => nodeInfo, (o) => nodeInfo = (NodeInformation)o);
-                        yield return new MainDataInfomation(typeof(bool), () => isSameNetwork, (o) => isSameNetwork = (bool)o);
-                        bool isCorrectNodeInfo = correctNodeInfo == null;
-                        yield return new MainDataInfomation(typeof(bool), () => isCorrectNodeInfo, (o) => isCorrectNodeInfo = (bool)o);
-                        if (!isCorrectNodeInfo)
-                            yield return new MainDataInfomation(typeof(NodeInformation), 0, () => correctNodeInfo, (o) => correctNodeInfo = (NodeInformation)o);
-                        yield return new MainDataInfomation(typeof(bool), () => isOldCreaVersion, (o) => isOldCreaVersion = (bool)o);
-                        yield return new MainDataInfomation(typeof(bool), () => isAlreadyConnected, (o) => isAlreadyConnected = (bool)o);
-                        yield return new MainDataInfomation(typeof(int), () => protocolVersion, (o) => protocolVersion = (int)o);
-                        yield return new MainDataInfomation(typeof(string), () => client, (o) => client = (string)o);
-                    }
-                    else
-                        throw new NotSupportedException("header_stream_info");
-                }
-            }
-
-            public override bool IsVersioned
-            {
-                get { return true; }
-            }
-
-            public override bool IsCorruptionChecked
-            {
-                get
-                {
-                    if (Version <= 0)
-                        return true;
-                    else
-                        throw new NotSupportedException("header_res_corruption_checked");
-                }
-            }
-        }
-
         private readonly int creaVersion;
         private readonly string appnameWithVersion;
         private readonly int protocolVersion;
@@ -2275,59 +2227,14 @@ namespace CREA2014
                         TextBlock tb = new TextBlock();
                         tb.Text = e2.Text;
                         tb.Foreground = e2.Kind == Program.LogData.LogKind.error ? Brushes.Red : Brushes.White;
+                        tb.Margin = new Thickness(0.0, 10.0, 0.0, 10.0);
 
                         sp2.Children.Add(tb);
                     })).BeginExecuteInUIThread();
 
                     this.StartTask(() =>
                     {
-                        RealInboundChennel ric = new RealInboundChennel(7777, 100);
-                        ric.Accepted += (sender2, e2) =>
-                        {
-                            this.Lambda(() => Console.WriteLine("accepted")).BeginExecuteInUIThread();
-
-                            for (int i = 0; i < 4; i++)
-                            {
-                                byte[] bytes = e2.ReadBytes();
-
-                                uint id = BitConverter.ToUInt32(bytes, 0);
-                                string text = Encoding.UTF8.GetString(bytes, 4, bytes.Length - 4);
-
-                                this.Lambda(() => Console.WriteLine(string.Join(":", id.ToString(), text))).BeginExecuteInUIThread();
-                            }
-
-                            //string str = Encoding.UTF8.GetString(e2.ReadBytes());
-
-                            //this.Lambda(() => Console.WriteLine(str)).BeginExecuteInUIThread();
-                        };
-                        ric.RequestAcceptanceStart();
-
-                        Thread.Sleep(1000);
-
-                        RealOutboundChannel roc = new RealOutboundChannel(IPAddress.Loopback, 7777);
-                        roc.Connected += (sender2, e2) =>
-                        {
-                            SessionChannel sc1 = e2.NewSession();
-
-                            sc1.WriteBytes(Encoding.UTF8.GetBytes("test1-sc1"));
-
-                            SessionChannel sc2 = e2.NewSession();
-
-                            sc2.WriteBytes(Encoding.UTF8.GetBytes("test2-sc2"));
-
-                            sc1.WriteBytes(Encoding.UTF8.GetBytes("test3-sc1"));
-
-                            sc2.WriteBytes(Encoding.UTF8.GetBytes("test4-sc2"));
-
-                            //this.Lambda(() => Console.WriteLine("connected")).BeginExecuteInUIThread();
-
-                            //string str = "test";
-
-                            //e2.WriteBytes(Encoding.UTF8.GetBytes(str));
-                        };
-                        roc.RequestConnection();
-
-                        //Test2NodesContinue();
+                        Test10NodesInv();
                     }, string.Empty, string.Empty);
                 };
 
@@ -2339,6 +2246,114 @@ namespace CREA2014
 
                     File.AppendAllText(Path.Combine(new FileInfo(Assembly.GetEntryAssembly().Location).DirectoryName, "LogTest.txt"), fileText);
                 };
+            }
+
+            private void Test10NodesInv()
+            {
+                Stopwatch stopwatch = new Stopwatch();
+                int counter = 0;
+
+                int numOfNodes = 5;
+                CreaNodeLocalTestNotContinue2[] cnlts = new CreaNodeLocalTestNotContinue2[numOfNodes];
+                for (int i = 0; i < numOfNodes; i++)
+                {
+                    cnlts[i] = new CreaNodeLocalTestNotContinue2((ushort)(7777 + i), 0, "test");
+                    cnlts[i].TxtestReceived += (sender2, e2) =>
+                    {
+                        counter++;
+                        (string.Join(":", e2.IpAddress.ToString(), e2.Port.ToString()) + " " + counter.ToString() + " " + ((double)counter / (double)numOfNodes).ToString() + " " + stopwatch.Elapsed.ToString()).ConsoleWriteLine();
+
+                        if (counter == numOfNodes - 1)
+                            stopwatch.Stop();
+                    };
+                    cnlts[i].Start();
+                    while (!cnlts[i].isStartCompleted)
+                        Thread.Sleep(100);
+                }
+
+                MessageBox.Show("start");
+
+                stopwatch.Start();
+
+                cnlts[numOfNodes - 1].DiffuseInv(null, null);
+            }
+
+            private void Test2NodesInv2()
+            {
+                CreaNodeLocalTestNotContinue2 cnlt1 = new CreaNodeLocalTestNotContinue2(7777, 0, "test");
+                cnlt1.Start();
+                while (!cnlt1.isStartCompleted)
+                    Thread.Sleep(100);
+                CreaNodeLocalTestNotContinue2 cnlt2 = new CreaNodeLocalTestNotContinue2(7778, 0, "test");
+                cnlt2.Start();
+                while (!cnlt2.isStartCompleted)
+                    Thread.Sleep(100);
+
+                cnlt2.DiffuseInv(null, null);
+            }
+
+            private void TestChannel()
+            {
+                RealInboundChennel ric = new RealInboundChennel(7777, RsaKeySize.rsa2048, 100);
+                ric.Accepted += (sender2, e2) =>
+                {
+                    this.Lambda(() => Console.WriteLine("accepted")).BeginExecuteInUIThread();
+
+                    e2.Sessioned += (sender3, e3) =>
+                    {
+                        this.Lambda(() => Console.WriteLine("sessioned")).BeginExecuteInUIThread();
+
+                        string str1 = Encoding.UTF8.GetString(e3.ReadBytes());
+
+                        this.Lambda(() => Console.WriteLine(str1)).BeginExecuteInUIThread();
+
+                        string str2 = Encoding.UTF8.GetString(e3.ReadBytes());
+
+                        this.Lambda(() => Console.WriteLine(str2)).BeginExecuteInUIThread();
+                    };
+                };
+                ric.RequestAcceptanceStart();
+
+                Thread.Sleep(1000);
+
+                string privateRsaParameters;
+                using (RSACryptoServiceProvider rsacsp = new RSACryptoServiceProvider(2048))
+                    privateRsaParameters = rsacsp.ToXmlString(true);
+
+                RealOutboundChannel roc = new RealOutboundChannel(IPAddress.Loopback, 7777, RsaKeySize.rsa2048, privateRsaParameters);
+                roc.Connected += (sender2, e2) =>
+                {
+                    this.Lambda(() => Console.WriteLine("connected")).BeginExecuteInUIThread();
+
+                    Thread.Sleep(5000);
+
+                    this.StartTask(() =>
+                    {
+                        SessionChannel sc1 = e2.NewSession();
+
+                        sc1.WriteBytes(Encoding.UTF8.GetBytes("test1-sc1"));
+
+                        Thread.Sleep(10000);
+
+                        sc1.WriteBytes(Encoding.UTF8.GetBytes("test3-sc1"));
+                    }, string.Empty, string.Empty);
+
+                    Thread.Sleep(5000);
+
+                    this.StartTask(() =>
+                    {
+                        SessionChannel sc2 = e2.NewSession();
+
+                        sc2.WriteBytes(Encoding.UTF8.GetBytes("test2-sc1"));
+
+                        Thread.Sleep(10000);
+
+                        sc2.WriteBytes(Encoding.UTF8.GetBytes("test4-sc1"));
+                    }, string.Empty, string.Empty);
+
+                    Thread.Sleep(5000);
+                };
+                roc.RequestConnection();
             }
 
             private void Test2NodesContinue()
@@ -2679,6 +2694,436 @@ namespace CREA2014
         {
             return Id.Equals(other.Id);
         }
+    }
+
+    #endregion
+
+    #region cremlia
+
+    public interface ICremliaHash
+    {
+        int Size { get; }
+        byte[] Bytes { get; }
+
+        ICremliaHash XOR(ICremliaHash hash);
+    }
+
+    public interface ICremliaNodeInfomation
+    {
+        ICremliaHash Id { get; }
+    }
+
+    public interface ICremliaNetworkIo
+    {
+        event EventHandler<ICremliaNetworkIoSession> SessionStarted;
+
+        ICremliaNetworkIoSession StartSession(ICremliaNodeInfomation nodeInfo);
+    }
+
+    public interface ICremliaNetworkIoSession
+    {
+        ICremliaNodeInfomation NodeInfo { get; }
+
+        void Write(CremliaMessageBase message);
+        CremliaMessageBase Read();
+        void Close();
+    }
+
+    public interface ICremliaDatabaseIo
+    {
+        byte[] Get(ICremliaHash id);
+        void Set(ICremliaHash id, byte[] data);
+    }
+
+    public class Cremlia
+    {
+        public Cremlia(ICremliaDatabaseIo _databaseIo, ICremliaNetworkIo _networkIo, ICremliaNodeInfomation _myNodeInfo) : this(_databaseIo, _networkIo, _myNodeInfo, 256, 20, 3) { }
+
+        public Cremlia(ICremliaDatabaseIo _databaseIo, ICremliaNetworkIo _networkIo, ICremliaNodeInfomation _myNodeInfo, int _keySpace, int _K, int _α)
+        {
+            if (_myNodeInfo.Id.Size != _keySpace)
+                throw new InvalidDataException("id_size_and_key_space");
+
+            databaseIo = _databaseIo;
+            networkIo = _networkIo;
+            myNodeInfo = _myNodeInfo;
+            keySpace = _keySpace;
+            K = _K;
+            α = _α;
+
+            kbuckets = new List<ICremliaNodeInfomation>[keySpace];
+            for (int i = 0; i < kbuckets.Length; i++)
+                kbuckets[i] = new List<ICremliaNodeInfomation>();
+            kbucketsLocks = new object[keySpace];
+            for (int i = 0; i < kbucketsLocks.Length; i++)
+                kbucketsLocks[i] = new object();
+
+            networkIo.SessionStarted += (sender, e) =>
+            {
+                CremliaMessageBase message = e.Read();
+                if (message is PingReqMessage)
+                    e.Write(new PingResMessage());
+                else if (message is StoreReqMessage)
+                {
+                    StoreReqMessage srm = message as StoreReqMessage;
+                    databaseIo.Set(srm.id, srm.data);
+                }
+                else if (message is FindNodesReqMessage)
+                {
+                    SortedList<ICremliaHash, ICremliaNodeInfomation> findTable = new SortedList<ICremliaHash, ICremliaNodeInfomation>();
+                    GetNeighborNodeTable((message as FindNodesReqMessage).id, findTable);
+                    e.Write(new NeighborNodesMessage(findTable.Values.ToArray()));
+                }
+                else if (message is FindValueReqMessage)
+                {
+                    ICremliaHash id = (message as FindValueReqMessage).id;
+
+                    byte[] data = databaseIo.Get(id);
+                    if (data == null)
+                    {
+                        SortedList<ICremliaHash, ICremliaNodeInfomation> findTable = new SortedList<ICremliaHash, ICremliaNodeInfomation>();
+                        GetNeighborNodeTable(id, findTable);
+                        e.Write(new NeighborNodesMessage(findTable.Values.ToArray()));
+                    }
+                    else
+                        e.Write(new ValueMessage(data));
+                }
+                else
+                    throw new NotSupportedException("cremlia_not_supported_message");
+
+                e.Close();
+
+                UpdateNodeState(e.NodeInfo, true);
+            };
+        }
+
+        private readonly ICremliaDatabaseIo databaseIo;
+        private readonly ICremliaNetworkIo networkIo;
+        private readonly object[] kbucketsLocks;
+        private readonly List<ICremliaNodeInfomation>[] kbuckets;
+
+        public readonly ICremliaNodeInfomation myNodeInfo;
+        public readonly int keySpace;
+        public readonly int K;
+        public readonly int α;
+
+        public bool ReqPing(ICremliaNodeInfomation nodeInfo)
+        {
+            if (nodeInfo.Equals(myNodeInfo))
+                throw new ArgumentException("cremlia_my_node");
+
+            ICremliaNetworkIoSession session = networkIo.StartSession(nodeInfo);
+            if (session == null)
+            {
+                UpdateNodeState(nodeInfo, false);
+                return false;
+            }
+
+            session.Write(new PingReqMessage());
+            CremliaMessageBase message = session.Read();
+            session.Close();
+
+            if (message == null || !(message is PingResMessage))
+            {
+                UpdateNodeState(nodeInfo, false);
+                return false;
+            }
+
+            UpdateNodeState(nodeInfo, true);
+            return true;
+        }
+
+        public bool ReqStore(ICremliaNodeInfomation nodeInfo, ICremliaHash id, byte[] data)
+        {
+            if (nodeInfo.Equals(myNodeInfo))
+                throw new ArgumentException("cremlia_my_node");
+
+            ICremliaNetworkIoSession session = networkIo.StartSession(nodeInfo);
+            if (session == null)
+            {
+                UpdateNodeState(nodeInfo, false);
+                return false;
+            }
+
+            session.Write(new StoreReqMessage(id, data));
+            session.Close();
+
+            UpdateNodeState(nodeInfo, true);
+            return true;
+        }
+
+        public ICremliaNodeInfomation[] ReqFindNodes(ICremliaNodeInfomation nodeInfo, ICremliaHash id)
+        {
+            ICremliaNetworkIoSession session = networkIo.StartSession(nodeInfo);
+            if (session == null)
+            {
+                UpdateNodeState(nodeInfo, false);
+                return null;
+            }
+
+            session.Write(new FindNodesReqMessage(id));
+            CremliaMessageBase message = session.Read();
+            session.Close();
+
+            if (message == null || !(message is NeighborNodesMessage))
+            {
+                UpdateNodeState(nodeInfo, false);
+                return null;
+            }
+
+            UpdateNodeState(nodeInfo, true);
+            return (message as NeighborNodesMessage).NodeInfos;
+        }
+
+        public MultipleReturn<ICremliaNodeInfomation[], byte[]> ReqFindValue(ICremliaNodeInfomation nodeInfo, ICremliaHash id)
+        {
+            ICremliaNetworkIoSession session = networkIo.StartSession(nodeInfo);
+            if (session == null)
+            {
+                UpdateNodeState(nodeInfo, false);
+                return null;
+            }
+
+            session.Write(new FindValueReqMessage(id));
+            CremliaMessageBase message = session.Read();
+            session.Close();
+
+            if (message != null)
+                if (message is NeighborNodesMessage)
+                {
+                    UpdateNodeState(nodeInfo, true);
+                    return new MultipleReturn<ICremliaNodeInfomation[], byte[]>((message as NeighborNodesMessage).NodeInfos);
+                }
+                else if (message is ValueMessage)
+                {
+                    UpdateNodeState(nodeInfo, true);
+                    return new MultipleReturn<ICremliaNodeInfomation[], byte[]>((message as ValueMessage).data);
+                }
+
+            UpdateNodeState(nodeInfo, false);
+            return null;
+        }
+
+        public List<ICremliaNodeInfomation> FindNodes(ICremliaHash id)
+        {
+            object lockObj = new object();
+            SortedList<ICremliaHash, ICremliaNodeInfomation> findTable = new SortedList<ICremliaHash, ICremliaNodeInfomation>();
+            Dictionary<ICremliaNodeInfomation, bool> checkTable = new Dictionary<ICremliaNodeInfomation, bool>();
+            Dictionary<ICremliaNodeInfomation, bool?> checkTableSucceedOrFail = new Dictionary<ICremliaNodeInfomation, bool?>();
+
+            GetNeighborNodeTable(id, findTable);
+            foreach (var nodeInfo in findTable.Values)
+                checkTable.Add(nodeInfo, false);
+            foreach (var nodeInfo in findTable.Values)
+                checkTableSucceedOrFail.Add(nodeInfo, null);
+
+            AutoResetEvent[] ares = new AutoResetEvent[α];
+            for (int i = 0; i < α; i++)
+            {
+                int inner = i;
+
+                ares[inner] = new AutoResetEvent(false);
+
+                this.StartTask(() =>
+                {
+                    while (true)
+                    {
+                        ICremliaNodeInfomation nodeInfo = null;
+                        lock (lockObj)
+                        {
+                            int c = 0;
+                            for (int j = 0; j < findTable.Count; j++)
+                                if (!checkTable[findTable[findTable.Keys[j]]])
+                                {
+                                    nodeInfo = findTable[findTable.Keys[j]];
+                                    checkTable[findTable[findTable.Keys[j]]] = true;
+                                    break;
+                                }
+                                else if (checkTableSucceedOrFail[findTable[findTable.Keys[j]]] == true && ++c == K)
+                                    break;
+                        }
+
+                        if (nodeInfo == null)
+                            break;
+                        else
+                        {
+                            ICremliaNodeInfomation[] nodeInfos = ReqFindNodes(nodeInfo, id);
+                            lock (lockObj)
+                                if (nodeInfos == null)
+                                    checkTableSucceedOrFail[nodeInfo] = false;
+                                else
+                                {
+                                    checkTableSucceedOrFail[nodeInfo] = true;
+
+                                    foreach (ICremliaNodeInfomation n in nodeInfos)
+                                    {
+                                        ICremliaHash xor = id.XOR(n.Id);
+                                        if (!findTable.Keys.Contains(xor) && !n.Equals(myNodeInfo))
+                                        {
+                                            findTable.Add(xor, n);
+                                            checkTable.Add(n, false);
+                                            checkTableSucceedOrFail.Add(n, null);
+                                        }
+                                    }
+                                }
+                        }
+                    }
+
+                    ares[inner].Set();
+                }, "cremlia_find_nodes", "cremlia_find_nodes");
+            }
+
+            for (int i = 0; i < α; i++)
+                ares[i].WaitOne();
+
+            List<ICremliaNodeInfomation> findNodes = new List<ICremliaNodeInfomation>();
+            for (int i = 0; i < findTable.Count; i++)
+                if (checkTable[findTable[findTable.Keys[i]]] && checkTableSucceedOrFail[findTable[findTable.Keys[i]]] == true)
+                {
+                    findNodes.Add(findTable[findTable.Keys[i]]);
+                    if (findNodes.Count == K)
+                        break;
+                }
+
+            return findNodes;
+        }
+
+        public int GetDistanceLevel(ICremliaHash id)
+        {
+            ICremliaHash xor = id.XOR(myNodeInfo.Id);
+
+            //距離が0の場合にはdistanceLevelは-1
+            //　　論文ではハッシュ値の衝突が考慮されていないっぽい？
+            int distanceLevel = keySpace - 1;
+            for (int i = 0; i < xor.Bytes.Length; i++)
+                if (xor.Bytes[i] == 0)
+                    distanceLevel -= 8;
+                else
+                {
+                    if (xor.Bytes[i] == 1)
+                        distanceLevel -= 7;
+                    else if (xor.Bytes[i] <= 3 && xor.Bytes[i] >= 2)
+                        distanceLevel -= 6;
+                    else if (xor.Bytes[i] <= 7 && xor.Bytes[i] >= 4)
+                        distanceLevel -= 5;
+                    else if (xor.Bytes[i] <= 15 && xor.Bytes[i] >= 8)
+                        distanceLevel -= 4;
+                    else if (xor.Bytes[i] <= 31 && xor.Bytes[i] >= 16)
+                        distanceLevel -= 3;
+                    else if (xor.Bytes[i] <= 63 && xor.Bytes[i] >= 32)
+                        distanceLevel -= 2;
+                    else if (xor.Bytes[i] <= 127 && xor.Bytes[i] >= 64)
+                        distanceLevel -= 1;
+
+                    break;
+                }
+
+            return distanceLevel;
+        }
+
+        public void GetNeighborNodeTable(ICremliaHash id, SortedList<ICremliaHash, ICremliaNodeInfomation> findTable)
+        {
+            Func<ICremliaNodeInfomation, bool> TryFindTableAddition = (nodeInfo) =>
+            {
+                ICremliaHash distance = id.XOR(nodeInfo.Id);
+                if (!findTable.ContainsKey(distance))
+                    findTable.Add(distance, nodeInfo);
+                else
+                    this.RaiseError("find_table_already_added".GetLogMessage(distance.ToString(), findTable[distance].Id.ToString(), nodeInfo.Id.ToString()), 5);
+
+                return findTable.Count >= K;
+            };
+
+            int distanceLevel = GetDistanceLevel(id);
+
+            lock (kbucketsLocks[distanceLevel])
+                foreach (ICremliaNodeInfomation nodeInfo in kbuckets[distanceLevel])
+                    if (TryFindTableAddition(nodeInfo))
+                        return;
+
+            for (int i = distanceLevel - 1; i >= 0; i--)
+                lock (kbucketsLocks[i])
+                    foreach (ICremliaNodeInfomation nodeInfo in kbuckets[i])
+                        if (TryFindTableAddition(nodeInfo))
+                            return;
+
+            for (int i = distanceLevel + 1; i < kbuckets.Length; i++)
+                lock (kbucketsLocks[i])
+                    foreach (ICremliaNodeInfomation nodeInfo in kbuckets[i])
+                        if (TryFindTableAddition(nodeInfo))
+                            return;
+        }
+
+        private void UpdateNodeState(ICremliaNodeInfomation nodeInfo, bool isValid)
+        {
+            ICremliaHash id = nodeInfo.Id;
+            if (id.Size != keySpace)
+                throw new InvalidOperationException("invalid_id_size");
+
+            //<未実装>
+        }
+    }
+
+    public abstract class CremliaMessageBase { }
+
+    public class PingReqMessage : CremliaMessageBase { }
+
+    public class PingResMessage : CremliaMessageBase { }
+
+    public class StoreReqMessage : CremliaMessageBase
+    {
+        public StoreReqMessage(ICremliaHash _id, byte[] _data)
+        {
+            id = _id;
+            data = _data;
+        }
+
+        public readonly ICremliaHash id;
+        public readonly byte[] data;
+    }
+
+    public class FindNodesReqMessage : CremliaMessageBase
+    {
+        public FindNodesReqMessage(ICremliaHash _id)
+        {
+            id = _id;
+        }
+
+        public readonly ICremliaHash id;
+    }
+
+    public class NeighborNodesMessage : CremliaMessageBase
+    {
+        public NeighborNodesMessage(ICremliaNodeInfomation[] _nodeInfos)
+        {
+            nodeInfos = _nodeInfos;
+        }
+
+        private readonly ICremliaNodeInfomation[] nodeInfos;
+        public ICremliaNodeInfomation[] NodeInfos
+        {
+            get { return nodeInfos.Reprecate(); }
+        }
+    }
+
+    public class FindValueReqMessage : CremliaMessageBase
+    {
+        public FindValueReqMessage(ICremliaHash _id)
+        {
+            id = _id;
+        }
+
+        public readonly ICremliaHash id;
+    }
+
+    public class ValueMessage : CremliaMessageBase
+    {
+        public ValueMessage(byte[] _data)
+        {
+            data = _data;
+        }
+
+        public readonly byte[] data;
     }
 
     #endregion
@@ -3446,76 +3891,6 @@ namespace CREA2014
 
     #endregion
 
-    public class TransactionInput
-    {
-        private Sha256Hash previousTransactionHash;
-        public Sha256Hash PreviousTransactionHash
-        {
-            get { return previousTransactionHash; }
-            set { previousTransactionHash = value; }
-        }
-
-        private int previousTransactionOutputIndex;
-        public int PreviousTransactionOutputIndex
-        {
-            get { return previousTransactionOutputIndex; }
-            set { previousTransactionOutputIndex = value; }
-        }
-    }
-
-    public class TransactionOutput
-    {
-
-    }
-
-    public class BlockHeader
-    {
-        public static readonly int MaxBlockSize = 1000000;
-        public static readonly int MaxVerify = MaxBlockSize / 50;
-
-        private int version;
-        public int Version
-        {
-            get { return version; }
-            set { version = value; }
-        }
-
-        private Sha256Hash prevBlockHash;
-        public Sha256Hash PrevBlockHash
-        {
-            get { return prevBlockHash; }
-            set { prevBlockHash = value; }
-        }
-
-        private Sha256Hash merkleRoot;
-        public Sha256Hash MercleRoot
-        {
-            get { return merkleRoot; }
-            set { merkleRoot = value; }
-        }
-
-        private int time;
-        public int Time
-        {
-            get { return time; }
-            set { time = value; }
-        }
-
-        private int difficultyTarget;
-        public int DifficultyTarget
-        {
-            get { return difficultyTarget; }
-            set { difficultyTarget = value; }
-        }
-
-        private int nonce;
-        public int Nonce
-        {
-            get { return nonce; }
-            set { nonce = value; }
-        }
-    }
-
     #region UPnP
 
     public class UPnPWanService
@@ -4009,578 +4384,6 @@ namespace CREA2014
     public class AddressFormatException : Exception
     {
         public AddressFormatException(string message, Exception innerException = null) : base(message, innerException) { }
-    }
-
-    #endregion
-
-    #region Ethereum
-
-    #endregion
-
-    #region 自作データ構造
-
-    //使わないと思うが勉強がてら作ってしまった
-
-    public class ForwardLinkedList<T> : IEnumerable<T>
-    {
-        private Node first;
-        public Node First
-        {
-            get { return first; }
-        }
-
-        public class Node
-        {
-            private T val;
-            public T Value
-            {
-                get { return val; }
-                set { val = value; }
-            }
-
-            private Node next;
-            public Node Next
-            {
-                get { return next; }
-                internal set { next = value; }
-            }
-
-            internal Node(T _val, Node _next)
-            {
-                val = _val;
-                next = _next;
-            }
-        }
-
-        public ForwardLinkedList()
-        {
-            first = null;
-        }
-
-        //O(n)
-        public int Count
-        {
-            get { return first.CountLoop((p) => p != null, (p) => p.Next); }
-        }
-
-        //O(1)
-        public Node InsertFirst(T element)
-        {
-            return first = new Node(element, first);
-        }
-
-        //O(1)
-        public void DeleteFirst()
-        {
-            if (first != null)
-                first = first.Next;
-        }
-
-        //O(1)
-        public Node InsertAfter(Node node, T element)
-        {
-            return node.Next = new Node(element, node.Next);
-        }
-
-        //O(1)
-        public void DeleteAfter(Node node)
-        {
-            if (node.Next != null)
-                node.Next = node.Next.Next;
-        }
-
-        //O(n)
-        public Node Delete(Node node)
-        {
-            if (first == null)
-                return null;
-            else if (first == node)
-                return first = null;
-
-            for (Node p = first; p.Next != null; p = p.Next)
-                if (p.Next == node)
-                    return p.Next = p.Next.Next;
-
-            return null;
-        }
-
-        public IEnumerator<T> GetEnumerator()
-        {
-            for (Node p = first; p != null; p = p.Next)
-                yield return p.Value;
-        }
-
-        IEnumerator IEnumerable.GetEnumerator() { return GetEnumerator(); }
-    }
-
-    public class LinkedList<T> : IEnumerable<T>
-    {
-        private Node first;
-        public Node First
-        {
-            get { return first; }
-        }
-
-        private Node last;
-        public Node Last
-        {
-            get { return last; }
-        }
-
-        public class Node
-        {
-            private T val;
-            public T Value
-            {
-                get { return val; }
-                set { val = value; }
-            }
-
-            private Node previous;
-            public Node Previous
-            {
-                get { return previous; }
-                internal set { previous = value; }
-            }
-
-            private Node next;
-            public Node Next
-            {
-                get { return next; }
-                internal set { next = value; }
-            }
-
-            internal Node(T _val, Node _previous, Node _next)
-            {
-                val = _val;
-                previous = _previous;
-                next = _next;
-            }
-        }
-
-        public LinkedList()
-        {
-            first = null;
-            last = null;
-        }
-
-        //O(n)
-        public int Count
-        {
-            get { return first.CountLoop((p) => p != null, (p) => p.Next); }
-        }
-
-        //O(1)
-        public Node InsertAfter(Node node, T element)
-        {
-            return node.Next = node.Next.Previous = new Node(element, node, node.Next);
-        }
-
-        //O(1)
-        public Node InsertBefore(Node node, T element)
-        {
-            return node.Previous = node.Previous.Next = new Node(element, node.Previous, node);
-        }
-
-        //O(1)
-        public Node InsertFirst(T element)
-        {
-            Node node = new Node(element, null, first);
-            if (first == null)
-                first = last = node;
-            else
-            {
-                first.Previous = node;
-                first = node;
-            }
-            return node;
-        }
-
-        //O(1)
-        public Node InsertLast(T element)
-        {
-            Node node = new Node(element, last, null);
-            if (last == null)
-                first = last = node;
-            else
-            {
-                last.Next = node;
-                last = node;
-            }
-            return node;
-        }
-
-        //O(1)
-        public Node Delete(Node node)
-        {
-            if (node != first)
-                node.Previous.Next = node.Next;
-            else
-                first = node.Next;
-
-            if (node != last)
-                node.Next.Previous = node.Previous;
-            else
-                last = node.Previous;
-
-            return node.Next;
-        }
-
-        //O(1)
-        public void DeleteFirst()
-        {
-            if (first == last)
-                first = last = null;
-            else
-            {
-                first = first.Next;
-                if (first != null)
-                    first.Previous = null;
-            }
-        }
-
-        //O(1)
-        public void DeleteLast()
-        {
-            if (first == last)
-                first = last = null;
-            else
-            {
-                last = last.Previous;
-                if (last != null)
-                    last.Next = null;
-            }
-        }
-
-        public IEnumerator<T> GetEnumerator()
-        {
-            for (Node p = first; p != null; p = p.Next)
-                yield return p.Value;
-        }
-
-        IEnumerator IEnumerable.GetEnumerator() { return GetEnumerator(); }
-    }
-
-    public class MyArrayList<T> : IEnumerable<T>
-    {
-        private T[] data;
-        private int count;
-
-        public MyArrayList(int capacity)
-        {
-            data = new T[capacity];
-            count = 0;
-        }
-
-        public MyArrayList() : this(256) { }
-
-        public int Count
-        {
-            get { return count; }
-        }
-
-        //O(1)
-        public T this[int index]
-        {
-            get { return data[index]; }
-            set { data[index] = value; }
-        }
-
-        //O(n)
-        public void Insert(int index, T element)
-        {
-            if (count >= data.Length)
-            {
-                T[] newData = new T[data.Length * 2];
-                for (int i = 0; i < data.Length; i++)
-                    newData[i] = data[i];
-                data = newData;
-            }
-
-            for (int i = count; i > index; i--)
-                data[i] = data[i - 1];
-            data[index] = element;
-
-            count++;
-        }
-
-        //O(1)
-        public void Add(T element) { Insert(count, element); }
-
-        //O(n)
-        public void Delete(int index)
-        {
-            count--;
-
-            for (int i = index; index < count; i++)
-                data[i] = data[i + 1];
-        }
-
-        //O(1)
-        public void DeleteLast() { count--; }
-
-        public IEnumerator<T> GetEnumerator()
-        {
-            for (int i = 0; i < count; i++)
-                yield return data[i];
-        }
-
-        IEnumerator IEnumerable.GetEnumerator() { return GetEnumerator(); }
-    }
-
-    public class RingBuffer<T> : IEnumerable<T>
-    {
-        private T[] data;
-        private int top;
-        private int bottom;
-
-        public RingBuffer(int capacity)
-        {
-            data = new T[capacity];
-            top = 0;
-            bottom = 0;
-        }
-
-        public RingBuffer() : this(256) { }
-
-        public int Count
-        {
-            //負数の剰余は正しく計算できない
-            get { return (bottom - top + data.Length) % data.Length; }
-        }
-
-        //O(1)
-        public T this[int index]
-        {
-            get { return data[(index + top) % data.Length]; }
-            set { data[(index + top) % data.Length] = value; }
-        }
-
-        public void Insert(int index, T element)
-        {
-        }
-
-        public void InsertFirst(T element)
-        {
-        }
-
-        public IEnumerator<T> GetEnumerator()
-        {
-            throw new NotImplementedException();
-        }
-
-        IEnumerator IEnumerable.GetEnumerator()
-        {
-            throw new NotImplementedException();
-        }
-    }
-
-    public class BinaryTree<T> : IEnumerable<T> where T : IComparable<T>
-    {
-        private Node root;
-        public Node Root
-        {
-            get { return root; }
-        }
-
-        public class Node
-        {
-            private T val;
-            public T Value
-            {
-                get { return val; }
-                internal set { val = value; }
-            }
-
-            private Node left;
-            public Node Left
-            {
-                get { return left; }
-                internal set { left = value; }
-            }
-
-            private Node right;
-            public Node Right
-            {
-                get { return right; }
-                internal set { right = value; }
-            }
-
-            private Node parent;
-            public Node Parent
-            {
-                get { return parent; }
-                internal set { parent = value; }
-            }
-
-            internal Node(T _val, Node _parent)
-            {
-                val = _val;
-                parent = _parent;
-            }
-
-            internal Node() : this(default(T), null) { }
-
-            public Node Next
-            {
-                get
-                {
-                    Node node = this;
-                    if (node.right != null)
-                        return node.right.Min;
-                    else
-                    {
-                        while (node.parent != null && node.parent.left != node)
-                            node = node.parent;
-                        return node.parent;
-                    }
-                }
-            }
-
-            public Node Previous
-            {
-                get
-                {
-                    Node node = this;
-                    if (node.left != null)
-                        return node.left.Max;
-                    else
-                    {
-                        while (node.parent != null && node.parent.right != node)
-                            node = node.parent;
-                        return node.parent;
-                    }
-                }
-            }
-
-            internal Node Min
-            {
-                get
-                {
-                    Node node = this;
-                    while (node.left != null)
-                        node = node.left;
-                    return node;
-                }
-            }
-
-            internal Node Max
-            {
-                get
-                {
-                    Node node = this;
-                    while (node.right != null)
-                        node = node.right;
-                    return node;
-                }
-            }
-        }
-
-        public int Count
-        {
-            get
-            {
-                Node node = root;
-                if (node == null)
-                    return 0;
-                else
-                {
-                    int count = 0;
-                    for (Node n = node.Min; n != null; n = n.Next)
-                        count++;
-                    return count;
-                }
-            }
-        }
-
-        //O(log n)
-        public bool Contains(T element) { return Find(element) != null; }
-
-        //O(log n)
-        public Node Find(T element)
-        {
-            Node node = root;
-            while (node != null)
-            {
-                if (node.Value.CompareTo(element) > 0)
-                    node = node.Left;
-                else if (node.Value.CompareTo(element) < 0)
-                    node = node.Right;
-                else
-                    break;
-            }
-            return node;
-        }
-
-        //O(log n)
-        public void Insert(T element)
-        {
-            if (root == null)
-                root = new Node(element, null);
-            else
-            {
-                Node node = root;
-                Node parent = null;
-
-                while (node != null)
-                {
-                    parent = node;
-                    if (node.Value.CompareTo(element) > 0)
-                        node = node.Left;
-                    else
-                        node = node.Right;
-                }
-
-                node = new Node(element, parent);
-                if (parent.Value.CompareTo(element) > 0)
-                    parent.Left = node;
-                else
-                    parent.Right = node;
-            }
-        }
-
-        //O(log n)
-        public void Erase(T element) { Erase(Find(element)); }
-
-        public void Erase(Node node)
-        {
-            if (node == null)
-                return;
-
-            if (node.Left == null)
-                Replace(node, node.Right);
-            else if (node.Right == null)
-                Replace(node, node.Left);
-            else
-            {
-                Node min = node.Right.Min;
-                node.Value = min.Value;
-                Replace(min, min.Right);
-            }
-        }
-
-        private void Replace(Node node1, Node node2)
-        {
-            Node parent = node1.Parent;
-            if (node2 != null)
-                node2.Parent = parent;
-            if (node1 == root)
-                root = node2;
-            else if (parent.Left == node1)
-                parent.Left = node2;
-            else
-                parent.Right = node2;
-        }
-
-        public IEnumerator<T> GetEnumerator()
-        {
-            Node node = root;
-            if (node != null)
-                for (Node n = node.Min; n != null; n = n.Next)
-                    yield return n.Value;
-        }
-
-        IEnumerator IEnumerable.GetEnumerator() { return GetEnumerator(); }
     }
 
     #endregion
