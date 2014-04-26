@@ -1128,9 +1128,9 @@ namespace CREA2014
 
         public class CommunicationApparatusWriter : STREAMWRITER
         {
-            private readonly ICommunicationApparatus ca;
+            private readonly IChannel ca;
 
-            public CommunicationApparatusWriter(ICommunicationApparatus _ca)
+            public CommunicationApparatusWriter(IChannel _ca)
             {
                 ca = _ca;
             }
@@ -1196,9 +1196,9 @@ namespace CREA2014
 
         public class CommunicationApparatusReader : STREAMREADER
         {
-            private readonly ICommunicationApparatus ca;
+            private readonly IChannel ca;
 
-            public CommunicationApparatusReader(ICommunicationApparatus _ca)
+            public CommunicationApparatusReader(IChannel _ca)
             {
                 ca = _ca;
             }
@@ -1299,7 +1299,7 @@ namespace CREA2014
             }
         }
 
-        protected void Communicate(ICommunicationApparatus ca, ClientOrServer clientOrServer)
+        protected void Communicate(IChannel ca, ClientOrServer clientOrServer)
         {
             CommunicationApparatusWriter writer = new CommunicationApparatusWriter(ca);
             CommunicationApparatusReader reader = new CommunicationApparatusReader(ca);
@@ -2893,11 +2893,6 @@ namespace CREA2014
                 { typeof(InboundChannelsBase), LogData.LogGround.networkBase},
                 { typeof(OutboundChannelBase), LogData.LogGround.networkBase},
                 { typeof(SocketChannel), LogData.LogGround.networkBase},
-                { typeof(Client), LogData.LogGround.networkBase},
-                { typeof(Listener), LogData.LogGround.networkBase},
-                { typeof(CREANODEBASE), LogData.LogGround.creaNetwork},
-                { typeof(CreaNode), LogData.LogGround.creaNetwork },
-                { typeof(CreaNodeLocalTestContinue), LogData.LogGround.creaNetwork},
                 { typeof(Cremlia), LogData.LogGround.cremlia},
             };
 
@@ -2908,6 +2903,12 @@ namespace CREA2014
                 {"inbound_channels", (args) => "エラーが発生しました。".Multilanguage(113)},
                 {"socket_channel_write", (args) => "エラーが発生しました。".Multilanguage(114)},
                 {"socket_channel_read", (args) => "エラーが発生しました。".Multilanguage(115)},
+                {"ric", (args) => "エラーが発生しました。".Multilanguage(121)},
+                {"roc", (args) => "エラーが発生しました。".Multilanguage(122)},
+                {"inbound_session", (args) => "エラーが発生しました。".Multilanguage(123)},
+                {"outbound_session", (args) => "エラーが発生しました。".Multilanguage(124)},
+                {"diffuse", (args) => "エラーが発生しました。".Multilanguage(125)},
+                {"keep_conn", (args) => "エラーが発生しました。".Multilanguage(126)},
                 {"task", (args) => "エラーが発生しました。".Multilanguage(96)},
                 {"task_aborted", (args) => "作業が強制終了されました。".Multilanguage(97)},
                 {"all_tasks_aborted", (args) => "全ての作業が強制終了されました。".Multilanguage(98)},
@@ -2927,6 +2928,7 @@ namespace CREA2014
                 { "keep_conn_completed", (args) => "常時接続が確立しました。".Multilanguage(112)},
                 { "find_table_already_added", (args) => string.Format(string.Join(Environment.NewLine, "DHTの検索リスト項目は既に登録されています。".Multilanguage(116), "距離：{0}".Multilanguage(117), "ノード1：{1}".Multilanguage(118), "ノード2：{2}".Multilanguage(119)), args[0], args[1], args[3])}, 
                 {"find_nodes", (args) => string.Format("{0}個の近接ノードを発見しました。".Multilanguage(120), args[0])},
+                {"my_node_info", (args) => string.Format("自分自身のノード情報です。".Multilanguage(127), args[0])},
             };
 
             exceptionMessages = new Dictionary<string, Func<string>>() {
@@ -3240,75 +3242,6 @@ namespace CREA2014
         private void CreaNetworkLocalTest()
         {
             CreaNetworkLocalTest cnlt = new CreaNetworkLocalTest(logger, OnException);
-        }
-
-        private void CreaNodeTest()
-        {
-            CreaNodeLocalTest localTest = new CreaNodeLocalTestNotContinue(7777, 0, "test");
-            localTest.Start();
-
-            Thread.Sleep(3000);
-
-            string privateRsaParameters;
-            string publicRsaParameters;
-            using (RSACryptoServiceProvider rsacsp = new RSACryptoServiceProvider(2048))
-            {
-                privateRsaParameters = rsacsp.ToXmlString(true);
-                publicRsaParameters = rsacsp.ToXmlString(false);
-            }
-
-            NodeInformation nodeinfo = new NodeInformation(IPAddress.Loopback, 7778, Network.localtest, publicRsaParameters);
-
-            Client client = new Client(IPAddress.Loopback, 7777, RsaKeySize.rsa2048, privateRsaParameters, (ca, ip) =>
-            {
-                ca.WriteBytes(nodeinfo.ToBinary());
-                ca.WriteBytes(BitConverter.GetBytes(0));
-                ca.WriteBytes(BitConverter.GetBytes(0));
-                bool isSameNetwork = BitConverter.ToBoolean(ca.ReadBytes(), 0);
-                bool isOldCreaVersion = BitConverter.ToBoolean(ca.ReadBytes(), 0);
-                int sessionProtocolVersion = BitConverter.ToInt32(ca.ReadBytes(), 0);
-
-                if (sessionProtocolVersion == 0)
-                {
-
-                }
-            });
-            client.StartClient();
-
-            Thread.Sleep(1000000);
-        }
-
-        private void ClientServerTest()
-        {
-            Listener listener = new Listener(7777, RsaKeySize.rsa2048, (ca, ip) =>
-            {
-                string message = Encoding.UTF8.GetString(ca.ReadCompressedBytes());
-
-                MessageBox.Show(message);
-            });
-            listener.ReceiveTimeout = 1000;
-            listener.SendTimeout = 1000;
-            listener.ClientFailed += (sender, e) => MessageBox.Show("listener_client_error");
-            listener.StartListener();
-
-            Thread.Sleep(1000);
-
-            string privateRSAParameters;
-            using (RSACryptoServiceProvider rsacsp = new RSACryptoServiceProvider(2048))
-                privateRSAParameters = rsacsp.ToXmlString(true);
-
-            Client client = new Client(IPAddress.Loopback, 7777, RsaKeySize.rsa2048, privateRSAParameters, (ca, ip) =>
-            {
-                Thread.Sleep(3000);
-
-                ca.WriteCompreddedBytes(Encoding.UTF8.GetBytes("テストだよ～"));
-            });
-            client.ReceiveTimeout = 1000;
-            client.SendTimeout = 1000;
-            client.Failed += (sender, e) => MessageBox.Show("client_error");
-            client.StartClient();
-
-            Thread.Sleep(1000000);
         }
     }
 }
