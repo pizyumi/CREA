@@ -141,7 +141,7 @@ namespace CREA2014
                 areWrites.Set();
             };
 
-            this.StartTask(() =>
+            this.StartTask("socket_channel_write", "socket_channel_write", () =>
             {
                 try
                 {
@@ -197,9 +197,9 @@ namespace CREA2014
                 }
 
                 string.Join(":", ChannelAddressText, "write_thread_exit").ConsoleWriteLine();
-            }, "socket_channel_write", "socket_channel_write");
+            });
 
-            this.StartTask(() =>
+            this.StartTask("socket_channel_read", "socket_channel_read", () =>
             {
                 try
                 {
@@ -224,7 +224,7 @@ namespace CREA2014
                                     lock (sessionsLock)
                                         sessions.Add(sc);
 
-                                    this.StartTask(() => Sessioned(this, sc), "session", "session");
+                                    this.StartTask("session", "session", () => Sessioned(this, sc));
                                 }
                             }
 
@@ -326,7 +326,7 @@ namespace CREA2014
                 }
 
                 string.Join(":", ChannelAddressText, "read_thread_exit").ConsoleWriteLine();
-            }, "socket_channel_read", "socket_channel_read");
+            });
         }
 
         private readonly int maxTimeout = 150;
@@ -903,7 +903,7 @@ namespace CREA2014
                 isConnectionRequested = true;
             }
 
-            this.StartTask(() =>
+            this.StartTask("outbound_chennel", "outbound_chennel", () =>
             {
                 try
                 {
@@ -959,7 +959,7 @@ namespace CREA2014
 
                     Failed(this, EventArgs.Empty);
                 }
-            }, "outbound_chennel", "outbound_chennel");
+            });
         }
     }
 
@@ -1028,7 +1028,7 @@ namespace CREA2014
                 isAcceptanceStratRequested = true;
             }
 
-            this.StartTask(() =>
+            this.StartTask("inbound_channels", "inbound_channels", () =>
             {
                 try
                 {
@@ -1042,7 +1042,7 @@ namespace CREA2014
 
                         DateTime connectedTime = DateTime.Now;
 
-                        this.StartTask(() =>
+                        this.StartTask("inbound_channel", "inbound_channel", () =>
                         {
                             try
                             {
@@ -1092,7 +1092,7 @@ namespace CREA2014
 
                                 AcceptanceFailed(this, ((IPEndPoint)isocket.RemoteEndPoint).Address);
                             }
-                        }, "inbound_channel", "inbound_channel");
+                        });
                     }
                 }
                 catch (Exception ex)
@@ -1103,7 +1103,7 @@ namespace CREA2014
 
                     Failed(this, EventArgs.Empty);
                 }
-            }, "inbound_channels", "inbound_channels");
+            });
         }
 
         public void EndAcceptance()
@@ -1306,7 +1306,7 @@ namespace CREA2014
                 isStarted = true;
             }
 
-            this.StartTask(() =>
+            this.StartTask("node_start", "node_start", () =>
             {
                 if (IsPort0)
                     this.RaiseNotification("port0".GetLogMessage(), 5);
@@ -1372,7 +1372,7 @@ namespace CREA2014
                 isStartCompleted = true;
 
                 StartCompleted(this, EventArgs.Empty);
-            }, "node_start", "node_start");
+            });
         }
 
         protected SocketChannel Connect(IPAddress aiteIpAddress, ushort aitePortNumber)
@@ -2091,7 +2091,7 @@ namespace CREA2014
 
                     TxtestReceived(this, nodeInfo);
 
-                    this.StartTask(() => DiffuseInv(txtest, inv), string.Empty, string.Empty);
+                    this.StartTask(string.Empty, string.Empty, () => DiffuseInv(txtest, inv));
                 }
                 else
                 {
@@ -2483,10 +2483,13 @@ namespace CREA2014
                         sp2.Children.Add(tb);
                     })).BeginExecuteInUIThread();
 
-                    this.StartTask(() =>
-                    {
-                        Test10NodesInv();
-                    }, string.Empty, string.Empty);
+                    SimulationWindow sw = new SimulationWindow();
+                    sw.ShowDialog();
+
+                    //this.StartTask(string.Empty, string.Empty, () =>
+                    //{
+                    //    Test10NodesInv();
+                    //});
                 };
 
                 Closed += (sender, e) =>
@@ -2734,7 +2737,7 @@ namespace CREA2014
         }
     }
 
-    public class NodeInformation : FirstNodeInformation
+    public class NodeInformation : FirstNodeInformation, ICremliaNodeInfomation
     {
         private DateTime participation;
         public DateTime Participation
@@ -2824,6 +2827,11 @@ namespace CREA2014
         {
             return Id.Equals(other.Id);
         }
+
+        public ICremliaHash CremliaId
+        {
+            get { return Id; }
+        }
     }
 
     #endregion
@@ -2835,12 +2843,13 @@ namespace CREA2014
         int Size { get; }
         byte[] Bytes { get; }
 
+        void FromBytes(byte[] bytes);
         ICremliaHash XOR(ICremliaHash hash);
     }
 
     public interface ICremliaNodeInfomation
     {
-        ICremliaHash Id { get; }
+        ICremliaHash CremliaId { get; }
     }
 
     public interface ICremliaNetworkIo
@@ -2861,18 +2870,26 @@ namespace CREA2014
 
     public interface ICremliaDatabaseIo
     {
+        int TExpire { set; }
+
         byte[] Get(ICremliaHash id);
-        void Set(ICremliaHash id, byte[] data);
+        Tuple<ICremliaHash, byte[]>[] GetOrifinals();
+        Tuple<ICremliaHash, byte[]>[] GetWorks();
+        void Set(ICremliaHash id, byte[] data, bool isOrifinal, bool isCache);
     }
 
-    //<未実装>k-バケツが一定時間更新されなかった場合には、k-バケツの範囲から無作為に1つ識別子を生成し、ノード探索を実行する。
-    public class Cremlia
+    //<未改良>ICremliaHashからTへの変更
+    //　　　　他、インターフェイスの型、具象型の実装
+    public class Cremlia<T> where T : ICremliaHash
     {
-        public Cremlia(ICremliaDatabaseIo _databaseIo, ICremliaNetworkIo _networkIo, ICremliaNodeInfomation _myNodeInfo) : this(_databaseIo, _networkIo, _myNodeInfo, 256, 20, 3) { }
+        public Cremlia(ICremliaDatabaseIo _databaseIo, ICremliaNetworkIo _networkIo, ICremliaNodeInfomation _myNodeInfo) : this(_databaseIo, _networkIo, _myNodeInfo, 256, 20, 3, 86400, 3600, 3600, 86400) { }
 
-        public Cremlia(ICremliaDatabaseIo _databaseIo, ICremliaNetworkIo _networkIo, ICremliaNodeInfomation _myNodeInfo, int _keySpace, int _K, int _α)
+        public Cremlia(ICremliaDatabaseIo _databaseIo, ICremliaNetworkIo _networkIo, ICremliaNodeInfomation _myNodeInfo, int _keySpace, int _K, int _α, int _tExpire, int _tRefresh, int _tReplicate, int _tRepublish)
         {
-            if (_myNodeInfo.Id.Size != _keySpace)
+            //鍵空間は8の倍数とする
+            if (_keySpace % 8 != 0)
+                throw new InvalidDataException("key_space");
+            if (_myNodeInfo.CremliaId.Size != _keySpace)
                 throw new InvalidDataException("id_size_and_key_space");
 
             databaseIo = _databaseIo;
@@ -2881,6 +2898,10 @@ namespace CREA2014
             keySpace = _keySpace;
             K = _K;
             α = _α;
+            tExpire = _tExpire;
+            tRefresh = _tRefresh;
+            tReplicate = _tReplicate;
+            tRepublish = _tRepublish;
 
             kbuckets = new List<ICremliaNodeInfomation>[keySpace];
             for (int i = 0; i < kbuckets.Length; i++)
@@ -2888,6 +2909,7 @@ namespace CREA2014
             kbucketsLocks = new object[keySpace];
             for (int i = 0; i < kbucketsLocks.Length; i++)
                 kbucketsLocks[i] = new object();
+            kbucketsUpdatedTime = new DateTime[keySpace];
 
             networkIo.SessionStarted += (sender, e) =>
             {
@@ -2897,7 +2919,7 @@ namespace CREA2014
                 else if (message is StoreReqMessage)
                 {
                     StoreReqMessage srm = message as StoreReqMessage;
-                    databaseIo.Set(srm.id, srm.data);
+                    databaseIo.Set(srm.id, srm.data, false, false);
                 }
                 else if (message is FindNodesReqMessage)
                 {
@@ -2919,6 +2941,8 @@ namespace CREA2014
                     else
                         e.Write(new ValueMessage(data));
                 }
+                else if (message is GetIdsAndValuesReqMessage)
+                    e.Write(new IdsAndValuesMessage(databaseIo.GetWorks()));
                 else
                     throw new NotSupportedException("cremlia_not_supported_message");
 
@@ -2926,17 +2950,46 @@ namespace CREA2014
 
                 UpdateNodeState(e.NodeInfo, true);
             };
+
+            databaseIo.TExpire = tExpire;
+
+            Timer timerRefresh = new Timer((state) =>
+            {
+                for (int i = 0; i < kbuckets.Length; i++)
+                    //時間が掛かるので若干判定条件を短めに
+                    if (kbuckets[i].Count != 0 && kbucketsUpdatedTime[i] <= DateTime.Now - new TimeSpan(0, 0, (int)(tRefresh * 0.9)))
+                        FindNodes(GetRamdomHash(i));
+            }, null, 0, tRefresh);
+
+            Timer timerReplicate = new Timer((state) =>
+            {
+                foreach (Tuple<ICremliaHash, byte[]> work in databaseIo.GetWorks())
+                    foreach (ICremliaNodeInfomation nodeInfo in FindNodes(work.Item1))
+                        ReqStore(nodeInfo, work.Item1, work.Item2);
+            }, null, 0, tReplicate);
+
+            Timer timerRepublish = new Timer((state) =>
+            {
+                foreach (Tuple<ICremliaHash, byte[]> original in databaseIo.GetOrifinals())
+                    foreach (ICremliaNodeInfomation nodeInfo in FindNodes(original.Item1))
+                        ReqStore(nodeInfo, original.Item1, original.Item2);
+            }, null, 0, tRepublish);
         }
 
         private readonly ICremliaDatabaseIo databaseIo;
         private readonly ICremliaNetworkIo networkIo;
         private readonly object[] kbucketsLocks;
         private readonly List<ICremliaNodeInfomation>[] kbuckets;
+        private readonly DateTime[] kbucketsUpdatedTime;
 
         public readonly ICremliaNodeInfomation myNodeInfo;
         public readonly int keySpace;
         public readonly int K;
         public readonly int α;
+        public readonly int tExpire;
+        public readonly int tRefresh;
+        public readonly int tReplicate;
+        public readonly int tRepublish;
 
         public bool ReqPing(ICremliaNodeInfomation nodeInfo)
         {
@@ -3003,7 +3056,7 @@ namespace CREA2014
             }
 
             UpdateNodeState(nodeInfo, true);
-            return (message as NeighborNodesMessage).NodeInfos;
+            return (message as NeighborNodesMessage).nodeInfos;
         }
 
         public MultipleReturn<ICremliaNodeInfomation[], byte[]> ReqFindValue(ICremliaNodeInfomation nodeInfo, ICremliaHash id)
@@ -3023,7 +3076,7 @@ namespace CREA2014
                 if (message is NeighborNodesMessage)
                 {
                     UpdateNodeState(nodeInfo, true);
-                    return new MultipleReturn<ICremliaNodeInfomation[], byte[]>((message as NeighborNodesMessage).NodeInfos);
+                    return new MultipleReturn<ICremliaNodeInfomation[], byte[]>((message as NeighborNodesMessage).nodeInfos);
                 }
                 else if (message is ValueMessage)
                 {
@@ -3035,7 +3088,30 @@ namespace CREA2014
             return null;
         }
 
-        public List<ICremliaNodeInfomation> FindNodes(ICremliaHash id)
+        public Tuple<ICremliaHash, byte[]>[] ReqGetIdsAndValues(ICremliaNodeInfomation nodeInfo)
+        {
+            ICremliaNetworkIoSession session = networkIo.StartSession(nodeInfo);
+            if (session == null)
+            {
+                UpdateNodeState(nodeInfo, false);
+                return null;
+            }
+
+            session.Write(new GetIdsAndValuesReqMessage());
+            CremliaMessageBase message = session.Read();
+            session.Close();
+
+            if (message == null || !(message is IdsAndValuesMessage))
+            {
+                UpdateNodeState(nodeInfo, false);
+                return null;
+            }
+
+            UpdateNodeState(nodeInfo, true);
+            return (message as IdsAndValuesMessage).idsAndValues;
+        }
+
+        public ICremliaNodeInfomation[] FindNodes(ICremliaHash id)
         {
             object findLock = new object();
             SortedList<ICremliaHash, ICremliaNodeInfomation> findTable = new SortedList<ICremliaHash, ICremliaNodeInfomation>();
@@ -3055,7 +3131,7 @@ namespace CREA2014
 
                 ares[inner] = new AutoResetEvent(false);
 
-                this.StartTask(() =>
+                this.StartTask("cremlia_find_nodes", "cremlia_find_nodes", () =>
                 {
                     while (true)
                     {
@@ -3088,7 +3164,7 @@ namespace CREA2014
 
                                     foreach (ICremliaNodeInfomation n in nodeInfos)
                                     {
-                                        ICremliaHash xor = id.XOR(n.Id);
+                                        ICremliaHash xor = id.XOR(n.CremliaId);
                                         if (!findTable.Keys.Contains(xor) && !n.Equals(myNodeInfo))
                                         {
                                             findTable.Add(xor, n);
@@ -3101,7 +3177,7 @@ namespace CREA2014
                     }
 
                     ares[inner].Set();
-                }, "cremlia_find_nodes", "cremlia_find_nodes");
+                });
             }
 
             for (int i = 0; i < α; i++)
@@ -3116,7 +3192,7 @@ namespace CREA2014
                         break;
                 }
 
-            return findNodes;
+            return findNodes.ToArray();
         }
 
         public byte[] FindValue(ICremliaHash id)
@@ -3140,7 +3216,7 @@ namespace CREA2014
 
                 ares[inner] = new AutoResetEvent(false);
 
-                this.StartTask(() =>
+                this.StartTask("cremlia_find_value", "cremlia_find_value", () =>
                 {
                     while (true)
                     {
@@ -3177,7 +3253,7 @@ namespace CREA2014
                                     if (multiReturn.IsValue1)
                                         foreach (ICremliaNodeInfomation n in multiReturn.Value1)
                                         {
-                                            ICremliaHash xor = id.XOR(n.Id);
+                                            ICremliaHash xor = id.XOR(n.CremliaId);
                                             if (!findTable.Keys.Contains(xor) && !n.Equals(myNodeInfo))
                                             {
                                                 findTable.Add(xor, n);
@@ -3192,18 +3268,75 @@ namespace CREA2014
                     }
 
                     ares[inner].Set();
-                }, "cremlia_find_nodes", "cremlia_find_nodes");
+                });
             }
 
             for (int i = 0; i < α; i++)
                 ares[i].WaitOne();
 
+            databaseIo.Set(id, data, false, true);
+
             return data;
+        }
+
+        public void Store(ICremliaHash id, byte[] data)
+        {
+            databaseIo.Set(id, data, true, false);
+
+            foreach (ICremliaNodeInfomation nodeInfo in FindNodes(id))
+                ReqStore(nodeInfo, id, data);
+        }
+
+        public void Join(ICremliaNodeInfomation[] nodeInfos)
+        {
+            foreach (ICremliaNodeInfomation nodeInfo in nodeInfos)
+                UpdateNodeState(nodeInfo, true);
+
+            foreach (ICremliaNodeInfomation nodeInfo in FindNodes(myNodeInfo.CremliaId))
+                foreach (Tuple<ICremliaHash, byte[]> idAndValue in ReqGetIdsAndValues(nodeInfo))
+                    databaseIo.Set(idAndValue.Item1, idAndValue.Item2, false, false);
+        }
+
+        public ICremliaHash GetRamdomHash(int distanceLevel)
+        {
+            byte[] bytes = new byte[keySpace / 8];
+            for (int i = bytes.Length - 1; i >= 0; i--)
+            {
+                if (distanceLevel >= 8)
+                    bytes[i] = (byte)256.RandomNum();
+                else
+                {
+                    if (distanceLevel == 0)
+                        bytes[i] = 1;
+                    else if (distanceLevel == 1)
+                        bytes[i] = (byte)(2 + 2.RandomNum());
+                    else if (distanceLevel == 2)
+                        bytes[i] = (byte)(4 + 4.RandomNum());
+                    else if (distanceLevel == 3)
+                        bytes[i] = (byte)(8 + 8.RandomNum());
+                    else if (distanceLevel == 4)
+                        bytes[i] = (byte)(16 + 16.RandomNum());
+                    else if (distanceLevel == 5)
+                        bytes[i] = (byte)(32 + 32.RandomNum());
+                    else if (distanceLevel == 6)
+                        bytes[i] = (byte)(64 + 64.RandomNum());
+                    else if (distanceLevel == 7)
+                        bytes[i] = (byte)(128 + 128.RandomNum());
+
+                    break;
+                }
+
+                distanceLevel -= 8;
+            }
+
+            ICremliaHash xor = Activator.CreateInstance(typeof(T)) as ICremliaHash;
+            xor.FromBytes(bytes);
+            return xor.XOR(myNodeInfo.CremliaId);
         }
 
         public int GetDistanceLevel(ICremliaHash id)
         {
-            ICremliaHash xor = id.XOR(myNodeInfo.Id);
+            ICremliaHash xor = id.XOR(myNodeInfo.CremliaId);
 
             //距離が0の場合にはdistanceLevelは-1
             //　　論文ではハッシュ値の衝突が考慮されていないっぽい？
@@ -3238,11 +3371,11 @@ namespace CREA2014
         {
             Func<ICremliaNodeInfomation, bool> TryFindTableAddition = (nodeInfo) =>
             {
-                ICremliaHash distance = id.XOR(nodeInfo.Id);
+                ICremliaHash distance = id.XOR(nodeInfo.CremliaId);
                 if (!findTable.ContainsKey(distance))
                     findTable.Add(distance, nodeInfo);
                 else
-                    this.RaiseError("find_table_already_added".GetLogMessage(distance.ToString(), findTable[distance].Id.ToString(), nodeInfo.Id.ToString()), 5);
+                    this.RaiseError("find_table_already_added".GetLogMessage(distance.ToString(), findTable[distance].CremliaId.ToString(), nodeInfo.CremliaId.ToString()), 5);
 
                 return findTable.Count >= K;
             };
@@ -3269,7 +3402,7 @@ namespace CREA2014
 
         public void UpdateNodeState(ICremliaNodeInfomation nodeInfo, bool isValid)
         {
-            ICremliaHash id = nodeInfo.Id;
+            ICremliaHash id = nodeInfo.CremliaId;
             if (id.Size != keySpace)
                 throw new InvalidOperationException("invalid_id_size");
 
@@ -3277,7 +3410,7 @@ namespace CREA2014
                 this.RaiseWarning("my_node_info".GetLogMessage(), 5);
             else
             {
-                int distanceLevel = GetDistanceLevel(nodeInfo.Id);
+                int distanceLevel = GetDistanceLevel(nodeInfo.CremliaId);
                 lock (kbuckets[distanceLevel])
                     if (isValid)
                         if (kbuckets[distanceLevel].Contains(nodeInfo))
@@ -3350,11 +3483,7 @@ namespace CREA2014
             nodeInfos = _nodeInfos;
         }
 
-        private readonly ICremliaNodeInfomation[] nodeInfos;
-        public ICremliaNodeInfomation[] NodeInfos
-        {
-            get { return nodeInfos.Reprecate(); }
-        }
+        public readonly ICremliaNodeInfomation[] nodeInfos;
     }
 
     public class FindValueReqMessage : CremliaMessageBase
@@ -3377,11 +3506,23 @@ namespace CREA2014
         public readonly byte[] data;
     }
 
+    public class GetIdsAndValuesReqMessage : CremliaMessageBase { }
+
+    public class IdsAndValuesMessage : CremliaMessageBase
+    {
+        public IdsAndValuesMessage(Tuple<ICremliaHash, byte[]>[] _idsAndValues)
+        {
+            idsAndValues = _idsAndValues;
+        }
+
+        public readonly Tuple<ICremliaHash, byte[]>[] idsAndValues;
+    }
+
     #endregion
 
     #region データ
 
-    public class Sha256Hash : SHAREDDATA, IComparable<Sha256Hash>, IEquatable<Sha256Hash>, IComparable
+    public class Sha256Hash : SHAREDDATA, IComparable<Sha256Hash>, IEquatable<Sha256Hash>, IComparable, ICremliaHash
     {
         private byte[] bytes;
         public byte[] Bytes
@@ -3469,6 +3610,30 @@ namespace CREA2014
         public override string ToString() { return bytes.ToHexstring(); }
 
         #endregion
+
+        public int Size
+        {
+            get { return 256; }
+        }
+
+        public void FromBytes(byte[] _bytes)
+        {
+            if (_bytes.Length != 32)
+                throw new ArgumentException("Sha256_bytes_length");
+
+            bytes = _bytes;
+        }
+
+        public ICremliaHash XOR(ICremliaHash hash)
+        {
+            if (!(hash is Sha256Hash))
+                throw new ArgumentException("not_sha256_hash");
+
+            byte[] xorBytes = new byte[32];
+            for (int i = 0; i < xorBytes.Length; i++)
+                xorBytes[i] = (byte)(bytes[i] ^ hash.Bytes[i]);
+            return new Sha256Hash(xorBytes);
+        }
     }
 
     public class Ripemd160Hash : SHAREDDATA, IComparable<Ripemd160Hash>, IEquatable<Ripemd160Hash>, IComparable

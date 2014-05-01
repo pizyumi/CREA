@@ -508,6 +508,14 @@ namespace CREA2014
             return decomposed;
         }
 
+        //配列を分解する（拡張：任意の整数型）
+        public static T[] Decompose<T>(this T[] self, int start, int length)
+        {
+            T[] decomposed = new T[length];
+            Array.Copy(self, start, decomposed, 0, length);
+            return decomposed;
+        }
+
         //配列を複製する（拡張：任意の配列型）
         public static T[] Reprecate<T>(this T[] self)
         {
@@ -587,11 +595,11 @@ namespace CREA2014
 
         public class TaskInformation : INTERNALDATA
         {
-            public readonly Action Action;
             public readonly string Name;
             public readonly string Descption;
+            public readonly Action Action;
 
-            public TaskInformation(Action _action, string _name, string _description)
+            public TaskInformation(string _name, string _description, Action _action)
             {
                 Action = _action;
                 Name = _name;
@@ -601,9 +609,9 @@ namespace CREA2014
 
         public static event EventHandler<TaskInformation> Tasked = delegate { };
 
-        public static void StartTask<T>(this T self, Action action, string name, string description)
+        public static void StartTask<T>(this T self, string name, string description, Action action)
         {
-            Tasked(self.GetType(), new TaskInformation(action, name, description));
+            Tasked(self.GetType(), new TaskInformation(name, description, action));
         }
 
         public class LogInfomation : INTERNALDATA
@@ -2012,7 +2020,7 @@ namespace CREA2014
             public readonly DateTime StartedTime;
 
             public TaskData(Extension.TaskInformation _taskInfo, int _number)
-                : base(_taskInfo.Action, _taskInfo.Name, _taskInfo.Descption)
+                : base(_taskInfo.Name, _taskInfo.Descption, _taskInfo.Action)
             {
                 Number = _number;
                 StartedTime = DateTime.Now;
@@ -2893,7 +2901,7 @@ namespace CREA2014
                 { typeof(InboundChannelsBase), LogData.LogGround.networkBase},
                 { typeof(OutboundChannelBase), LogData.LogGround.networkBase},
                 { typeof(SocketChannel), LogData.LogGround.networkBase},
-                { typeof(Cremlia), LogData.LogGround.cremlia},
+                { typeof(Cremlia<Sha256Hash>), LogData.LogGround.cremlia},
             };
 
             logMessages = new Dictionary<string, Func<string[], string>>() {
