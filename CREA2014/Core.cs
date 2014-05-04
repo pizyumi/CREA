@@ -13,7 +13,6 @@ using System.Security;
 using System.Security.Cryptography;
 using System.Text;
 using System.Threading;
-using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
@@ -1467,6 +1466,16 @@ namespace CREA2014
         tx = 12,
         block = 13,
         notfound = 14,
+
+        PingReq = 100,
+        PingRes = 101,
+        StoreReq = 102,
+        FindNodesReq = 103,
+        NeighborNodes = 104,
+        FindvalueReq = 105,
+        Value = 106,
+        GetIdsAndValuesReq = 107,
+        IdsAndValues = 108,
     }
 
     public class Message : SHAREDDATA
@@ -1817,6 +1826,356 @@ namespace CREA2014
                     return false;
                 else
                     throw new NotSupportedException("header_res_corruption_checked");
+            }
+        }
+    }
+
+    public class PingReq : MessageBase
+    {
+        public PingReq() : base(0) { }
+
+        protected override Func<ReaderWriter, IEnumerable<MainDataInfomation>> StreamInfo
+        {
+            get
+            {
+                if (Version == 0)
+                    return (msrw) => new MainDataInfomation[] { };
+                else
+                    throw new NotSupportedException("ping_req_main_data_info");
+            }
+        }
+
+        public override bool IsVersioned
+        {
+            get { return true; }
+        }
+
+        public override bool IsCorruptionChecked
+        {
+            get
+            {
+                if (Version <= 0)
+                    return false;
+                else
+                    throw new NotSupportedException("ping_req_check");
+            }
+        }
+    }
+
+    public class PingRes : MessageBase
+    {
+        public PingRes() : base(0) { }
+
+        protected override Func<ReaderWriter, IEnumerable<MainDataInfomation>> StreamInfo
+        {
+            get
+            {
+                if (Version == 0)
+                    return (msrw) => new MainDataInfomation[] { };
+                else
+                    throw new NotSupportedException("ping_res_main_data_info");
+            }
+        }
+
+        public override bool IsVersioned
+        {
+            get { return true; }
+        }
+
+        public override bool IsCorruptionChecked
+        {
+            get
+            {
+                if (Version <= 0)
+                    return false;
+                else
+                    throw new NotSupportedException("ping_res_check");
+            }
+        }
+    }
+
+    public class StoreReq : MessageBase
+    {
+        public StoreReq(Sha256Hash _id, byte[] _data)
+            : base(0)
+        {
+            id = _id;
+            data = _data;
+        }
+
+        public Sha256Hash id { get; private set; }
+        public byte[] data { get; private set; }
+
+        protected override Func<ReaderWriter, IEnumerable<MainDataInfomation>> StreamInfo
+        {
+            get
+            {
+                if (Version == 0)
+                    return (msrw) => new MainDataInfomation[]{
+                        new MainDataInfomation(typeof(Sha256Hash), null, () => id, (o) => id = (Sha256Hash)o),
+                        new MainDataInfomation(typeof(byte[]), null, () => data, (o) => data = (byte[])o),
+                    };
+                else
+                    throw new NotSupportedException("store_req_main_data_info");
+            }
+        }
+
+        public override bool IsVersioned
+        {
+            get { return true; }
+        }
+
+        public override bool IsCorruptionChecked
+        {
+            get
+            {
+                if (Version <= 0)
+                    return false;
+                else
+                    throw new NotSupportedException("store_req_check");
+            }
+        }
+    }
+
+    public class FindNodesReq : MessageBase
+    {
+        public FindNodesReq(Sha256Hash _id)
+            : base(0)
+        {
+            id = _id;
+        }
+
+        public Sha256Hash id { get; private set; }
+
+        protected override Func<ReaderWriter, IEnumerable<MainDataInfomation>> StreamInfo
+        {
+            get
+            {
+                if (Version == 0)
+                    return (msrw) => new MainDataInfomation[]{
+                        new MainDataInfomation(typeof(Sha256Hash), null, () => id, (o) => id = (Sha256Hash)o),
+                    };
+                else
+                    throw new NotSupportedException("find_nodes_req_main_data_info");
+            }
+        }
+
+        public override bool IsVersioned
+        {
+            get { return true; }
+        }
+
+        public override bool IsCorruptionChecked
+        {
+            get
+            {
+                if (Version <= 0)
+                    return false;
+                else
+                    throw new NotSupportedException("find_nodes_req_check");
+            }
+        }
+    }
+
+    public class NeighborNodes : MessageBase
+    {
+        public NeighborNodes(NodeInformation[] _nodeInfos)
+            : base(0)
+        {
+            nodeInfos = _nodeInfos;
+        }
+
+        private NodeInformation[] nodeInfos;
+        public NodeInformation[] NodeInfos
+        {
+            get { return nodeInfos.ToArray(); }
+        }
+
+        protected override Func<ReaderWriter, IEnumerable<MainDataInfomation>> StreamInfo
+        {
+            get
+            {
+                if (Version == 0)
+                    return (msrw) => new MainDataInfomation[]{
+                        new MainDataInfomation(typeof(NodeInformation[]), 0, null, () => nodeInfos, (o) => nodeInfos = (NodeInformation[])o),
+                    };
+                else
+                    throw new NotSupportedException("neighbor_nodes_main_data_info");
+            }
+        }
+
+        public override bool IsVersioned
+        {
+            get { return true; }
+        }
+
+        public override bool IsCorruptionChecked
+        {
+            get
+            {
+                if (Version <= 0)
+                    return false;
+                else
+                    throw new NotSupportedException("neighbor_nodes_req_check");
+            }
+        }
+    }
+
+    public class FindValueReq : MessageBase
+    {
+        public FindValueReq(Sha256Hash _id)
+            : base(0)
+        {
+            id = _id;
+        }
+
+        public Sha256Hash id { get; private set; }
+
+        protected override Func<ReaderWriter, IEnumerable<MainDataInfomation>> StreamInfo
+        {
+            get
+            {
+                if (Version == 0)
+                    return (msrw) => new MainDataInfomation[] {
+                        new MainDataInfomation(typeof(Sha256Hash), null, () => id, (o) => id = (Sha256Hash)o),
+                    };
+                else
+                    throw new NotSupportedException("find_value_req_main_data_info");
+            }
+        }
+
+        public override bool IsVersioned
+        {
+            get { return true; }
+        }
+
+        public override bool IsCorruptionChecked
+        {
+            get
+            {
+                if (Version <= 0)
+                    return false;
+                else
+                    throw new NotSupportedException("find_value_req_check");
+            }
+        }
+    }
+
+    public class Value : MessageBase
+    {
+        public Value(byte[] _data)
+            : base(0)
+        {
+            data = _data;
+        }
+
+        public byte[] data { get; private set; }
+
+        protected override Func<ReaderWriter, IEnumerable<MainDataInfomation>> StreamInfo
+        {
+            get
+            {
+                if (Version == 0)
+                    return (msrw) => new MainDataInfomation[] {
+                        new MainDataInfomation(typeof(byte[]), null, () => data, (o) => data = (byte[])o),
+                    };
+                else
+                    throw new NotSupportedException("value_main_data_info");
+            }
+        }
+
+        public override bool IsVersioned
+        {
+            get { return true; }
+        }
+
+        public override bool IsCorruptionChecked
+        {
+            get
+            {
+                if (Version <= 0)
+                    return false;
+                else
+                    throw new NotSupportedException("value_req_check");
+            }
+        }
+    }
+
+    public class GetIdsAndValuesReq : MessageBase
+    {
+        public GetIdsAndValuesReq() : base(0) { }
+
+        protected override Func<ReaderWriter, IEnumerable<MainDataInfomation>> StreamInfo
+        {
+            get
+            {
+                if (Version == 0)
+                    return (msrw) => new MainDataInfomation[] { };
+                else
+                    throw new NotSupportedException("get_ids_and_values_main_data_info");
+            }
+        }
+
+        public override bool IsVersioned
+        {
+            get { return true; }
+        }
+
+        public override bool IsCorruptionChecked
+        {
+            get
+            {
+                if (Version <= 0)
+                    return false;
+                else
+                    throw new NotSupportedException("get_ids_and_values_check");
+            }
+        }
+    }
+
+    public class IdsAndValues : MessageBase
+    {
+        public IdsAndValues() : base(0) { }
+
+        private Sha256Hash[] ids;
+        public Sha256Hash[] Ids
+        {
+            get { return ids.ToArray(); }
+        }
+
+        private byte[][] datas;
+        public byte[][] Datas
+        {
+            get { return datas.ToArray(); }
+        }
+
+        protected override Func<ReaderWriter, IEnumerable<MainDataInfomation>> StreamInfo
+        {
+            get
+            {
+                if (Version == 0)
+                    return (msrw) => new MainDataInfomation[] {
+                        new MainDataInfomation(typeof(Sha256Hash[]), null, null, () => ids, (o) => ids = (Sha256Hash[])o),
+                        new MainDataInfomation(typeof(byte[][]), null, () => datas, (o) => datas = (byte[][])o),
+                    };
+                else
+                    throw new NotSupportedException("ids_and_value_main_data_info");
+            }
+        }
+
+        public override bool IsVersioned
+        {
+            get { return true; }
+        }
+
+        public override bool IsCorruptionChecked
+        {
+            get
+            {
+                if (Version <= 0)
+                    return false;
+                else
+                    throw new NotSupportedException("ids_and_value_check");
             }
         }
     }
@@ -2578,24 +2937,6 @@ namespace CREA2014
 
     public class FirstNodeInformation : SHAREDDATA, IEquatable<FirstNodeInformation>
     {
-        private IPAddress ipAddress;
-        public IPAddress IpAddress
-        {
-            get { return ipAddress; }
-        }
-
-        private ushort port;
-        public ushort Port
-        {
-            get { return port; }
-        }
-
-        private Network network;
-        public Network Network
-        {
-            get { return network; }
-        }
-
         protected FirstNodeInformation(int? _version) : base(_version) { }
 
         public FirstNodeInformation() : this((int?)null) { }
@@ -2618,6 +2959,24 @@ namespace CREA2014
         public FirstNodeInformation(string _hex)
         {
             Hex = _hex;
+        }
+
+        private IPAddress ipAddress;
+        public IPAddress IpAddress
+        {
+            get { return ipAddress; }
+        }
+
+        private ushort port;
+        public ushort Port
+        {
+            get { return port; }
+        }
+
+        private Network network;
+        public Network Network
+        {
+            get { return network; }
         }
 
         public string Hex
@@ -2716,29 +3075,26 @@ namespace CREA2014
             }
         }
 
-        public override bool Equals(object obj)
-        {
-            return (obj as FirstNodeInformation).Operate((o) => o != null && Equals(o));
-        }
+        public override bool Equals(object obj) { return (obj as FirstNodeInformation).Operate((o) => o != null && Equals(o)); }
 
-        public override int GetHashCode()
-        {
-            return ipAddress.GetHashCode() ^ port.GetHashCode();
-        }
+        public override int GetHashCode() { return ipAddress.GetHashCode() ^ port.GetHashCode(); }
 
-        public override string ToString()
-        {
-            return ipAddress + ":" + port.ToString();
-        }
+        public override string ToString() { return ipAddress + ":" + port.ToString(); }
 
-        public bool Equals(FirstNodeInformation other)
-        {
-            return ipAddress.ToString() == other.ipAddress.ToString() && port == other.port;
-        }
+        public bool Equals(FirstNodeInformation other) { return ipAddress.ToString() == other.ipAddress.ToString() && port == other.port; }
     }
 
-    public class NodeInformation : FirstNodeInformation, ICremliaNodeInfomation
+    public class NodeInformation : FirstNodeInformation, IEquatable<NodeInformation>
     {
+        public NodeInformation() : base(0) { }
+
+        public NodeInformation(IPAddress _ipAddress, ushort _port, Network _network, string _publicRSAParameters)
+            : base(0, _ipAddress, _port, _network)
+        {
+            participation = DateTime.Now;
+            publicRSAParameters = _publicRSAParameters;
+        }
+
         private DateTime participation;
         public DateTime Participation
         {
@@ -2749,15 +3105,6 @@ namespace CREA2014
         public string PublicRSAParameters
         {
             get { return publicRSAParameters; }
-        }
-
-        public NodeInformation() : base(0) { }
-
-        public NodeInformation(IPAddress _ipAddress, ushort _port, Network _network, string _publicRSAParameters)
-            : base(0, _ipAddress, _port, _network)
-        {
-            participation = DateTime.Now;
-            publicRSAParameters = _publicRSAParameters;
         }
 
         private Sha256Hash idCache;
@@ -2808,29 +3155,133 @@ namespace CREA2014
             }
         }
 
-        public override bool Equals(object _obj)
+        public override bool Equals(object obj) { return (obj as NodeInformation).Operate((o) => o != null && Equals(o)); }
+
+        public override int GetHashCode() { return Id.GetHashCode(); }
+
+        public override string ToString() { return Id.ToString(); }
+
+        public bool Equals(NodeInformation other) { return Id.Equals(other.Id); }
+    }
+
+    #endregion
+
+    #region Cremlia実装
+
+    public class CremliaIdFactory : ICremliaIdFactory
+    {
+        public CremliaIdFactory() { }
+
+        public ICremliaId Create() { return new CremliaId(); }
+    }
+
+    public class CremliaId : ICremliaId, IComparable<CremliaId>, IEquatable<CremliaId>, IComparable
+    {
+        public CremliaId() : this(new Sha256Hash()) { }
+
+        public CremliaId(Sha256Hash _hash)
         {
-            return (_obj as NodeInformation).Operate((o) => o != null && Equals(o));
+            hash = _hash;
         }
 
-        public override int GetHashCode()
+        public readonly Sha256Hash hash;
+
+        public int Size
         {
-            return Id.GetHashCode();
+            get { return hash.size; }
         }
 
-        public override string ToString()
+        public byte[] Bytes
         {
-            return Id.ToString();
+            get { return hash.bytes; }
         }
 
-        public bool Equals(NodeInformation other)
+        public void FromBytes(byte[] bytes)
         {
-            return Id.Equals(other.Id);
+            if (bytes.Length != Bytes.Length)
+                throw new ArgumentException("cremlia_id_bytes_length");
+
+            hash.bytes = bytes;
         }
 
-        public ICremliaHash CremliaId
+        public ICremliaId XOR(ICremliaId id)
         {
-            get { return Id; }
+            if (id.Size != Size)
+                throw new ArgumentException("not_equal_hash");
+
+            byte[] xorBytes = new byte[Bytes.Length];
+            for (int i = 0; i < xorBytes.Length; i++)
+                xorBytes[i] = (byte)(Bytes[i] ^ id.Bytes[i]);
+            return new CremliaId(new Sha256Hash(xorBytes));
+        }
+
+        public override bool Equals(object obj)
+        {
+            if (!(obj is CremliaId))
+                return false;
+            return hash.Equals((obj as CremliaId).hash);
+        }
+
+        public bool Equals(CremliaId other) { return hash.Equals(other); }
+
+        public int CompareTo(object obj) { return hash.CompareTo((obj as CremliaId).hash); }
+
+        public int CompareTo(CremliaId other) { return hash.CompareTo(other.hash); }
+
+        public override int GetHashCode() { return hash.GetHashCode(); }
+
+        public override string ToString() { return hash.ToString(); }
+    }
+
+    public class CremliaNodeInfomation : ICremliaNodeInfomation, IEquatable<CremliaNodeInfomation>
+    {
+        public CremliaNodeInfomation(NodeInformation _nodeInfo)
+        {
+            nodeInfo = _nodeInfo;
+        }
+
+        public readonly NodeInformation nodeInfo;
+
+        public ICremliaId Id
+        {
+            get { return new CremliaId(nodeInfo.Id); }
+        }
+
+        public override bool Equals(object obj) { return (obj as CremliaNodeInfomation).Operate((o) => o != null && Equals(o)); }
+
+        public override int GetHashCode() { return Id.GetHashCode(); }
+
+        public override string ToString() { return Id.ToString(); }
+
+        public bool Equals(CremliaNodeInfomation other) { return Id.Equals(other.Id); }
+    }
+
+    public class CremliaDatabaseIo : ICremliaDatabaseIo
+    {
+        private int tExpire;
+        public int TExpire
+        {
+            set { tExpire = value; }
+        }
+
+        public byte[] Get(ICremliaId id)
+        {
+            throw new NotImplementedException();
+        }
+
+        public Tuple<ICremliaId, byte[]>[] GetOriginals()
+        {
+            throw new NotImplementedException();
+        }
+
+        public Tuple<ICremliaId, byte[]>[] GetCharges()
+        {
+            throw new NotImplementedException();
+        }
+
+        public void Set(ICremliaId id, byte[] data, bool isOriginal, bool isCache)
+        {
+            throw new NotImplementedException();
         }
     }
 
@@ -2838,18 +3289,23 @@ namespace CREA2014
 
     #region cremlia
 
-    public interface ICremliaHash
+    public interface ICremliaIdFactory
+    {
+        ICremliaId Create();
+    }
+
+    public interface ICremliaId
     {
         int Size { get; }
         byte[] Bytes { get; }
 
         void FromBytes(byte[] bytes);
-        ICremliaHash XOR(ICremliaHash hash);
+        ICremliaId XOR(ICremliaId id);
     }
 
     public interface ICremliaNodeInfomation
     {
-        ICremliaHash CremliaId { get; }
+        ICremliaId Id { get; }
     }
 
     public interface ICremliaNetworkIo
@@ -2872,26 +3328,25 @@ namespace CREA2014
     {
         int TExpire { set; }
 
-        byte[] Get(ICremliaHash id);
-        Tuple<ICremliaHash, byte[]>[] GetOrifinals();
-        Tuple<ICremliaHash, byte[]>[] GetWorks();
-        void Set(ICremliaHash id, byte[] data, bool isOrifinal, bool isCache);
+        byte[] Get(ICremliaId id);
+        Tuple<ICremliaId, byte[]>[] GetOriginals();
+        Tuple<ICremliaId, byte[]>[] GetCharges();
+        void Set(ICremliaId id, byte[] data, bool isOriginal, bool isCache);
     }
 
-    //<未改良>ICremliaHashからTへの変更
-    //　　　　他、インターフェイスの型、具象型の実装
-    public class Cremlia<T> where T : ICremliaHash
+    public class Cremlia
     {
-        public Cremlia(ICremliaDatabaseIo _databaseIo, ICremliaNetworkIo _networkIo, ICremliaNodeInfomation _myNodeInfo) : this(_databaseIo, _networkIo, _myNodeInfo, 256, 20, 3, 86400, 3600, 3600, 86400) { }
+        public Cremlia(ICremliaIdFactory _idFactory, ICremliaDatabaseIo _databaseIo, ICremliaNetworkIo _networkIo, ICremliaNodeInfomation _myNodeInfo) : this(_idFactory, _databaseIo, _networkIo, _myNodeInfo, 256, 20, 3, 86400 * 1000, 3600 * 1000, 3600 * 1000, 86400 * 1000) { }
 
-        public Cremlia(ICremliaDatabaseIo _databaseIo, ICremliaNetworkIo _networkIo, ICremliaNodeInfomation _myNodeInfo, int _keySpace, int _K, int _α, int _tExpire, int _tRefresh, int _tReplicate, int _tRepublish)
+        public Cremlia(ICremliaIdFactory _idFactory, ICremliaDatabaseIo _databaseIo, ICremliaNetworkIo _networkIo, ICremliaNodeInfomation _myNodeInfo, int _keySpace, int _K, int _α, int _tExpire, int _tRefresh, int _tReplicate, int _tRepublish)
         {
             //鍵空間は8の倍数とする
             if (_keySpace % 8 != 0)
                 throw new InvalidDataException("key_space");
-            if (_myNodeInfo.CremliaId.Size != _keySpace)
+            if (_myNodeInfo.Id.Size != _keySpace)
                 throw new InvalidDataException("id_size_and_key_space");
 
+            idFactory = _idFactory;
             databaseIo = _databaseIo;
             networkIo = _networkIo;
             myNodeInfo = _myNodeInfo;
@@ -2913,6 +3368,13 @@ namespace CREA2014
 
             networkIo.SessionStarted += (sender, e) =>
             {
+                Action<ICremliaId> _ResNeighborNodes = (id) =>
+                {
+                    SortedList<ICremliaId, ICremliaNodeInfomation> findTable = new SortedList<ICremliaId, ICremliaNodeInfomation>();
+                    GetNeighborNodesTable(id, findTable);
+                    e.Write(new NeighborNodesMessage(findTable.Values.ToArray()));
+                };
+
                 CremliaMessageBase message = e.Read();
                 if (message is PingReqMessage)
                     e.Write(new PingResMessage());
@@ -2922,27 +3384,20 @@ namespace CREA2014
                     databaseIo.Set(srm.id, srm.data, false, false);
                 }
                 else if (message is FindNodesReqMessage)
-                {
-                    SortedList<ICremliaHash, ICremliaNodeInfomation> findTable = new SortedList<ICremliaHash, ICremliaNodeInfomation>();
-                    GetNeighborNodeTable((message as FindNodesReqMessage).id, findTable);
-                    e.Write(new NeighborNodesMessage(findTable.Values.ToArray()));
-                }
+                    _ResNeighborNodes((message as FindNodesReqMessage).id);
                 else if (message is FindValueReqMessage)
                 {
-                    ICremliaHash id = (message as FindValueReqMessage).id;
+                    ICremliaId id = (message as FindValueReqMessage).id;
 
                     byte[] data = databaseIo.Get(id);
                     if (data == null)
-                    {
-                        SortedList<ICremliaHash, ICremliaNodeInfomation> findTable = new SortedList<ICremliaHash, ICremliaNodeInfomation>();
-                        GetNeighborNodeTable(id, findTable);
-                        e.Write(new NeighborNodesMessage(findTable.Values.ToArray()));
-                    }
+                        _ResNeighborNodes(id);
                     else
                         e.Write(new ValueMessage(data));
                 }
+                //独自実装
                 else if (message is GetIdsAndValuesReqMessage)
-                    e.Write(new IdsAndValuesMessage(databaseIo.GetWorks()));
+                    e.Write(new IdsAndValuesMessage(databaseIo.GetCharges()));
                 else
                     throw new NotSupportedException("cremlia_not_supported_message");
 
@@ -2959,23 +3414,20 @@ namespace CREA2014
                     //時間が掛かるので若干判定条件を短めに
                     if (kbuckets[i].Count != 0 && kbucketsUpdatedTime[i] <= DateTime.Now - new TimeSpan(0, 0, (int)(tRefresh * 0.9)))
                         FindNodes(GetRamdomHash(i));
-            }, null, 0, tRefresh);
+            }, null, tRefresh, tRefresh);
 
-            Timer timerReplicate = new Timer((state) =>
+            Action<Tuple<ICremliaId, byte[]>[]> _StoreIdsAndValues = (idsAndValues) =>
             {
-                foreach (Tuple<ICremliaHash, byte[]> work in databaseIo.GetWorks())
-                    foreach (ICremliaNodeInfomation nodeInfo in FindNodes(work.Item1))
-                        ReqStore(nodeInfo, work.Item1, work.Item2);
-            }, null, 0, tReplicate);
+                foreach (Tuple<ICremliaId, byte[]> idAndValue in idsAndValues)
+                    foreach (ICremliaNodeInfomation nodeInfo in FindNodes(idAndValue.Item1))
+                        ReqStore(nodeInfo, idAndValue.Item1, idAndValue.Item2);
+            };
 
-            Timer timerRepublish = new Timer((state) =>
-            {
-                foreach (Tuple<ICremliaHash, byte[]> original in databaseIo.GetOrifinals())
-                    foreach (ICremliaNodeInfomation nodeInfo in FindNodes(original.Item1))
-                        ReqStore(nodeInfo, original.Item1, original.Item2);
-            }, null, 0, tRepublish);
+            Timer timerReplicate = new Timer((state) => _StoreIdsAndValues(databaseIo.GetCharges()), null, tReplicate, tReplicate);
+            Timer timerRepublish = new Timer((state) => _StoreIdsAndValues(databaseIo.GetOriginals()), null, tRepublish, tRepublish);
         }
 
+        private readonly ICremliaIdFactory idFactory;
         private readonly ICremliaDatabaseIo databaseIo;
         private readonly ICremliaNetworkIo networkIo;
         private readonly object[] kbucketsLocks;
@@ -3017,7 +3469,7 @@ namespace CREA2014
             return true;
         }
 
-        public bool ReqStore(ICremliaNodeInfomation nodeInfo, ICremliaHash id, byte[] data)
+        public bool ReqStore(ICremliaNodeInfomation nodeInfo, ICremliaId id, byte[] data)
         {
             if (nodeInfo.Equals(myNodeInfo))
                 throw new ArgumentException("cremlia_my_node");
@@ -3036,8 +3488,11 @@ namespace CREA2014
             return true;
         }
 
-        public ICremliaNodeInfomation[] ReqFindNodes(ICremliaNodeInfomation nodeInfo, ICremliaHash id)
+        public ICremliaNodeInfomation[] ReqFindNodes(ICremliaNodeInfomation nodeInfo, ICremliaId id)
         {
+            if (nodeInfo.Equals(myNodeInfo))
+                throw new ArgumentException("cremlia_my_node");
+
             ICremliaNetworkIoSession session = networkIo.StartSession(nodeInfo);
             if (session == null)
             {
@@ -3059,8 +3514,11 @@ namespace CREA2014
             return (message as NeighborNodesMessage).nodeInfos;
         }
 
-        public MultipleReturn<ICremliaNodeInfomation[], byte[]> ReqFindValue(ICremliaNodeInfomation nodeInfo, ICremliaHash id)
+        public MultipleReturn<ICremliaNodeInfomation[], byte[]> ReqFindValue(ICremliaNodeInfomation nodeInfo, ICremliaId id)
         {
+            if (nodeInfo.Equals(myNodeInfo))
+                throw new ArgumentException("cremlia_my_node");
+
             ICremliaNetworkIoSession session = networkIo.StartSession(nodeInfo);
             if (session == null)
             {
@@ -3088,8 +3546,12 @@ namespace CREA2014
             return null;
         }
 
-        public Tuple<ICremliaHash, byte[]>[] ReqGetIdsAndValues(ICremliaNodeInfomation nodeInfo)
+        //独自実装
+        public Tuple<ICremliaId, byte[]>[] ReqGetIdsAndValues(ICremliaNodeInfomation nodeInfo)
         {
+            if (nodeInfo.Equals(myNodeInfo))
+                throw new ArgumentException("cremlia_my_node");
+
             ICremliaNetworkIoSession session = networkIo.StartSession(nodeInfo);
             if (session == null)
             {
@@ -3111,14 +3573,14 @@ namespace CREA2014
             return (message as IdsAndValuesMessage).idsAndValues;
         }
 
-        public ICremliaNodeInfomation[] FindNodes(ICremliaHash id)
+        public ICremliaNodeInfomation[] FindNodes(ICremliaId id)
         {
             object findLock = new object();
-            SortedList<ICremliaHash, ICremliaNodeInfomation> findTable = new SortedList<ICremliaHash, ICremliaNodeInfomation>();
+            SortedList<ICremliaId, ICremliaNodeInfomation> findTable = new SortedList<ICremliaId, ICremliaNodeInfomation>();
             Dictionary<ICremliaNodeInfomation, bool> checkTable = new Dictionary<ICremliaNodeInfomation, bool>();
             Dictionary<ICremliaNodeInfomation, bool?> checkTableSucceedOrFail = new Dictionary<ICremliaNodeInfomation, bool?>();
 
-            GetNeighborNodeTable(id, findTable);
+            GetNeighborNodesTable(id, findTable);
             foreach (var nodeInfo in findTable.Values)
                 checkTable.Add(nodeInfo, false);
             foreach (var nodeInfo in findTable.Values)
@@ -3136,9 +3598,8 @@ namespace CREA2014
                     while (true)
                     {
                         ICremliaNodeInfomation nodeInfo = null;
+                        int c = 0;
                         lock (findLock)
-                        {
-                            int c = 0;
                             for (int j = 0; j < findTable.Count; j++)
                                 if (!checkTable[findTable[findTable.Keys[j]]])
                                 {
@@ -3148,8 +3609,8 @@ namespace CREA2014
                                 }
                                 else if (checkTableSucceedOrFail[findTable[findTable.Keys[j]]] == true && ++c == K)
                                     break;
-                        }
 
+                        //適切なノード情報が見付からない場合はほぼ確実にノードの探索は殆ど終わっていると想定し、残りの処理は他のスレッドに任せる
                         if (nodeInfo == null)
                             break;
                         else
@@ -3162,14 +3623,14 @@ namespace CREA2014
                                 {
                                     checkTableSucceedOrFail[nodeInfo] = true;
 
-                                    foreach (ICremliaNodeInfomation n in nodeInfos)
+                                    foreach (ICremliaNodeInfomation ni in nodeInfos)
                                     {
-                                        ICremliaHash xor = id.XOR(n.CremliaId);
-                                        if (!findTable.Keys.Contains(xor) && !n.Equals(myNodeInfo))
+                                        ICremliaId xor = id.XOR(ni.Id);
+                                        if (!ni.Equals(myNodeInfo) && !findTable.Keys.Contains(xor))
                                         {
-                                            findTable.Add(xor, n);
-                                            checkTable.Add(n, false);
-                                            checkTableSucceedOrFail.Add(n, null);
+                                            findTable.Add(xor, ni);
+                                            checkTable.Add(ni, false);
+                                            checkTableSucceedOrFail.Add(ni, null);
                                         }
                                     }
                                 }
@@ -3184,25 +3645,21 @@ namespace CREA2014
                 ares[i].WaitOne();
 
             List<ICremliaNodeInfomation> findNodes = new List<ICremliaNodeInfomation>();
-            for (int i = 0; i < findTable.Count; i++)
+            for (int i = 0; i < findTable.Count && findNodes.Count < K; i++)
                 if (checkTable[findTable[findTable.Keys[i]]] && checkTableSucceedOrFail[findTable[findTable.Keys[i]]] == true)
-                {
                     findNodes.Add(findTable[findTable.Keys[i]]);
-                    if (findNodes.Count == K)
-                        break;
-                }
 
             return findNodes.ToArray();
         }
 
-        public byte[] FindValue(ICremliaHash id)
+        public byte[] FindValue(ICremliaId id)
         {
             object findLock = new object();
-            SortedList<ICremliaHash, ICremliaNodeInfomation> findTable = new SortedList<ICremliaHash, ICremliaNodeInfomation>();
+            SortedList<ICremliaId, ICremliaNodeInfomation> findTable = new SortedList<ICremliaId, ICremliaNodeInfomation>();
             Dictionary<ICremliaNodeInfomation, bool> checkTable = new Dictionary<ICremliaNodeInfomation, bool>();
             Dictionary<ICremliaNodeInfomation, bool?> checkTableSucceedOrFail = new Dictionary<ICremliaNodeInfomation, bool?>();
 
-            GetNeighborNodeTable(id, findTable);
+            GetNeighborNodesTable(id, findTable);
             foreach (var nodeInfo in findTable.Values)
                 checkTable.Add(nodeInfo, false);
             foreach (var nodeInfo in findTable.Values)
@@ -3218,15 +3675,11 @@ namespace CREA2014
 
                 this.StartTask("cremlia_find_value", "cremlia_find_value", () =>
                 {
-                    while (true)
+                    while (data == null)
                     {
-                        if (data != null)
-                            break;
-
                         ICremliaNodeInfomation nodeInfo = null;
+                        int c = 0;
                         lock (findLock)
-                        {
-                            int c = 0;
                             for (int j = 0; j < findTable.Count; j++)
                                 if (!checkTable[findTable[findTable.Keys[j]]])
                                 {
@@ -3236,33 +3689,33 @@ namespace CREA2014
                                 }
                                 else if (checkTableSucceedOrFail[findTable[findTable.Keys[j]]] == true && ++c == K)
                                     break;
-                        }
 
+                        //適切なノード情報が見付からない場合はほぼ確実にノードの探索は殆ど終わっていると想定し、残りの処理は他のスレッドに任せる
                         if (nodeInfo == null)
                             break;
                         else
                         {
-                            MultipleReturn<ICremliaNodeInfomation[], byte[]> multiReturn = ReqFindValue(nodeInfo, id);
+                            MultipleReturn<ICremliaNodeInfomation[], byte[]> multipleReturn = ReqFindValue(nodeInfo, id);
                             lock (findLock)
-                                if (multiReturn == null)
+                                if (multipleReturn == null)
                                     checkTableSucceedOrFail[nodeInfo] = false;
                                 else
                                 {
                                     checkTableSucceedOrFail[nodeInfo] = true;
 
-                                    if (multiReturn.IsValue1)
-                                        foreach (ICremliaNodeInfomation n in multiReturn.Value1)
+                                    if (multipleReturn.IsValue1)
+                                        foreach (ICremliaNodeInfomation ni in multipleReturn.Value1)
                                         {
-                                            ICremliaHash xor = id.XOR(n.CremliaId);
-                                            if (!findTable.Keys.Contains(xor) && !n.Equals(myNodeInfo))
+                                            ICremliaId xor = id.XOR(ni.Id);
+                                            if (!ni.Equals(myNodeInfo) && !findTable.Keys.Contains(xor))
                                             {
-                                                findTable.Add(xor, n);
-                                                checkTable.Add(n, false);
-                                                checkTableSucceedOrFail.Add(n, null);
+                                                findTable.Add(xor, ni);
+                                                checkTable.Add(ni, false);
+                                                checkTableSucceedOrFail.Add(ni, null);
                                             }
                                         }
-                                    else if (multiReturn.IsValue2)
-                                        data = multiReturn.Value2;
+                                    else if (multipleReturn.IsValue2)
+                                        data = multipleReturn.Value2;
                                 }
                         }
                     }
@@ -3274,12 +3727,13 @@ namespace CREA2014
             for (int i = 0; i < α; i++)
                 ares[i].WaitOne();
 
-            databaseIo.Set(id, data, false, true);
+            if (data != null)
+                databaseIo.Set(id, data, false, true);
 
             return data;
         }
 
-        public void Store(ICremliaHash id, byte[] data)
+        public void StoreOriginal(ICremliaId id, byte[] data)
         {
             databaseIo.Set(id, data, true, false);
 
@@ -3290,18 +3744,17 @@ namespace CREA2014
         public void Join(ICremliaNodeInfomation[] nodeInfos)
         {
             foreach (ICremliaNodeInfomation nodeInfo in nodeInfos)
-                UpdateNodeState(nodeInfo, true);
+                UpdateNodeStateWhenJoin(nodeInfo);
 
-            foreach (ICremliaNodeInfomation nodeInfo in FindNodes(myNodeInfo.CremliaId))
-                foreach (Tuple<ICremliaHash, byte[]> idAndValue in ReqGetIdsAndValues(nodeInfo))
+            foreach (ICremliaNodeInfomation nodeInfo in FindNodes(myNodeInfo.Id))
+                foreach (Tuple<ICremliaId, byte[]> idAndValue in ReqGetIdsAndValues(nodeInfo))
                     databaseIo.Set(idAndValue.Item1, idAndValue.Item2, false, false);
         }
 
-        public ICremliaHash GetRamdomHash(int distanceLevel)
+        public ICremliaId GetRamdomHash(int distanceLevel)
         {
             byte[] bytes = new byte[keySpace / 8];
-            for (int i = bytes.Length - 1; i >= 0; i--)
-            {
+            for (int i = bytes.Length - 1; i >= 0; i--, distanceLevel -= 8)
                 if (distanceLevel >= 8)
                     bytes[i] = (byte)256.RandomNum();
                 else
@@ -3326,17 +3779,16 @@ namespace CREA2014
                     break;
                 }
 
-                distanceLevel -= 8;
-            }
-
-            ICremliaHash xor = Activator.CreateInstance(typeof(T)) as ICremliaHash;
+            ICremliaId xor = idFactory.Create();
+            if (xor.Size != keySpace)
+                throw new InvalidDataException("invalid_id_size");
             xor.FromBytes(bytes);
-            return xor.XOR(myNodeInfo.CremliaId);
+            return xor.XOR(myNodeInfo.Id);
         }
 
-        public int GetDistanceLevel(ICremliaHash id)
+        public int GetDistanceLevel(ICremliaId id)
         {
-            ICremliaHash xor = id.XOR(myNodeInfo.CremliaId);
+            ICremliaId xor = id.XOR(myNodeInfo.Id);
 
             //距離が0の場合にはdistanceLevelは-1
             //　　論文ではハッシュ値の衝突が考慮されていないっぽい？
@@ -3367,20 +3819,24 @@ namespace CREA2014
             return distanceLevel;
         }
 
-        public void GetNeighborNodeTable(ICremliaHash id, SortedList<ICremliaHash, ICremliaNodeInfomation> findTable)
+        public void GetNeighborNodesTable(ICremliaId id, SortedList<ICremliaId, ICremliaNodeInfomation> findTable)
         {
             Func<ICremliaNodeInfomation, bool> TryFindTableAddition = (nodeInfo) =>
             {
-                ICremliaHash distance = id.XOR(nodeInfo.CremliaId);
-                if (!findTable.ContainsKey(distance))
-                    findTable.Add(distance, nodeInfo);
+                ICremliaId xor = id.XOR(nodeInfo.Id);
+                if (!findTable.ContainsKey(xor))
+                    findTable.Add(xor, nodeInfo);
                 else
-                    this.RaiseError("find_table_already_added".GetLogMessage(distance.ToString(), findTable[distance].CremliaId.ToString(), nodeInfo.CremliaId.ToString()), 5);
+                    this.RaiseError("find_table_already_added".GetLogMessage(xor.ToString(), findTable[xor].Id.ToString(), nodeInfo.Id.ToString()), 5);
 
                 return findTable.Count >= K;
             };
 
             int distanceLevel = GetDistanceLevel(id);
+
+            //原論文では探索するidが自己のノード情報のidと同一である場合を想定していない・・・
+            if (distanceLevel == -1)
+                distanceLevel = 0;
 
             lock (kbucketsLocks[distanceLevel])
                 foreach (ICremliaNodeInfomation nodeInfo in kbuckets[distanceLevel])
@@ -3400,17 +3856,25 @@ namespace CREA2014
                             return;
         }
 
+        public ICremliaNodeInfomation[] GetKbuckets(int distanceLevel)
+        {
+            List<ICremliaNodeInfomation> nodeInfos = new List<ICremliaNodeInfomation>();
+            lock (kbuckets[distanceLevel])
+                for (int i = 0; i < kbuckets[distanceLevel].Count; i++)
+                    nodeInfos.Add(kbuckets[distanceLevel][i]);
+            return nodeInfos.ToArray();
+        }
+
         public void UpdateNodeState(ICremliaNodeInfomation nodeInfo, bool isValid)
         {
-            ICremliaHash id = nodeInfo.CremliaId;
-            if (id.Size != keySpace)
+            if (nodeInfo.Id.Size != keySpace)
                 throw new InvalidOperationException("invalid_id_size");
 
             if (nodeInfo.Equals(myNodeInfo))
                 this.RaiseWarning("my_node_info".GetLogMessage(), 5);
             else
             {
-                int distanceLevel = GetDistanceLevel(nodeInfo.CremliaId);
+                int distanceLevel = GetDistanceLevel(nodeInfo.Id);
                 lock (kbuckets[distanceLevel])
                     if (isValid)
                         if (kbuckets[distanceLevel].Contains(nodeInfo))
@@ -3423,7 +3887,7 @@ namespace CREA2014
                             if (kbuckets[distanceLevel].Count >= K)
                             {
                                 ICremliaNodeInfomation pingNodeInfo = kbuckets[distanceLevel][0];
-                                Task.Factory.StartNew(() =>
+                                this.StartTask("update_node_state", "update_node_state", () =>
                                 {
                                     bool isResponded = ReqPing(pingNodeInfo);
 
@@ -3444,6 +3908,34 @@ namespace CREA2014
                             else
                                 kbuckets[distanceLevel].Add(nodeInfo);
                         }
+                    else if (kbuckets[distanceLevel].Contains(nodeInfo))
+                        kbuckets[distanceLevel].Remove(nodeInfo);
+
+            }
+        }
+
+        public void UpdateNodeStateWhenJoin(ICremliaNodeInfomation nodeInfo)
+        {
+            if (nodeInfo.Id.Size != keySpace)
+                throw new InvalidOperationException("invalid_id_size");
+
+            if (nodeInfo.Equals(myNodeInfo))
+                this.RaiseWarning("my_node_info".GetLogMessage(), 5);
+            else
+            {
+                int distanceLevel = GetDistanceLevel(nodeInfo.Id);
+                if (kbuckets[distanceLevel].Contains(nodeInfo))
+                {
+                    kbuckets[distanceLevel].Remove(nodeInfo);
+                    kbuckets[distanceLevel].Add(nodeInfo);
+                }
+                else if (kbuckets[distanceLevel].Count >= K)
+                {
+                    kbuckets[distanceLevel].RemoveAt(0);
+                    kbuckets[distanceLevel].Add(nodeInfo);
+                }
+                else
+                    kbuckets[distanceLevel].Add(nodeInfo);
             }
         }
     }
@@ -3456,24 +3948,24 @@ namespace CREA2014
 
     public class StoreReqMessage : CremliaMessageBase
     {
-        public StoreReqMessage(ICremliaHash _id, byte[] _data)
+        public StoreReqMessage(ICremliaId _id, byte[] _data)
         {
             id = _id;
             data = _data;
         }
 
-        public readonly ICremliaHash id;
+        public readonly ICremliaId id;
         public readonly byte[] data;
     }
 
     public class FindNodesReqMessage : CremliaMessageBase
     {
-        public FindNodesReqMessage(ICremliaHash _id)
+        public FindNodesReqMessage(ICremliaId _id)
         {
             id = _id;
         }
 
-        public readonly ICremliaHash id;
+        public readonly ICremliaId id;
     }
 
     public class NeighborNodesMessage : CremliaMessageBase
@@ -3488,12 +3980,12 @@ namespace CREA2014
 
     public class FindValueReqMessage : CremliaMessageBase
     {
-        public FindValueReqMessage(ICremliaHash _id)
+        public FindValueReqMessage(ICremliaId _id)
         {
             id = _id;
         }
 
-        public readonly ICremliaHash id;
+        public readonly ICremliaId id;
     }
 
     public class ValueMessage : CremliaMessageBase
@@ -3510,84 +4002,64 @@ namespace CREA2014
 
     public class IdsAndValuesMessage : CremliaMessageBase
     {
-        public IdsAndValuesMessage(Tuple<ICremliaHash, byte[]>[] _idsAndValues)
+        public IdsAndValuesMessage(Tuple<ICremliaId, byte[]>[] _idsAndValues)
         {
             idsAndValues = _idsAndValues;
         }
 
-        public readonly Tuple<ICremliaHash, byte[]>[] idsAndValues;
+        public readonly Tuple<ICremliaId, byte[]>[] idsAndValues;
     }
 
     #endregion
 
     #region データ
 
-    public class Sha256Hash : SHAREDDATA, IComparable<Sha256Hash>, IEquatable<Sha256Hash>, IComparable, ICremliaHash
+    //<未改良>2014/05/03 Sha256HashとRipemd160hashの統合
+    //　　　　共通の基底クラスを作る
+    public class Sha256Hash : SHAREDDATA, IComparable<Sha256Hash>, IEquatable<Sha256Hash>, IComparable
     {
-        private byte[] bytes;
-        public byte[] Bytes
+        public Sha256Hash()
         {
-            get { return bytes; }
-            set { bytes = value; }
+            bytesLength = 32;
+            size = bytesLength * 8;
+            bytes = new byte[bytesLength];
         }
+
+        public Sha256Hash(string value) : this(value.FromHexstring()) { }
 
         public Sha256Hash(byte[] _bytes)
         {
-            if (_bytes.Length != 32)
+            bytesLength = 32;
+            size = bytesLength * 8;
+
+            if (_bytes.Length != bytesLength)
                 throw new ArgumentException("Sha256_bytes_length");
 
             bytes = _bytes;
         }
 
-        public Sha256Hash(string value) : this(value.FromHexstring()) { }
+        public readonly int bytesLength;
+        public readonly int size;
 
-        public Sha256Hash()
-        {
-            bytes = new byte[32];
-        }
+        public byte[] bytes { get; set; }
 
         protected override Func<ReaderWriter, IEnumerable<MainDataInfomation>> StreamInfo
         {
             get
             {
                 return (msrw) => new MainDataInfomation[]{
-                    new MainDataInfomation(typeof(byte[]), 32, () => bytes, (o) => bytes = (byte[])o),
+                    new MainDataInfomation(typeof(byte[]), bytesLength, () => bytes, (o) => bytes = (byte[])o),
                 };
             }
         }
 
-        #region .NETオーバーライド、インターフェイス実装
-
-        public override bool Equals(object obj)
-        {
-            if (!(obj is Sha256Hash))
-                return false;
-            return bytes.BytesEquals((obj as Sha256Hash).bytes);
-        }
+        public override bool Equals(object obj) { return (obj as Sha256Hash).Operate((o) => o != null && Equals(o)); }
 
         public bool Equals(Sha256Hash other) { return bytes.BytesEquals(other.bytes); }
 
-        public int CompareTo(object obj)
-        {
-            Sha256Hash other = obj as Sha256Hash;
+        public int CompareTo(object obj) { return bytes.BytesCompareTo((obj as Sha256Hash).bytes); }
 
-            int returnValue = 0;
-            //大きい桁（要素の最初）から大小を調べていけば良い
-            for (int i = 0; i < bytes.Length; i++)
-                if ((returnValue = bytes[i].CompareTo(other.bytes[i])) != 0)
-                    return returnValue;
-            return returnValue;
-        }
-
-        public int CompareTo(Sha256Hash other)
-        {
-            int returnValue = 0;
-            //大きい桁（要素の最初）から大小を調べていけば良い
-            for (int i = 0; i < bytes.Length; i++)
-                if ((returnValue = bytes[i].CompareTo(other.bytes[i])) != 0)
-                    return returnValue;
-            return returnValue;
-        }
+        public int CompareTo(Sha256Hash other) { return bytes.BytesCompareTo(other.bytes); }
 
         public override int GetHashCode()
         {
@@ -3608,100 +4080,48 @@ namespace CREA2014
         }
 
         public override string ToString() { return bytes.ToHexstring(); }
-
-        #endregion
-
-        public int Size
-        {
-            get { return 256; }
-        }
-
-        public void FromBytes(byte[] _bytes)
-        {
-            if (_bytes.Length != 32)
-                throw new ArgumentException("Sha256_bytes_length");
-
-            bytes = _bytes;
-        }
-
-        public ICremliaHash XOR(ICremliaHash hash)
-        {
-            if (!(hash is Sha256Hash))
-                throw new ArgumentException("not_sha256_hash");
-
-            byte[] xorBytes = new byte[32];
-            for (int i = 0; i < xorBytes.Length; i++)
-                xorBytes[i] = (byte)(bytes[i] ^ hash.Bytes[i]);
-            return new Sha256Hash(xorBytes);
-        }
     }
 
+    //<未改良>2014/05/03 Sha256HashとRipemd160hashの統合
+    //　　　　共通の基底クラスを作る
     public class Ripemd160Hash : SHAREDDATA, IComparable<Ripemd160Hash>, IEquatable<Ripemd160Hash>, IComparable
     {
-        private byte[] bytes;
-        public byte[] Bytes
+        public Ripemd160Hash()
         {
-            get { return bytes; }
-            set { bytes = value; }
+            bytes = new byte[bytesLength];
         }
+
+        public Ripemd160Hash(string value) : this(value.FromHexstring()) { }
 
         public Ripemd160Hash(byte[] _bytes)
         {
-            if (_bytes.Length != 20)
+            if (_bytes.Length != bytesLength)
                 throw new ArgumentException("Ripemd160_bytes_length");
 
             bytes = _bytes;
         }
 
-        public Ripemd160Hash(string value) : this(value.FromHexstring()) { }
+        private readonly int bytesLength = 20;
 
-        public Ripemd160Hash()
-        {
-            bytes = new byte[20];
-        }
+        public byte[] bytes { get; private set; }
 
         protected override Func<ReaderWriter, IEnumerable<MainDataInfomation>> StreamInfo
         {
             get
             {
                 return (msrw) => new MainDataInfomation[]{
-                    new MainDataInfomation(typeof(byte[]), 20, () => bytes, (o) => bytes = (byte[])o),
+                    new MainDataInfomation(typeof(byte[]), bytesLength, () => bytes, (o) => bytes = (byte[])o),
                 };
             }
         }
 
-        #region .NETオーバーライド、インターフェイス実装
-
-        public override bool Equals(object obj)
-        {
-            if (!(obj is Ripemd160Hash))
-                return false;
-            return bytes.BytesEquals((obj as Ripemd160Hash).bytes);
-        }
+        public override bool Equals(object obj) { return (obj as Ripemd160Hash).Operate((o) => o != null && Equals(o)); }
 
         public bool Equals(Ripemd160Hash other) { return bytes.BytesEquals(other.bytes); }
 
-        public int CompareTo(object obj)
-        {
-            Ripemd160Hash other = obj as Ripemd160Hash;
+        public int CompareTo(object obj) { return bytes.BytesCompareTo((obj as Ripemd160Hash).bytes); }
 
-            int returnValue = 0;
-            //大きい桁（要素の最初）から大小を調べていけば良い
-            for (int i = 0; i < bytes.Length; i++)
-                if ((returnValue = bytes[i].CompareTo(other.bytes[i])) != 0)
-                    return returnValue;
-            return returnValue;
-        }
-
-        public int CompareTo(Ripemd160Hash other)
-        {
-            int returnValue = 0;
-            //大きい桁（要素の最初）から大小を調べていけば良い
-            for (int i = 0; i < bytes.Length; i++)
-                if ((returnValue = bytes[i].CompareTo(other.bytes[i])) != 0)
-                    return returnValue;
-            return returnValue;
-        }
+        public int CompareTo(Ripemd160Hash other) { return bytes.BytesCompareTo(other.bytes); }
 
         public override int GetHashCode()
         {
@@ -3722,8 +4142,6 @@ namespace CREA2014
         }
 
         public override string ToString() { return bytes.ToHexstring(); }
-
-        #endregion
     }
 
     public class EcdsaKey : SHAREDDATA
@@ -3897,7 +4315,7 @@ namespace CREA2014
                     {
                         //base58表現の先頭がCREAになるようなバイト配列を使っている
                         byte[] identifierBytes = new byte[] { 84, 122, 143 };
-                        byte[] hashBytes = hash.Bytes;
+                        byte[] hashBytes = hash.bytes;
 
                         byte[] mergedBytes = new byte[identifierBytes.Length + hashBytes.Length];
                         Array.Copy(identifierBytes, 0, mergedBytes, 0, identifierBytes.Length);

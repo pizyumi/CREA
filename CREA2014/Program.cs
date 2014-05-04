@@ -304,7 +304,7 @@ namespace CREA2014
             return true;
         }
 
-        //二つのバイト配列の内容が等しいか判定する（拡張：バイト配列型）
+        //2つのバイト配列の内容が等しいか判定する（拡張：バイト配列型）
         public static bool BytesEquals(this byte[] bytes1, byte[] bytes2)
         {
             if (bytes1.Length != bytes2.Length)
@@ -313,6 +313,17 @@ namespace CREA2014
                 if (bytes1[i] != bytes2[i])
                     return false;
             return true;
+        }
+
+        //2つのバイト配列の内容が等しいか判定する（拡張：バイト配列型）
+        //2014/05/03 長さが異なる場合にどうするべきなのか良く分からない
+        public static int BytesCompareTo(this byte[] bytes1, byte[] bytes2)
+        {
+            int returnValue = 0;
+            for (int i = 0; i < bytes1.Length; i++)
+                if ((returnValue = bytes1[i].CompareTo(bytes2[i])) != 0)
+                    return returnValue;
+            return returnValue;
         }
 
         //ループの回数を数える（拡張：任意型）
@@ -2901,7 +2912,7 @@ namespace CREA2014
                 { typeof(InboundChannelsBase), LogData.LogGround.networkBase},
                 { typeof(OutboundChannelBase), LogData.LogGround.networkBase},
                 { typeof(SocketChannel), LogData.LogGround.networkBase},
-                { typeof(Cremlia<Sha256Hash>), LogData.LogGround.cremlia},
+                { typeof(Cremlia), LogData.LogGround.cremlia},
             };
 
             logMessages = new Dictionary<string, Func<string[], string>>() {

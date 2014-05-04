@@ -1,14 +1,10 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Diagnostics;
-using System.IO;
-using System.IO.Compression;
 using System.Linq;
 using System.Net;
 using System.Net.Sockets;
-using System.Security.Cryptography;
 using System.Threading;
-using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
@@ -28,11 +24,12 @@ namespace CREA2014
             maxPort = _maxPort;
             minListenerPortNumber = _minListenerPortNumber;
 
-            snd = new SimulationNetworkData[maxPort];
+            snd = new SimulationSocket[maxPort];
         }
 
-        private readonly SimulationNetworkData[] snd;
+        private readonly SimulationSocket[] snd;
 
+        private readonly object pointerLock = new object();
         private ushort pointer = 0;
 
         public ushort maxPort { get; private set; }
@@ -48,30 +45,33 @@ namespace CREA2014
                 throw new ArgumentException("too_small_port_number");
             if (snd[portNumber] == null)
                 throw new InvalidOperationException("not_yet_used");
-            if (!snd[portNumber].ss.isListened)
+            if (!snd[portNumber].isListened)
                 throw new InvalidOperationException("not_listened");
 
             Func<ushort> _FindUsablePort = () =>
             {
                 ushort? point = null;
-                for (ushort i = pointer; i < minListenerPortNumber; i++)
-                    if (snd[i] == null)
-                    {
-                        point = i;
-                        break;
-                    }
-                if (point == null)
-                    for (ushort i = 0; i < pointer; i++)
+                lock (pointerLock)
+                {
+                    for (ushort i = pointer; i < minListenerPortNumber; i++)
                         if (snd[i] == null)
                         {
                             point = i;
                             break;
                         }
+                    if (point == null)
+                        for (ushort i = 0; i < pointer; i++)
+                            if (snd[i] == null)
+                            {
+                                point = i;
+                                break;
+                            }
 
-                if (point == null)
-                    throw new InvalidOperationException("no_usable_port");
+                    if (point == null)
+                        throw new InvalidOperationException("no_usable_port");
 
-                pointer = (ushort)(point.Value + 1);
+                    pointer = (ushort)(point.Value + 1);
+                }
 
                 return point.Value;
             };
@@ -81,10 +81,10 @@ namespace CREA2014
 
             SimulationSocket connectedSS = new SimulationSocket(this, connectedPortNumber, connectPortNumber);
 
-            snd[connectPortNumber] = new SimulationNetworkData(connectSS);
-            snd[connectedPortNumber] = new SimulationNetworkData(connectedSS);
+            snd[connectPortNumber] = connectSS;
+            snd[connectedPortNumber] = connectedSS;
 
-            snd[portNumber].ss.OnConnected(connectedSS);
+            snd[portNumber].OnConnected(connectedSS);
 
             return new ConnectReturn(connectPortNumber, connectedPortNumber);
         }
@@ -98,7 +98,7 @@ namespace CREA2014
             if (snd[portNumber] != null)
                 throw new InvalidOperationException("already_used");
 
-            snd[portNumber] = new SimulationNetworkData(listenSS);
+            snd[portNumber] = listenSS;
         }
 
         public void Close(SimulationSocket closeSS)
@@ -107,7 +107,7 @@ namespace CREA2014
             {
                 if (snd[closeSS.localPortNumber] == null)
                     throw new InvalidOperationException("not_used");
-                if (snd[closeSS.localPortNumber].ss != closeSS)
+                if (snd[closeSS.localPortNumber] != closeSS)
                     throw new InvalidOperationException("not_equal");
 
                 snd[closeSS.localPortNumber] = null;
@@ -116,7 +116,7 @@ namespace CREA2014
             {
                 if (snd[closeSS.localPortNumber] == null)
                     throw new InvalidOperationException("not_used");
-                if (snd[closeSS.localPortNumber].ss != closeSS)
+                if (snd[closeSS.localPortNumber] != closeSS)
                     throw new InvalidOperationException("not_equal");
 
                 snd[closeSS.localPortNumber] = null;
@@ -133,23 +133,13 @@ namespace CREA2014
                 throw new InvalidOperationException("not_connected");
             if (snd[writeSS.localPortNumber] == null || snd[writeSS.remotePortNumber] == null)
                 throw new InvalidOperationException("not_used");
-            if (snd[writeSS.localPortNumber].ss != writeSS)
+            if (snd[writeSS.localPortNumber] != writeSS)
                 throw new InvalidOperationException("not_equal");
 
-            snd[writeSS.remotePortNumber].ss.OnReceived(data);
+            snd[writeSS.remotePortNumber].OnReceived(data);
 
             Communicated(this, new Tuple<ushort, ushort>(writeSS.localPortNumber, writeSS.remotePortNumber));
         }
-    }
-
-    public class SimulationNetworkData
-    {
-        public SimulationNetworkData(SimulationSocket _ss)
-        {
-            ss = _ss;
-        }
-
-        public SimulationSocket ss { get; private set; }
     }
 
     public class ConnectReturn
@@ -366,7 +356,9 @@ namespace CREA2014
         {
             Loaded += (sender, e) =>
             {
-                DiffuseSimulation ds = new DiffuseSimulation(15);
+                bool isStarted = false;
+
+                DiffuseSimulation ds = new DiffuseSimulation();
                 Dictionary<ushort, int> nodes = new Dictionary<ushort, int>();
                 for (int i = 0; i < ds.numberOfNodes; i++)
                     nodes.Add(ds.nodeInfos[i].Port, i);
@@ -427,7 +419,7 @@ namespace CREA2014
                     nodeEllipses[i].MouseEnter += (sender2, e2) => nodeBorders[index].Visibility = Visibility.Visible;
                     nodeEllipses[i].MouseLeave += (sender2, e2) => nodeBorders[index].Visibility = Visibility.Collapsed;
 
-                    nodeRadians[i] = (double)BitConverter.ToUInt32(ds.nodeInfos[i].Id.Bytes.Decompose(0, 4).Reverse().ToArray(), 0) / (double)uint.MaxValue * 2.0 * Math.PI;
+                    nodeRadians[i] = (double)BitConverter.ToUInt32(ds.nodeInfos[i].Id.bytes.Decompose(0, 4).Reverse().ToArray(), 0) / (double)uint.MaxValue * 2.0 * Math.PI;
                 }
 
                 double[] nodeXs = new double[ds.numberOfNodes];
@@ -458,53 +450,59 @@ namespace CREA2014
                         Canvas.SetLeft(nodeBorders[i], nodeXs[i] + nodeEllipseRadius);
                     }
 
-                    this.StartTask(string.Empty, string.Empty, () => ds.Start());
-                };
-
-                ds.sn.Communicated += (sender2, e2) =>
-                {
-                    this.Lambda(() =>
+                    if (!isStarted)
                     {
-                        Line line = new Line();
-                        line.X1 = nodeXs[nodes[ds.connections[e2.Item1]]];
-                        line.Y1 = nodeYs[nodes[ds.connections[e2.Item1]]];
-                        line.X2 = nodeXs[nodes[ds.connections[e2.Item2]]];
-                        line.Y2 = nodeYs[nodes[ds.connections[e2.Item2]]];
-                        line.Stroke = Brushes.Blue;
-                        line.Width = canvas.ActualWidth;
-                        line.Height = canvas.ActualHeight;
-                        canvas.Children.Add(line);
-                    }).BeginExecuteInUIThread();
+                        isStarted = true;
+
+                        this.StartTask(string.Empty, string.Empty, () => ds.Start());
+                    }
                 };
 
-                ds.Received += (sender2, e2) =>
+                ds.sn.Communicated += (sender2, e2) => this.Lambda(() =>
                 {
-                    this.Lambda(() => tbMessage.Text = e2.ToString()).BeginExecuteInUIThread();
-                };
+                    Line line = new Line();
+                    line.X1 = nodeXs[nodes[ds.connections[e2.Item1]]];
+                    line.Y1 = nodeYs[nodes[ds.connections[e2.Item1]]];
+                    line.X2 = nodeXs[nodes[ds.connections[e2.Item2]]];
+                    line.Y2 = nodeYs[nodes[ds.connections[e2.Item2]]];
+                    line.Stroke = Brushes.Blue;
+                    line.Width = canvas.ActualWidth;
+                    line.Height = canvas.ActualHeight;
+                    canvas.Children.Add(line);
+                }).BeginExecuteInUIThread();
+
+                ds.Received += (sender2, e2) => this.Lambda(() => tbMessage.Text = e2.ToString()).BeginExecuteInUIThread();
             };
         }
     }
 
     public class DiffuseSimulation
     {
-        private readonly ushort startPortNumber = 9000;
-
-        private readonly Stopwatch stopwatch = new Stopwatch();
-
-        public DiffuseSimulation(int _numberOfNodes)
+        public DiffuseSimulation()
         {
-            numberOfNodes = _numberOfNodes;
             nodeInfos = new NodeInformation[numberOfNodes];
             for (int i = 0; i < numberOfNodes; i++)
                 nodeInfos[i] = new NodeInformation(IPAddress.Loopback, (ushort)(startPortNumber + i), Network.localtest, string.Empty);
+
+            for (int i = 0; i < numberOfNodes; i++)
+                portNumberToIndex.Add(nodeInfos[i].Port, i);
+
             sn = new SimulationNetwork();
             sss = new SimulationSocket[numberOfNodes];
+            cremlias = new Cremlia[numberOfNodes];
+            randomNumss = numberOfNodes.OperateWhileTrue((non) => non.RandomNums()).Where((ns) => ns.Select((n, i) => new { n, i }).All((ni) => ni.n != ni.i)).Take(numberOfDiffuseNodes).ToArray();
             int receiveCounter = 0;
             for (int i = 0; i < numberOfNodes; i++)
             {
                 sss[i] = new SimulationSocket(sn);
                 sss[i].Bind(new IPEndPoint(IPAddress.Any, nodeInfos[i].Port));
                 sss[i].Listen(100);
+
+                cremlias[i] = new Cremlia(new CremliaIdFactory(), new CremliaDatabaseIo(), new CremliaNetworkIoSimulation(sss[i]), new CremliaNodeInfomation(nodeInfos[i]));
+                int[] randomNums = numberOfNodes.RandomNums();
+                for (int j = 0; j < numberOfNodes; j++)
+                    if (randomNums[j] != i)
+                        cremlias[i].UpdateNodeStateWhenJoin(new CremliaNodeInfomation(nodeInfos[randomNums[j]]));
 
                 int index = i;
 
@@ -524,12 +522,13 @@ namespace CREA2014
 
                         this.StartTask(string.Empty, string.Empty, () =>
                         {
+                            NodeInformation ni = SHAREDDATA.FromBinary<NodeInformation>(ss.Read());
                             byte[] data = ss.Read();
                             ss.Close();
 
-                            Thread.Sleep(50);
+                            Thread.Sleep(connectWait);
 
-                            if (flag)
+                            if (flag && index != 0)
                             {
                                 Received(this, ++receiveCounter);
 
@@ -538,18 +537,20 @@ namespace CREA2014
                                 if (receiveCounter == numberOfNodes)
                                     stopwatch.Stop();
 
-                                int[] randomNums = numberOfNodes.RandomNums().Where((j) => j != 0).ToArray();
-                                for (int j = 0; j < 5; j++)
+                                //int[] nodes = SelectNodes1(index);
+                                int[] nodes = SelectNodes2(index, ni);
+                                for (int j = 0; j < numberOfDiffuseNodes; j++)
                                 {
                                     SimulationSocket ss2 = new SimulationSocket(sn);
 
-                                    Thread.Sleep(70);
+                                    Thread.Sleep(verifyWait);
 
-                                    ss2.Connect(IPAddress.Loopback, (ushort)(startPortNumber + randomNums[j]));
+                                    ss2.Connect(IPAddress.Loopback, (ushort)(startPortNumber + nodes[j]));
 
-                                    connections.Add(ss2.localPortNumber, (ushort)(startPortNumber + randomNums[j]));
+                                    connections.Add(ss2.localPortNumber, (ushort)(startPortNumber + nodes[j]));
                                     connections.Add(ss2.remotePortNumber, nodeInfos[index].Port);
 
+                                    ss2.Write(nodeInfos[index].ToBinary());
                                     ss2.Write(new byte[1024]);
                                     ss2.Close();
                                 }
@@ -560,33 +561,145 @@ namespace CREA2014
             }
         }
 
+        private int[] SelectNodes1(int myNodeIndex)
+        {
+            int[] nodes = new int[numberOfDiffuseNodes];
+            for (int i = 0; i < numberOfDiffuseNodes; i++)
+                nodes[i] = randomNumss[i][myNodeIndex];
+            return nodes;
+        }
+
+        private int[] SelectNodes2(int myNodeIndex, NodeInformation prevNodeInfo)
+        {
+            if (prevNodeInfo == null)
+            {
+                ICremliaNodeInfomation[] nodeInfos1 = cremlias[myNodeIndex].GetKbuckets(255);
+                ICremliaNodeInfomation[] nodeInfos2 = cremlias[myNodeIndex].GetKbuckets(254);
+                if (nodeInfos1.Length >= 1 && nodeInfos2.Length >= 2)
+                {
+                    int[] nodes = new int[3];
+                    int[] ran1 = nodeInfos1.Length.RandomNums();
+                    nodes[0] = portNumberToIndex[(nodeInfos1[ran1[0]] as CremliaNodeInfomation).nodeInfo.Port];
+                    int[] ran2 = nodeInfos2.Length.RandomNums();
+                    nodes[1] = portNumberToIndex[(nodeInfos2[ran2[0]] as CremliaNodeInfomation).nodeInfo.Port];
+                    nodes[2] = portNumberToIndex[(nodeInfos2[ran2[1]] as CremliaNodeInfomation).nodeInfo.Port];
+                    return nodes;
+                }
+            }
+            else
+            {
+                int dl = cremlias[myNodeIndex].GetDistanceLevel(new CremliaId(prevNodeInfo.Id));
+                ICremliaNodeInfomation[] nodeInfos1 = cremlias[myNodeIndex].GetKbuckets(dl - 1);
+                ICremliaNodeInfomation[] nodeInfos2 = cremlias[myNodeIndex].GetKbuckets(dl - 2);
+                if (nodeInfos1.Length >= 1 && nodeInfos2.Length >= 2)
+                {
+                    int[] nodes = new int[3];
+                    int[] ran1 = nodeInfos1.Length.RandomNums();
+                    nodes[0] = portNumberToIndex[(nodeInfos1[ran1[0]] as CremliaNodeInfomation).nodeInfo.Port];
+                    int[] ran2 = nodeInfos2.Length.RandomNums();
+                    nodes[1] = portNumberToIndex[(nodeInfos2[ran2[0]] as CremliaNodeInfomation).nodeInfo.Port];
+                    nodes[2] = portNumberToIndex[(nodeInfos2[ran2[1]] as CremliaNodeInfomation).nodeInfo.Port];
+                    return nodes;
+                }
+            }
+
+            SortedList<ICremliaId, ICremliaNodeInfomation> findTable = new SortedList<ICremliaId, ICremliaNodeInfomation>();
+            cremlias[myNodeIndex].GetNeighborNodesTable(new CremliaId(nodeInfos[myNodeIndex].Id), findTable);
+            int[] neighborNodes = new int[3];
+            for (int i = 0; i < 3; i++)
+                neighborNodes[i] = portNumberToIndex[(findTable[findTable.Keys[i]] as CremliaNodeInfomation).nodeInfo.Port];
+            return neighborNodes;
+        }
+
         public void Start()
         {
             stopwatch.Start();
 
-            int[] randomNums = numberOfNodes.RandomNums().Where((j) => j != 0).ToArray();
-            for (int j = 0; j < 3; j++)
+            //int[] nodes = SelectNodes1(0);
+            int[] nodes = SelectNodes2(0, null);
+            for (int j = 0; j < numberOfDiffuseNodes; j++)
             {
                 SimulationSocket ss = new SimulationSocket(sn);
 
-                Thread.Sleep(50);
+                Thread.Sleep(connectWait);
 
-                ss.Connect(IPAddress.Loopback, (ushort)(startPortNumber + randomNums[j]));
+                ss.Connect(IPAddress.Loopback, (ushort)(startPortNumber + nodes[j]));
 
-                connections.Add(ss.localPortNumber, (ushort)(startPortNumber + randomNums[j]));
+                connections.Add(ss.localPortNumber, (ushort)(startPortNumber + nodes[j]));
                 connections.Add(ss.remotePortNumber, 9000);
 
+                ss.Write(nodeInfos[0].ToBinary());
                 ss.Write(new byte[1024]);
                 ss.Close();
             }
         }
 
-        public readonly int numberOfNodes;
+        private readonly ushort startPortNumber = 9000;
+        private readonly Stopwatch stopwatch = new Stopwatch();
+
+        public readonly int numberOfNodes = 200;
+        public readonly int numberOfDiffuseNodes = 3;
+        public readonly int connectWait = 50;
+        public readonly int verifyWait = 70;
+
         public readonly NodeInformation[] nodeInfos;
         public readonly SimulationNetwork sn;
         public readonly SimulationSocket[] sss;
+        public readonly Cremlia[] cremlias;
+        public readonly int[][] randomNumss;
+
         public readonly Dictionary<ushort, ushort> connections = new Dictionary<ushort, ushort>();
+        public readonly Dictionary<ushort, int> portNumberToIndex = new Dictionary<ushort, int>();
 
         public event EventHandler<int> Received = delegate { };
+    }
+
+    public class CremliaNetworkIoSimulation : ICremliaNetworkIo
+    {
+        public CremliaNetworkIoSimulation(SimulationSocket _ss)
+        {
+            ss = _ss;
+        }
+
+        private readonly SimulationSocket ss;
+
+        public event EventHandler<ICremliaNetworkIoSession> SessionStarted = delegate { };
+
+        public ICremliaNetworkIoSession StartSession(ICremliaNodeInfomation nodeInfo)
+        {
+            return null;
+        }
+    }
+
+    public class CremliaNetworkIoSessionSimulation : ICremliaNetworkIoSession
+    {
+        public CremliaNetworkIoSessionSimulation(ICremliaNodeInfomation _nodeInfo, SimulationSocket _ss)
+        {
+            nodeInfo = _nodeInfo;
+            ss = _ss;
+        }
+
+        private readonly ICremliaNodeInfomation nodeInfo;
+        private readonly SimulationSocket ss;
+
+        public ICremliaNodeInfomation NodeInfo
+        {
+            get { return nodeInfo; }
+        }
+
+        public void Write(CremliaMessageBase message)
+        {
+            throw new NotImplementedException();
+        }
+
+        public CremliaMessageBase Read()
+        {
+            throw new NotImplementedException();
+        }
+
+        public void Close()
+        {
+            ss.Close();
+        }
     }
 }
