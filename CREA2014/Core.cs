@@ -1,4 +1,7 @@
-﻿using System;
+﻿//がをがを～！
+//作譜者：@pizyumi
+
+using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -2527,7 +2530,7 @@ namespace CREA2014
         protected override void Diffuse(params MessageBase[] messages)
         {
             for (int i = 0; i < 16 && i < firstNodeInfos.Length; i++)
-                Connect(firstNodeInfos[i].IpAddress, firstNodeInfos[i].Port, true, () => { }, messages);
+                Connect(firstNodeInfos[i].IpAddress, firstNodeInfos[i].PortNumber, true, () => { }, messages);
         }
 
         protected override void KeepConnections() { }
@@ -2756,7 +2759,7 @@ namespace CREA2014
                     if (count < maxOutboundConnection)
                         try
                         {
-                            Connect(firstNodeInfos[i].IpAddress, firstNodeInfos[i].Port, false, () => are.Set());
+                            Connect(firstNodeInfos[i].IpAddress, firstNodeInfos[i].PortNumber, false, () => are.Set());
                         }
                         catch (Exception ex)
                         {
@@ -2842,13 +2845,13 @@ namespace CREA2014
                         sp2.Children.Add(tb);
                     })).BeginExecuteInUIThread();
 
-                    SimulationWindow sw = new SimulationWindow();
-                    sw.ShowDialog();
+                    //SimulationWindow sw = new SimulationWindow();
+                    //sw.ShowDialog();
 
-                    //this.StartTask(string.Empty, string.Empty, () =>
-                    //{
-                    //    Test10NodesInv();
-                    //});
+                    this.StartTask(string.Empty, string.Empty, () =>
+                    {
+                        Test10NodesInv();
+                    });
                 };
 
                 Closed += (sender, e) =>
@@ -2941,16 +2944,16 @@ namespace CREA2014
 
         public FirstNodeInformation() : this((int?)null) { }
 
-        protected FirstNodeInformation(int? _version, IPAddress _ipAddress, ushort _port, Network _network)
+        protected FirstNodeInformation(int? _version, IPAddress _ipAddress, ushort _portNumber, Network _network)
             : base(_version)
         {
             ipAddress = _ipAddress;
-            port = _port;
+            portNumber = _portNumber;
             network = _network;
 
             if (ipAddress.AddressFamily != AddressFamily.InterNetwork && ipAddress.AddressFamily != AddressFamily.InterNetworkV6)
                 throw new ArgumentException("first_node_info_ip_address");
-            if (port == 0)
+            if (portNumber == 0)
                 throw new ArgumentException("first_node_info_port");
         }
 
@@ -2967,10 +2970,10 @@ namespace CREA2014
             get { return ipAddress; }
         }
 
-        private ushort port;
-        public ushort Port
+        private ushort portNumber;
+        public ushort PortNumber
         {
-            get { return port; }
+            get { return portNumber; }
         }
 
         private Network network;
@@ -2983,7 +2986,7 @@ namespace CREA2014
         {
             get
             {
-                byte[] plainBytes = ipAddress.GetAddressBytes().Combine(BitConverter.GetBytes(port), BitConverter.GetBytes((int)network));
+                byte[] plainBytes = ipAddress.GetAddressBytes().Combine(BitConverter.GetBytes(portNumber), BitConverter.GetBytes((int)network));
                 byte[] cypherBytes = new byte[plainBytes.Length * 4];
 
                 for (int i = 0; i < plainBytes.Length / 2; i++)
@@ -3057,10 +3060,10 @@ namespace CREA2014
                 Array.Copy(plainBytes, cypherBytes.Length == 40 ? 4 + 2 : 16 + 2, networkBytes, 0, 4);
 
                 ipAddress = new IPAddress(ipAddressBytes);
-                port = BitConverter.ToUInt16(portBytes, 0);
+                portNumber = BitConverter.ToUInt16(portBytes, 0);
                 network = (Network)BitConverter.ToInt32(networkBytes, 0);
 
-                if (port == 0)
+                if (portNumber == 0)
                     throw new ArgumentException("first_node_info_port");
             }
         }
@@ -3077,19 +3080,19 @@ namespace CREA2014
 
         public override bool Equals(object obj) { return (obj as FirstNodeInformation).Operate((o) => o != null && Equals(o)); }
 
-        public override int GetHashCode() { return ipAddress.GetHashCode() ^ port.GetHashCode(); }
+        public override int GetHashCode() { return ipAddress.GetHashCode() ^ portNumber.GetHashCode(); }
 
-        public override string ToString() { return ipAddress + ":" + port.ToString(); }
+        public override string ToString() { return ipAddress + ":" + portNumber.ToString(); }
 
-        public bool Equals(FirstNodeInformation other) { return ipAddress.ToString() == other.ipAddress.ToString() && port == other.port; }
+        public bool Equals(FirstNodeInformation other) { return ipAddress.ToString() == other.ipAddress.ToString() && portNumber == other.portNumber; }
     }
 
-    public class NodeInformation : FirstNodeInformation, IEquatable<NodeInformation>
+    public class NodeInformation<T> : FirstNodeInformation, IEquatable<NodeInformation<T>> where T : HASHBASE
     {
         public NodeInformation() : base(0) { }
 
-        public NodeInformation(IPAddress _ipAddress, ushort _port, Network _network, string _publicRSAParameters)
-            : base(0, _ipAddress, _port, _network)
+        public NodeInformation(IPAddress _ipAddress, ushort _portNumber, Network _network, string _publicRSAParameters)
+            : base(0, _ipAddress, _portNumber, _network)
         {
             participation = DateTime.Now;
             publicRSAParameters = _publicRSAParameters;
@@ -3107,13 +3110,13 @@ namespace CREA2014
             get { return publicRSAParameters; }
         }
 
-        private Sha256Hash idCache;
-        public Sha256Hash Id
+        private T idCache;
+        public T Id
         {
             get
             {
                 if (idCache == null)
-                    return idCache = new Sha256Hash(IpAddress.GetAddressBytes().Combine(BitConverter.GetBytes(Port), Encoding.UTF8.GetBytes(publicRSAParameters)).ComputeSha256());
+                    return idCache = Activator.CreateInstance(typeof(T), IpAddress.GetAddressBytes().Combine(BitConverter.GetBytes(PortNumber), Encoding.UTF8.GetBytes(publicRSAParameters))) as T;
                 else
                     return idCache;
             }
@@ -3122,7 +3125,7 @@ namespace CREA2014
         public FirstNodeInformation FirstNodeInfo
         {
             //型変換ではなく新しいオブジェクトを作成しないとSHAREDDATA.ToBinaryで例外が発生する
-            get { return new FirstNodeInformation(IpAddress, Port, Network); }
+            get { return new FirstNodeInformation(IpAddress, PortNumber, Network); }
         }
 
         protected override Func<ReaderWriter, IEnumerable<MainDataInfomation>> StreamInfo
@@ -3155,13 +3158,13 @@ namespace CREA2014
             }
         }
 
-        public override bool Equals(object obj) { return (obj as NodeInformation).Operate((o) => o != null && Equals(o)); }
+        public override bool Equals(object obj) { return (obj as NodeInformation<T>).Operate((o) => o != null && Equals(o)); }
 
         public override int GetHashCode() { return Id.GetHashCode(); }
 
         public override string ToString() { return Id.ToString(); }
 
-        public bool Equals(NodeInformation other) { return Id.Equals(other.Id); }
+        public bool Equals(NodeInformation<T> other) { return Id.Equals(other.Id); }
     }
 
     #endregion
@@ -4014,6 +4017,126 @@ namespace CREA2014
 
     #region データ
 
+    public abstract class HASHBASE : SHAREDDATA, IComparable<HASHBASE>, IEquatable<HASHBASE>, IComparable
+    {
+        public HASHBASE()
+        {
+            if (SizeBit % 8 != 0)
+                throw new InvalidDataException("invalid_size_bit");
+
+            FromHash(new byte[SizeByte]);
+        }
+
+        public HASHBASE(string stringHash)
+        {
+            if (SizeBit % 8 != 0)
+                throw new InvalidDataException("invalid_size_bit");
+
+            FromHash(stringHash.FromHexstring());
+
+            if (hash.Length != SizeByte)
+                throw new InvalidOperationException("invalid_length_hash");
+        }
+
+        public HASHBASE(byte[] data)
+        {
+            if (SizeBit % 8 != 0)
+                throw new InvalidDataException("invalid_size_bit");
+
+            hash = ComputeHash(data);
+
+            if (hash.Length != SizeByte)
+                throw new InvalidOperationException("invalid_length_hash");
+        }
+
+        public byte[] hash { get; private set; }
+
+        public abstract int SizeBit { get; }
+
+        protected abstract byte[] ComputeHash(byte[] data);
+
+        public int SizeByte { get { return SizeBit / 8; } }
+
+        public void FromHash(byte[] _hash) { hash = _hash; }
+
+        protected override Func<ReaderWriter, IEnumerable<MainDataInfomation>> StreamInfo
+        {
+            get
+            {
+                return (msrw) => new MainDataInfomation[]{
+                    new MainDataInfomation(typeof(byte[]), SizeByte, () => hash, (o) => hash = (byte[])o),
+                };
+            }
+        }
+
+        public override bool Equals(object obj) { return (obj as HASHBASE).Operate((o) => o != null && Equals(o)); }
+
+        public bool Equals(HASHBASE other) { return hash.BytesEquals(other.hash); }
+
+        public int CompareTo(object obj) { return hash.BytesCompareTo((obj as HASHBASE).hash); }
+
+        public int CompareTo(HASHBASE other) { return hash.BytesCompareTo(other.hash); }
+
+        public override int GetHashCode()
+        {
+            //暗号通貨におけるハッシュ値は先頭に0が並ぶことがあるので
+            //ビットの並びをばらばらにしてから計算することにした
+            //この実装でも0の数は変わらないので値が偏るのかもしれない
+            //先頭の0を取り除いたものから計算するべきなのかもしれない
+            //2014/04/06 常に同一の並びでなければ値が毎回変わってしまう
+            byte[] randomBytes = hash.BytesRandomCache();
+            byte[] intByte = new byte[4];
+            CirculatedInteger c = new CirculatedInteger(0, intByte.Length);
+            for (int i = 0; i < randomBytes.Length; i++, c.Next())
+                intByte[c.value] = intByte[c.value] ^= randomBytes[i];
+            int h = 0;
+            for (int i = 0; i < 4; i++)
+                h |= intByte[i] << (i * 8);
+            return h;
+        }
+
+        public override string ToString() { return hash.ToHexstring(); }
+    }
+
+    public class Sha256HashNew : HASHBASE
+    {
+        public Sha256HashNew() : base() { }
+
+        public Sha256HashNew(string stringHash) : base(stringHash) { }
+
+        public Sha256HashNew(byte[] data) : base(data) { }
+
+        public override int SizeBit { get { return 256; } }
+
+        protected override byte[] ComputeHash(byte[] data) { return data.ComputeSha256(); }
+    }
+
+    public class Sha256Sha256Hash : HASHBASE
+    {
+        public Sha256Sha256Hash() : base() { }
+
+        public Sha256Sha256Hash(string stringHash) : base(stringHash) { }
+
+        public Sha256Sha256Hash(byte[] data) : base(data) { }
+
+        public override int SizeBit { get { return 256; } }
+
+        protected override byte[] ComputeHash(byte[] data) { return data.ComputeSha256().ComputeSha256(); }
+    }
+
+    public class Sha256Ripemd160Hash : HASHBASE
+    {
+        public Sha256Ripemd160Hash() : base() { }
+
+        public Sha256Ripemd160Hash(string stringHash) : base(stringHash) { }
+
+        public Sha256Ripemd160Hash(byte[] data) : base(data) { }
+
+        public override int SizeBit { get { return 160; } }
+
+        protected override byte[] ComputeHash(byte[] data) { return data.ComputeSha256().ComputeRipemd160(); }
+    }
+
     //<未改良>2014/05/03 Sha256HashとRipemd160hashの統合
     //　　　　共通の基底クラスを作る
     public class Sha256Hash : SHAREDDATA, IComparable<Sha256Hash>, IEquatable<Sha256Hash>, IComparable
@@ -4721,6 +4844,201 @@ namespace CREA2014
             lock (cahsLock)
                 candidateAccountHolders.Clear();
         }
+    }
+
+    public class MerkleTree<T> where T : HASHBASE
+    {
+        public MerkleTree(T[] _hashes)
+        {
+            hashes = new List<T>();
+            tree = new T[1][];
+            tree[0] = new T[0];
+
+            Add(_hashes);
+        }
+
+        public List<T> hashes { get; private set; }
+        public T[][] tree { get; private set; }
+
+        public T Root
+        {
+            get
+            {
+                if (hashes.Count == 0)
+                    throw new InvalidOperationException("Merkle_tree_empty");
+
+                return tree[tree.Length - 1][0];
+            }
+        }
+
+        public void Add(T[] hs)
+        {
+            int start = hashes.Count;
+            hashes.AddRange(hs);
+            int end = hashes.Count;
+
+            if (tree[0].Length < hashes.Count)
+            {
+                int newLength = tree[0].Length;
+                int newHeight = tree.Length;
+                while (newLength < hashes.Count)
+                    if (newLength == 0)
+                        newLength++;
+                    else
+                    {
+                        newLength *= 2;
+                        newHeight++;
+                    }
+
+                T[][] newTree = new T[newHeight][];
+                for (int i = 0; i < newTree.Length; i++, newLength /= 2)
+                    newTree[i] = new T[newLength];
+
+                for (int i = 0; i < tree.Length; i++)
+                    for (int j = 0; j < tree[i].Length; j++)
+                        newTree[i][j] = tree[i][j];
+
+                tree = newTree;
+
+                end = tree[0].Length;
+            }
+
+            for (int j = start; j < end; j++)
+                if (j < hashes.Count)
+                    tree[0][j] = hashes[j];
+                else
+                    tree[0][j] = hashes[hashes.Count - 1];
+            start /= 2;
+            end /= 2;
+
+            for (int i = 1; i < tree.Length; i++)
+            {
+                for (int j = start; j < end; j++)
+                    tree[i][j] = Activator.CreateInstance(typeof(T), (tree[i - 1][j * 2] as HASHBASE).hash.Combine((tree[i - 1][j * 2 + 1] as HASHBASE).hash)) as T;
+                start /= 2;
+                end /= 2;
+            }
+        }
+
+        public MerkleProof<T> GetProof(T target)
+        {
+            int? index = null;
+            for (int i = 0; i < tree[0].Length; i++)
+                if (tree[0][i].Equals(target))
+                {
+                    index = i;
+                    break;
+                }
+
+            if (index == null)
+                throw new InvalidOperationException("merkle_tree_target");
+
+            int index2 = index.Value;
+            T[] proof = new T[tree.Length];
+            for (int i = 0; i < proof.Length - 1; i++, index /= 2)
+                proof[i] = index % 2 == 0 ? tree[i][index.Value + 1] : tree[i][index.Value - 1];
+            proof[proof.Length - 1] = tree[proof.Length - 1][0];
+
+            return new MerkleProof<T>(index2, proof);
+        }
+
+        public static bool Verify(T target, MerkleProof<T> proof)
+        {
+            T cal = Activator.CreateInstance(typeof(T)) as T;
+            cal.FromHash(target.hash);
+            int index = proof.index;
+            for (int i = 0; i < proof.proof.Length - 1; i++, index /= 2)
+                cal = Activator.CreateInstance(typeof(T), index % 2 == 0 ? cal.hash.Combine(proof.proof[i].hash) : proof.proof[i].hash.Combine(cal.hash)) as T;
+            return cal.Equals(proof.proof[proof.proof.Length - 1]);
+        }
+    }
+
+    public class MerkleProof<T> : SHAREDDATA where T : HASHBASE
+    {
+        public MerkleProof() { }
+
+        public MerkleProof(int _index, T[] _proof) { index = _index; proof = _proof; }
+
+        public int index { get; private set; }
+        public T[] proof { get; private set; }
+
+        protected override Func<ReaderWriter, IEnumerable<MainDataInfomation>> StreamInfo
+        {
+            get
+            {
+                return (msrw) => new MainDataInfomation[]{
+                    new MainDataInfomation(typeof(int), () => index, (o) => index = (int)o),
+                    new MainDataInfomation(typeof(T[]), null, null, () => proof, (o) => proof = (T[])o),
+                };
+            }
+        }
+    }
+
+    public class Transaction<T> where T : HASHBASE
+    {
+        public Transaction(int _version, TransactionInput<T>[] _inputs, TransactionOutput<T>[] _outputs)
+        {
+            if (_version != 0)
+                throw new NotSupportedException("tx_not_supported");
+            if (_inputs.Length == 0)
+                throw new InvalidDataException("tx_inputs_empty");
+            if (_outputs.Length == 0)
+                throw new InvalidDataException("tx_outputs_empty");
+
+            //<未実装>取引入力及び取引出力に矛盾がないか確認
+            //prevTxHash及びprevTxIndexが有効か確認
+
+            version = _version;
+            inputs = _inputs;
+            outputs = _outputs;
+        }
+
+        public int version { get; private set; }
+
+        public TransactionInput<T>[] inputs { get; private set; }
+        public TransactionOutput<T>[] outputs { get; private set; }
+    }
+
+    public class TransactionInput<T> where T : HASHBASE
+    {
+        public TransactionInput(T _prevTxHash, int _prevTxOutputIndex)
+        {
+            //有効性の確認は取引の作成時に行うものとする
+            prevTxHash = _prevTxHash;
+            prevTxOutputIndex = _prevTxOutputIndex;
+        }
+
+        public T prevTxHash { get; private set; }
+        public int prevTxOutputIndex { get; private set; }
+        public byte[] senderSig { get; private set; }
+        public byte[] senderPubKey { get; private set; }
+    }
+
+    public class TransactionOutput<T> where T : HASHBASE
+    {
+        public TransactionOutput(T _receiverPubKeyHash, int _amount)
+        {
+            receiverPubKeyHash = _receiverPubKeyHash;
+            amount = _amount;
+        }
+
+        //P2PHではScriptの一部
+        public T receiverPubKeyHash { get; private set; }
+        public int amount { get; private set; }
+    }
+
+    public class Transactions
+    {
+
+    }
+
+    public class BlockHeader
+    {
+        public Sha256Hash hash { get; private set; }
+        public Sha256Hash prevHash { get; private set; }
+        public Sha256Hash merkleHash { get; private set; }
+        public DateTime timestamp { get; private set; }
+        public byte[] solution { get; private set; }
     }
 
     #endregion

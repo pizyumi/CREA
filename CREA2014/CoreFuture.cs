@@ -539,7 +539,7 @@ namespace CREA2014
 
                                 //int[] nodes = SelectNodes1(index);
                                 int[] nodes = SelectNodes2(index, ni);
-                                for (int j = 0; j < numberOfDiffuseNodes; j++)
+                                for (int j = 0; j < nodes.Length; j++)
                                 {
                                     SimulationSocket ss2 = new SimulationSocket(sn);
 
@@ -573,34 +573,25 @@ namespace CREA2014
         {
             if (prevNodeInfo == null)
             {
-                ICremliaNodeInfomation[] nodeInfos1 = cremlias[myNodeIndex].GetKbuckets(255);
-                ICremliaNodeInfomation[] nodeInfos2 = cremlias[myNodeIndex].GetKbuckets(254);
-                if (nodeInfos1.Length >= 1 && nodeInfos2.Length >= 2)
+                List<int> nodes = new List<int>();
+                for (int i = 255; i >= 0; i--)
                 {
-                    int[] nodes = new int[3];
-                    int[] ran1 = nodeInfos1.Length.RandomNums();
-                    nodes[0] = portNumberToIndex[(nodeInfos1[ran1[0]] as CremliaNodeInfomation).nodeInfo.Port];
-                    int[] ran2 = nodeInfos2.Length.RandomNums();
-                    nodes[1] = portNumberToIndex[(nodeInfos2[ran2[0]] as CremliaNodeInfomation).nodeInfo.Port];
-                    nodes[2] = portNumberToIndex[(nodeInfos2[ran2[1]] as CremliaNodeInfomation).nodeInfo.Port];
-                    return nodes;
+                    ICremliaNodeInfomation[] nodeInfos1 = cremlias[myNodeIndex].GetKbuckets(i);
+                    if (nodeInfos1.Length != 0)
+                        nodes.Add(portNumberToIndex[(nodeInfos1[nodeInfos1.Length.RandomNum()] as CremliaNodeInfomation).nodeInfo.Port]);
                 }
+                return nodes.ToArray();
             }
             else
             {
-                int dl = cremlias[myNodeIndex].GetDistanceLevel(new CremliaId(prevNodeInfo.Id));
-                ICremliaNodeInfomation[] nodeInfos1 = cremlias[myNodeIndex].GetKbuckets(dl - 1);
-                ICremliaNodeInfomation[] nodeInfos2 = cremlias[myNodeIndex].GetKbuckets(dl - 2);
-                if (nodeInfos1.Length >= 1 && nodeInfos2.Length >= 2)
+                List<int> nodes = new List<int>();
+                for (int i = cremlias[myNodeIndex].GetDistanceLevel(new CremliaId(prevNodeInfo.Id)); i >= 0; i--)
                 {
-                    int[] nodes = new int[3];
-                    int[] ran1 = nodeInfos1.Length.RandomNums();
-                    nodes[0] = portNumberToIndex[(nodeInfos1[ran1[0]] as CremliaNodeInfomation).nodeInfo.Port];
-                    int[] ran2 = nodeInfos2.Length.RandomNums();
-                    nodes[1] = portNumberToIndex[(nodeInfos2[ran2[0]] as CremliaNodeInfomation).nodeInfo.Port];
-                    nodes[2] = portNumberToIndex[(nodeInfos2[ran2[1]] as CremliaNodeInfomation).nodeInfo.Port];
-                    return nodes;
+                    ICremliaNodeInfomation[] nodeInfos1 = cremlias[myNodeIndex].GetKbuckets(i);
+                    if (nodeInfos1.Length != 0)
+                        nodes.Add(portNumberToIndex[(nodeInfos1[nodeInfos1.Length.RandomNum()] as CremliaNodeInfomation).nodeInfo.Port]);
                 }
+                return nodes.ToArray();
             }
 
             SortedList<ICremliaId, ICremliaNodeInfomation> findTable = new SortedList<ICremliaId, ICremliaNodeInfomation>();
@@ -617,7 +608,7 @@ namespace CREA2014
 
             //int[] nodes = SelectNodes1(0);
             int[] nodes = SelectNodes2(0, null);
-            for (int j = 0; j < numberOfDiffuseNodes; j++)
+            for (int j = 0; j < nodes.Length; j++)
             {
                 SimulationSocket ss = new SimulationSocket(sn);
 
@@ -637,7 +628,7 @@ namespace CREA2014
         private readonly ushort startPortNumber = 9000;
         private readonly Stopwatch stopwatch = new Stopwatch();
 
-        public readonly int numberOfNodes = 200;
+        public readonly int numberOfNodes = 8;
         public readonly int numberOfDiffuseNodes = 3;
         public readonly int connectWait = 50;
         public readonly int verifyWait = 70;

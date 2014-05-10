@@ -1,4 +1,7 @@
-﻿using Microsoft.Win32;
+﻿//がをがを～！
+//作譜者：@pizyumi
+
+using Microsoft.Win32;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -103,6 +106,22 @@ namespace CREA2014
         public bool IsValue2
         {
             get { return Value2 != null; }
+        }
+    }
+
+    public class CirculatedInteger
+    {
+        public CirculatedInteger(int _value, int _cycle) { value = _value; cycle = _cycle; }
+
+        private readonly int cycle;
+
+        public int value { get; private set; }
+
+        public void Next()
+        {
+            value++;
+            if (value == cycle)
+                value = 0;
         }
     }
 
@@ -894,9 +913,9 @@ namespace CREA2014
 
         public class ReaderWriter
         {
-            private readonly STREAMWRITER writer;
-            private readonly STREAMREADER reader;
-            private readonly Mode mode;
+            public enum Mode { read, write, neither }
+
+            public class CantReadOrWriteException : Exception { }
 
             public ReaderWriter(STREAMWRITER _writer, STREAMREADER _reader, Mode _mode)
             {
@@ -905,8 +924,9 @@ namespace CREA2014
                 mode = _mode;
             }
 
-            public enum Mode { read, write, neither }
-            public class CantReadOrWriteException : Exception { }
+            private readonly STREAMWRITER writer;
+            private readonly STREAMREADER reader;
+            private readonly Mode mode;
 
             public byte[] ReadOrWrite(byte[] bytes, int length)
             {
@@ -928,6 +948,12 @@ namespace CREA2014
             //抽象クラスには対応しない
             //抽象クラスの変数に格納されている具象クラスを保存する場合には具象クラスとしてStreamInfomationを作成する
             //具象クラスが複数ある場合には具象クラス別にStreamInfomationを作成する
+            //2014/05/07
+            //配列の配列には対応しない
+            //対応することは可能だが、実装が複雑になる
+            //又、基本的には配列をラップしたクラスを別途作るべき場合が多いように思える
+            //2014/05/07
+            //<未実装>配列の配列に対応しない代わりに多次元配列には対応すべきかもしれない
 
             //SHAREDDATA（の派生クラス）の配列専用
             public StreamInfomation(Type _type, int? _version, int? _length, Func<object> _sender, Action<object> _receiver)
@@ -940,6 +966,8 @@ namespace CREA2014
                     throw new ArgumentException("stream_info_not_sd_array");
                 else if (elementType.IsAbstract)
                     throw new ArgumentException("stream_info_sd_array_abstract");
+                else if (elementType.IsArray)
+                    throw new ArgumentException("stream_info_array_of_array");
 
                 SHAREDDATA sd = Activator.CreateInstance(elementType) as SHAREDDATA;
                 if ((!sd.IsVersioned && _version != null) || (sd.IsVersioned && _version == null))
@@ -963,6 +991,8 @@ namespace CREA2014
                         throw new ArgumentException("stream_info_sd_array");
                     else if (elementType.IsAbstract)
                         throw new ArgumentException("stream_info_array_abstract");
+                    else if (elementType.IsArray)
+                        throw new ArgumentException("stream_info_array_of_array");
                     else
                         length = _lengthOrVersion;
                 }
@@ -985,6 +1015,7 @@ namespace CREA2014
                 Receiver = _receiver;
             }
 
+            //配列以外かつSHAREDDATA（の派生クラス）以外専用
             public StreamInfomation(Type _type, Func<object> _sender, Action<object> _receiver)
             {
                 if (_type.IsArray)
@@ -1042,6 +1073,8 @@ namespace CREA2014
             }
         }
 
+        public STREAMDATA() { }
+
         protected abstract Func<ReaderWriter, IEnumerable<T>> StreamInfo { get; }
 
         protected void Write(STREAMWRITER writer, StreamInfomation si)
@@ -1087,7 +1120,7 @@ namespace CREA2014
 
                 if (si.Length == null)
                     writer.WriteInt(objs.Length);
-                foreach (var innerObj in obj as object[])
+                foreach (var innerObj in objs)
                     _Write(elementType, innerObj);
             }
             else
@@ -1115,11 +1148,7 @@ namespace CREA2014
                 else if (type == typeof(string))
                     return reader.ReadString();
                 else if (type.IsSubclassOf(typeof(SHAREDDATA)))
-                {
-                    SHAREDDATA sd = Activator.CreateInstance(type) as SHAREDDATA;
-
-                    return reader.ReadSHAREDDATA(type, sd.IsVersioned ? (int?)si.Version : null);
-                }
+                    return reader.ReadSHAREDDATA(type, (Activator.CreateInstance(type) as SHAREDDATA).IsVersioned ? (int?)si.Version : null);
                 else
                     throw new NotSupportedException("sd_read_not_supported");
             };
@@ -1128,10 +1157,8 @@ namespace CREA2014
                 si.Receiver(reader.ReadBytes(si.Length));
             else if (si.Type.IsArray)
             {
-                int length = si.Length == null ? reader.ReadInt() : (int)si.Length;
-
                 Type elementType = si.Type.GetElementType();
-                object[] os = Array.CreateInstance(elementType, length) as object[];
+                object[] os = Array.CreateInstance(elementType, si.Length == null ? reader.ReadInt() : (int)si.Length) as object[];
                 for (int i = 0; i < os.Length; i++)
                     os[i] = _Read(elementType);
 
@@ -1333,48 +1360,15 @@ namespace CREA2014
     public abstract class SHAREDDATA : STREAMDATA<SHAREDDATA.MainDataInfomation>
     {
         //<未実装>圧縮機能
-        //<未実装>ジャグ配列に対応
-        //<未修正>ReaderのSHAREDDATAの読み込みが署名機能に対応していない
-        //　　　　署名機能を使用する場合長さが可変になるので長さを保存する必要がある
-        //<未修正>Lengthでversionなどの長さを加算しているのに、Readでも加算しているような
-
-        private int? version;
-        public int Version
-        {
-            get
-            {
-                if (!IsVersioned)
-                    throw new NotSupportedException("sd_version");
-                else
-                    return (int)version;
-            }
-            set
-            {
-                if (!IsVersioned)
-                    throw new NotSupportedException("sd_version");
-                else
-                    version = value;
-            }
-        }
-
-        public SHAREDDATA(int? _version)
-        {
-            if ((IsVersioned && _version == null) || (!IsVersioned && _version != null))
-                throw new ArgumentException("sd_is_versioned_and_version");
-
-            version = _version;
-        }
-
-        public SHAREDDATA() : this(null) { }
+        //2014/05/07
+        //予約領域は廃止
+        //データが無駄に大きくなるので、厳格にバージョン管理して対応するべき
 
         public class MyStreamWriter : STREAMWRITER
         {
-            private readonly Stream stream;
+            public MyStreamWriter(Stream _stream) { stream = _stream; }
 
-            public MyStreamWriter(Stream _stream)
-            {
-                stream = _stream;
-            }
+            private readonly Stream stream;
 
             public override void WriteBytes(byte[] data, int? length)
             {
@@ -1383,40 +1377,19 @@ namespace CREA2014
                 stream.Write(data, 0, data.Length);
             }
 
-            public override void WriteBool(bool data)
-            {
-                stream.Write(BitConverter.GetBytes(data), 0, 1);
-            }
+            public override void WriteBool(bool data) { stream.Write(BitConverter.GetBytes(data), 0, 1); }
 
-            public override void WriteInt(int data)
-            {
-                stream.Write(BitConverter.GetBytes(data), 0, 4);
-            }
+            public override void WriteInt(int data) { stream.Write(BitConverter.GetBytes(data), 0, 4); }
 
-            public override void WriteUint(uint data)
-            {
-                stream.Write(BitConverter.GetBytes(data), 0, 4);
-            }
+            public override void WriteUint(uint data) { stream.Write(BitConverter.GetBytes(data), 0, 4); }
 
-            public override void WriteFloat(float data)
-            {
-                stream.Write(BitConverter.GetBytes(data), 0, 4);
-            }
+            public override void WriteFloat(float data) { stream.Write(BitConverter.GetBytes(data), 0, 4); }
 
-            public override void WriteLong(long data)
-            {
-                stream.Write(BitConverter.GetBytes(data), 0, 8);
-            }
+            public override void WriteLong(long data) { stream.Write(BitConverter.GetBytes(data), 0, 8); }
 
-            public override void WriteDouble(double data)
-            {
-                stream.Write(BitConverter.GetBytes(data), 0, 8);
-            }
+            public override void WriteDouble(double data) { stream.Write(BitConverter.GetBytes(data), 0, 8); }
 
-            public override void WriteDateTime(DateTime data)
-            {
-                stream.Write(BitConverter.GetBytes((data).ToBinary()), 0, 8);
-            }
+            public override void WriteDateTime(DateTime data) { stream.Write(BitConverter.GetBytes((data).ToBinary()), 0, 8); }
 
             public override void WriteString(string data)
             {
@@ -1436,7 +1409,7 @@ namespace CREA2014
                 }
 
                 byte[] bytes = data.ToBinary();
-                if (data.Length == null)
+                if (data.LengthOfMain == null)
                     stream.Write(BitConverter.GetBytes(bytes.Length), 0, 4);
                 stream.Write(bytes, 0, bytes.Length);
             }
@@ -1444,12 +1417,9 @@ namespace CREA2014
 
         public class MyStreamReader : STREAMREADER
         {
-            private readonly Stream stream;
+            public MyStreamReader(Stream _stream) { stream = _stream; }
 
-            public MyStreamReader(Stream _stream)
-            {
-                stream = _stream;
-            }
+            private readonly Stream stream;
 
             public override byte[] ReadBytes(int? length)
             {
@@ -1536,24 +1506,16 @@ namespace CREA2014
                     sd.Version = (int)version;
                 }
 
-                int length;
-                if (sd.Length == null)
+                int? length = sd.LengthOfAll;
+                if (length == null)
                 {
                     byte[] lengthBytes = new byte[4];
                     stream.Read(lengthBytes, 0, 4);
                     length = BitConverter.ToInt32(lengthBytes, 0);
                 }
-                else
-                {
-                    length = (int)sd.Length;
-                    if (sd.IsVersioned)
-                        length += 4;
-                    if (sd.IsCorruptionChecked)
-                        length += 4;
-                }
 
-                byte[] bytes = new byte[length];
-                stream.Read(bytes, 0, length);
+                byte[] bytes = new byte[(int)length];
+                stream.Read(bytes, 0, (int)length);
 
                 sd.FromBinary(bytes);
 
@@ -1569,46 +1531,37 @@ namespace CREA2014
 
             public MainDataInfomation(Type _type, Func<object> _getter, Action<object> _setter) : base(_type, _getter, _setter) { }
 
-            public Func<object> Getter
-            {
-                get { return Sender; }
-            }
-
-            public Action<object> Setter
-            {
-                get { return Receiver; }
-            }
+            public Func<object> Getter { get { return Sender; } }
+            public Action<object> Setter { get { return Receiver; } }
         }
 
-        public virtual bool IsVersioned
+        public SHAREDDATA() : this(null) { }
+
+        public SHAREDDATA(int? _version)
         {
-            get { return false; }
+            if ((IsVersioned && _version == null) || (!IsVersioned && _version != null))
+                throw new ArgumentException("sd_is_versioned_and_version");
+
+            version = _version;
         }
 
-        public virtual bool IsCorruptionChecked
-        {
-            get { return false; }
-        }
+        public virtual bool IsVersioned { get { return false; } }
 
-        public virtual bool IsSigned
-        {
-            get { return false; }
-        }
+        public virtual bool IsCorruptionChecked { get { return false; } }
 
-        public virtual byte[] PublicKey
+        public virtual bool IsSigned { get { return false; } }
+
+        public virtual bool IsSignatureChecked { get { return false; } }
+
+        public virtual byte[] PubKey
         {
             get { throw new NotSupportedException("sd_pubkey"); }
             protected set { throw new NotSupportedException("sd_pubkey_set"); }
         }
 
-        public virtual byte[] PrivateKey
+        public virtual byte[] PrivKey
         {
-            get { throw new NotSupportedException("sd_privatekey"); }
-        }
-
-        public virtual bool IsSignatureChecked
-        {
-            get { return false; }
+            get { throw new NotSupportedException("sd_privkey"); }
         }
 
         private byte[] signature;
@@ -1625,17 +1578,44 @@ namespace CREA2014
             }
         }
 
-        protected virtual Action<byte[]> ReservedRead
+        private int? version;
+        public int Version
         {
-            get { throw new NotSupportedException("sd_reserved_write"); }
+            get
+            {
+                if (!IsVersioned)
+                    throw new NotSupportedException("sd_version");
+                else
+                    return (int)version;
+            }
+            set
+            {
+                if (!IsVersioned)
+                    throw new NotSupportedException("sd_version");
+                else
+                    version = value;
+            }
         }
 
-        protected virtual Func<byte[]> ReservedWrite
+        public int? LengthOfAll
         {
-            get { return () => new byte[] { }; }
+            get
+            {
+                int? length = LengthOfMain;
+                if (length == null || IsSigned)
+                    return null;
+                else
+                {
+                    if (IsVersioned)
+                        length += 4;
+                    if (IsCorruptionChecked)
+                        length += 4;
+                    return length;
+                }
+            }
         }
 
-        public int? Length
+        public int? LengthOfMain
         {
             get
             {
@@ -1655,7 +1635,7 @@ namespace CREA2014
                         if (sd.IsVersioned)
                             sd.version = mdi.Version;
 
-                        if (sd.Length == null)
+                        if (sd.LengthOfMain == null)
                             return null;
                         else
                         {
@@ -1666,7 +1646,7 @@ namespace CREA2014
                             if (sd.IsCorruptionChecked)
                                 innerLength += 4;
 
-                            return innerLength + (int)sd.Length;
+                            return innerLength + (int)sd.LengthOfMain;
                         }
                     }
                     else
@@ -1714,10 +1694,6 @@ namespace CREA2014
                 foreach (var mdi in StreamInfo(new ReaderWriter(writer, new MyStreamReader(ms), ReaderWriter.Mode.write)))
                     Write(writer, mdi);
 
-                byte[] reservedBytes = ReservedWrite();
-                ms.Write(BitConverter.GetBytes(reservedBytes.Length), 0, 4);
-                ms.Write(reservedBytes, 0, reservedBytes.Length);
-
                 return ms.ToArray();
             }
         }
@@ -1730,25 +1706,24 @@ namespace CREA2014
             {
                 if (IsVersioned)
                     ms.Write(BitConverter.GetBytes((int)version), 0, 4);
-                //破損検査のためのデータ（主データのハッシュ値の先頭4バイト）
+                //破損検査のためのデータ（主データのSha256ハッシュ値の先頭4バイト）
                 if (IsCorruptionChecked)
                     ms.Write(mainDataBytes.ComputeSha256(), 0, 4);
                 if (IsSigned)
                 {
-                    ms.Write(BitConverter.GetBytes(PublicKey.Length), 0, 4);
-                    ms.Write(PublicKey, 0, PublicKey.Length);
+                    //公開鍵は可変長である
+                    ms.Write(BitConverter.GetBytes(PubKey.Length), 0, 4);
+                    ms.Write(PubKey, 0, PubKey.Length);
 
-                    //一応主データに加えて公開鍵も結合したものに対して署名することにする
-                    //公開鍵を結合しないと、後で別の鍵ペアで同一データに署名することができる
-                    //だからといって、別人が署名した同一データができるだけで、
-                    //本人が作成していないデータに対して別人が本人として署名することはできないが
-                    byte[] signBytes = PublicKey.Combine(mainDataBytes);
-
-                    using (ECDsaCng dsa = new ECDsaCng(CngKey.Import(PrivateKey, CngKeyBlobFormat.EccPrivateBlob)))
+                    using (ECDsaCng dsa = new ECDsaCng(CngKey.Import(PrivKey, CngKeyBlobFormat.EccPrivateBlob)))
                     {
                         dsa.HashAlgorithm = CngAlgorithm.Sha256;
 
-                        signature = dsa.SignData(signBytes);
+                        //一応主データに加えて公開鍵も結合したものに対して署名することにする
+                        //公開鍵を結合しないと、後で別の鍵ペアで同一データに署名することができる
+                        //だからといって、同一データを別人が署名した新しいデータができるだけで、
+                        //本人が作成していないデータに対して別人が本人として署名することはできないが
+                        signature = dsa.SignData(PubKey.Combine(mainDataBytes));
 
                         //将来的にハッシュアルゴリズムが変更される可能性もあるので、
                         //署名は可変長ということにする
@@ -1784,13 +1759,13 @@ namespace CREA2014
 
                 if (IsSigned)
                 {
-                    byte[] publicKeyLengthBytes = new byte[4];
-                    ms.Read(publicKeyLengthBytes, 0, 4);
-                    int publicKeyLength = BitConverter.ToInt32(publicKeyLengthBytes, 0);
+                    byte[] pubKeyLengthBytes = new byte[4];
+                    ms.Read(pubKeyLengthBytes, 0, 4);
+                    int publicKeyLength = BitConverter.ToInt32(pubKeyLengthBytes, 0);
 
-                    byte[] publicKey = new byte[publicKeyLength];
-                    ms.Read(publicKey, 0, publicKey.Length);
-                    PublicKey = publicKey;
+                    byte[] pubKey = new byte[publicKeyLength];
+                    ms.Read(pubKey, 0, pubKey.Length);
+                    PubKey = pubKey;
 
                     byte[] signatureLengthBytes = new byte[4];
                     ms.Read(signatureLengthBytes, 0, 4);
@@ -1815,16 +1790,6 @@ namespace CREA2014
 
                 foreach (var mdi in StreamInfo(new ReaderWriter(new MyStreamWriter(ms), reader, ReaderWriter.Mode.read)))
                     Read(reader, mdi);
-
-                byte[] reservedLengthBytes = new byte[4];
-                ms.Read(reservedLengthBytes, 0, 4);
-                int reservedLength = BitConverter.ToInt32(reservedLengthBytes, 0);
-
-                byte[] reservedBytes = new byte[reservedLength];
-                ms.Read(reservedBytes, 0, reservedBytes.Length);
-
-                if (reservedBytes.Length != 0)
-                    ReservedRead(reservedBytes);
             }
         }
 
@@ -1837,11 +1802,12 @@ namespace CREA2014
 
         private bool VerifySignature()
         {
-            using (ECDsaCng dsa = new ECDsaCng(CngKey.Import(PublicKey, CngKeyBlobFormat.EccPublicBlob)))
+            using (ECDsaCng dsa = new ECDsaCng(CngKey.Import(PubKey, CngKeyBlobFormat.EccPublicBlob)))
             {
                 dsa.HashAlgorithm = CngAlgorithm.Sha256;
 
-                return dsa.VerifyData(ToBinaryMainData(), signature);
+                //主データに加えて公開鍵も結合したものに対して署名されている
+                return dsa.VerifyData(PubKey.Combine(ToBinaryMainData()), signature);
             }
         }
     }
