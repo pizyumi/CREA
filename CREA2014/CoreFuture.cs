@@ -361,7 +361,7 @@ namespace CREA2014
                 DiffuseSimulation ds = new DiffuseSimulation();
                 Dictionary<ushort, int> nodes = new Dictionary<ushort, int>();
                 for (int i = 0; i < ds.numberOfNodes; i++)
-                    nodes.Add(ds.nodeInfos[i].Port, i);
+                    nodes.Add(ds.nodeInfos[i].PortNumber, i);
 
                 Background = Brushes.Black;
 
@@ -405,7 +405,7 @@ namespace CREA2014
                     nodeBorders[i].Child = nodeSp;
 
                     TextBlock tbPortNumber = new TextBlock();
-                    tbPortNumber.Text = "ポート番号：" + ds.nodeInfos[i].Port.ToString();
+                    tbPortNumber.Text = "ポート番号：" + ds.nodeInfos[i].PortNumber.ToString();
                     tbPortNumber.Foreground = Brushes.White;
                     nodeSp.Children.Add(tbPortNumber);
 
@@ -419,7 +419,7 @@ namespace CREA2014
                     nodeEllipses[i].MouseEnter += (sender2, e2) => nodeBorders[index].Visibility = Visibility.Visible;
                     nodeEllipses[i].MouseLeave += (sender2, e2) => nodeBorders[index].Visibility = Visibility.Collapsed;
 
-                    nodeRadians[i] = (double)BitConverter.ToUInt32(ds.nodeInfos[i].Id.bytes.Decompose(0, 4).Reverse().ToArray(), 0) / (double)uint.MaxValue * 2.0 * Math.PI;
+                    nodeRadians[i] = (double)BitConverter.ToUInt32(ds.nodeInfos[i].Id.hash.Decompose(0, 4).Reverse().ToArray(), 0) / (double)uint.MaxValue * 2.0 * Math.PI;
                 }
 
                 double[] nodeXs = new double[ds.numberOfNodes];
@@ -480,12 +480,12 @@ namespace CREA2014
     {
         public DiffuseSimulation()
         {
-            nodeInfos = new NodeInformation[numberOfNodes];
+            nodeInfos = new NodeInformation<Sha256HashNew>[numberOfNodes];
             for (int i = 0; i < numberOfNodes; i++)
-                nodeInfos[i] = new NodeInformation(IPAddress.Loopback, (ushort)(startPortNumber + i), Network.localtest, string.Empty);
+                nodeInfos[i] = new NodeInformation<Sha256HashNew>(IPAddress.Loopback, (ushort)(startPortNumber + i), Network.localtest, string.Empty);
 
             for (int i = 0; i < numberOfNodes; i++)
-                portNumberToIndex.Add(nodeInfos[i].Port, i);
+                portNumberToIndex.Add(nodeInfos[i].PortNumber, i);
 
             sn = new SimulationNetwork();
             sss = new SimulationSocket[numberOfNodes];
@@ -495,14 +495,14 @@ namespace CREA2014
             for (int i = 0; i < numberOfNodes; i++)
             {
                 sss[i] = new SimulationSocket(sn);
-                sss[i].Bind(new IPEndPoint(IPAddress.Any, nodeInfos[i].Port));
+                sss[i].Bind(new IPEndPoint(IPAddress.Any, nodeInfos[i].PortNumber));
                 sss[i].Listen(100);
 
-                cremlias[i] = new Cremlia(new CremliaIdFactory(), new CremliaDatabaseIo(), new CremliaNetworkIoSimulation(sss[i]), new CremliaNodeInfomation(nodeInfos[i]));
+                cremlias[i] = new Cremlia(new CremliaIdFactory<Sha256HashNew>(), new CremliaDatabaseIo(), new CremliaNetworkIoSimulation(sss[i]), new CremliaNodeInfomation<Sha256HashNew>(nodeInfos[i]));
                 int[] randomNums = numberOfNodes.RandomNums();
                 for (int j = 0; j < numberOfNodes; j++)
                     if (randomNums[j] != i)
-                        cremlias[i].UpdateNodeStateWhenJoin(new CremliaNodeInfomation(nodeInfos[randomNums[j]]));
+                        cremlias[i].UpdateNodeStateWhenJoin(new CremliaNodeInfomation<Sha256HashNew>(nodeInfos[randomNums[j]]));
 
                 int index = i;
 
@@ -522,7 +522,7 @@ namespace CREA2014
 
                         this.StartTask(string.Empty, string.Empty, () =>
                         {
-                            NodeInformation ni = SHAREDDATA.FromBinary<NodeInformation>(ss.Read());
+                            NodeInformation<Sha256HashNew> ni = SHAREDDATA.FromBinary<NodeInformation<Sha256HashNew>>(ss.Read());
                             byte[] data = ss.Read();
                             ss.Close();
 
@@ -548,7 +548,7 @@ namespace CREA2014
                                     ss2.Connect(IPAddress.Loopback, (ushort)(startPortNumber + nodes[j]));
 
                                     connections.Add(ss2.localPortNumber, (ushort)(startPortNumber + nodes[j]));
-                                    connections.Add(ss2.remotePortNumber, nodeInfos[index].Port);
+                                    connections.Add(ss2.remotePortNumber, nodeInfos[index].PortNumber);
 
                                     ss2.Write(nodeInfos[index].ToBinary());
                                     ss2.Write(new byte[1024]);
@@ -569,7 +569,7 @@ namespace CREA2014
             return nodes;
         }
 
-        private int[] SelectNodes2(int myNodeIndex, NodeInformation prevNodeInfo)
+        private int[] SelectNodes2(int myNodeIndex, NodeInformation<Sha256HashNew> prevNodeInfo)
         {
             if (prevNodeInfo == null)
             {
@@ -578,27 +578,27 @@ namespace CREA2014
                 {
                     ICremliaNodeInfomation[] nodeInfos1 = cremlias[myNodeIndex].GetKbuckets(i);
                     if (nodeInfos1.Length != 0)
-                        nodes.Add(portNumberToIndex[(nodeInfos1[nodeInfos1.Length.RandomNum()] as CremliaNodeInfomation).nodeInfo.Port]);
+                        nodes.Add(portNumberToIndex[(nodeInfos1[nodeInfos1.Length.RandomNum()] as CremliaNodeInfomation<Sha256HashNew>).nodeInfo.PortNumber]);
                 }
                 return nodes.ToArray();
             }
             else
             {
                 List<int> nodes = new List<int>();
-                for (int i = cremlias[myNodeIndex].GetDistanceLevel(new CremliaId(prevNodeInfo.Id)); i >= 0; i--)
+                for (int i = cremlias[myNodeIndex].GetDistanceLevel(new CremliaId<Sha256HashNew>(prevNodeInfo.Id)); i >= 0; i--)
                 {
                     ICremliaNodeInfomation[] nodeInfos1 = cremlias[myNodeIndex].GetKbuckets(i);
                     if (nodeInfos1.Length != 0)
-                        nodes.Add(portNumberToIndex[(nodeInfos1[nodeInfos1.Length.RandomNum()] as CremliaNodeInfomation).nodeInfo.Port]);
+                        nodes.Add(portNumberToIndex[(nodeInfos1[nodeInfos1.Length.RandomNum()] as CremliaNodeInfomation<Sha256HashNew>).nodeInfo.PortNumber]);
                 }
                 return nodes.ToArray();
             }
 
             SortedList<ICremliaId, ICremliaNodeInfomation> findTable = new SortedList<ICremliaId, ICremliaNodeInfomation>();
-            cremlias[myNodeIndex].GetNeighborNodesTable(new CremliaId(nodeInfos[myNodeIndex].Id), findTable);
+            cremlias[myNodeIndex].GetNeighborNodesTable(new CremliaId<Sha256HashNew>(nodeInfos[myNodeIndex].Id), findTable);
             int[] neighborNodes = new int[3];
             for (int i = 0; i < 3; i++)
-                neighborNodes[i] = portNumberToIndex[(findTable[findTable.Keys[i]] as CremliaNodeInfomation).nodeInfo.Port];
+                neighborNodes[i] = portNumberToIndex[(findTable[findTable.Keys[i]] as CremliaNodeInfomation<Sha256HashNew>).nodeInfo.PortNumber];
             return neighborNodes;
         }
 
@@ -633,7 +633,7 @@ namespace CREA2014
         public readonly int connectWait = 50;
         public readonly int verifyWait = 70;
 
-        public readonly NodeInformation[] nodeInfos;
+        public readonly NodeInformation<Sha256HashNew>[] nodeInfos;
         public readonly SimulationNetwork sn;
         public readonly SimulationSocket[] sss;
         public readonly Cremlia[] cremlias;

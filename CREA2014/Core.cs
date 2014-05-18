@@ -1699,11 +1699,11 @@ namespace CREA2014
         }
     }
 
-    public class Header : SHAREDDATA
+    public class Header<T> : SHAREDDATA where T : HASHBASE
     {
         public Header() : base(0) { }
 
-        public Header(NodeInformation _nodeInfo, int _creaVersion, int _protocolVersion, string _client, bool _isTemporary)
+        public Header(NodeInformation<T> _nodeInfo, int _creaVersion, int _protocolVersion, string _client, bool _isTemporary)
             : base(0)
         {
             if (_client.Length > 256)
@@ -1716,7 +1716,7 @@ namespace CREA2014
             isTemporary = _isTemporary;
         }
 
-        public NodeInformation nodeInfo { get; private set; }
+        public NodeInformation<T> nodeInfo { get; private set; }
         public int creaVersion { get; private set; }
         public int protocolVersion { get; private set; }
         public string client { get; private set; }
@@ -1735,7 +1735,7 @@ namespace CREA2014
                     bool isInBound = nodeInfo != null;
                     yield return new MainDataInfomation(typeof(bool), () => isInBound, (o) => isInBound = (bool)o);
                     if (isInBound)
-                        yield return new MainDataInfomation(typeof(NodeInformation), 0, () => nodeInfo, (o) => nodeInfo = (NodeInformation)o);
+                        yield return new MainDataInfomation(typeof(NodeInformation<T>), 0, () => nodeInfo, (o) => nodeInfo = (NodeInformation<T>)o);
                     yield return new MainDataInfomation(typeof(int), () => creaVersion, (o) => creaVersion = (int)o);
                     yield return new MainDataInfomation(typeof(int), () => protocolVersion, (o) => protocolVersion = (int)o);
                     yield return new MainDataInfomation(typeof(string), () => client, (o) => client = (string)o);
@@ -1763,11 +1763,11 @@ namespace CREA2014
         }
     }
 
-    public class HeaderResponse : SHAREDDATA
+    public class HeaderResponse<T> : SHAREDDATA where T : HASHBASE
     {
         public HeaderResponse() : base(0) { }
 
-        public HeaderResponse(NodeInformation _nodeInfo, bool _isSameNetwork, bool _isAlreadyConnected, NodeInformation _correctNodeInfo, bool _isOldCreaVersion, int _protocolVersion, string _client)
+        public HeaderResponse(NodeInformation<T> _nodeInfo, bool _isSameNetwork, bool _isAlreadyConnected, NodeInformation<T> _correctNodeInfo, bool _isOldCreaVersion, int _protocolVersion, string _client)
             : base(0)
         {
             if (_client.Length > 256)
@@ -1782,10 +1782,10 @@ namespace CREA2014
             client = _client;
         }
 
-        public NodeInformation nodeInfo { get; private set; }
+        public NodeInformation<T> nodeInfo { get; private set; }
         public bool isSameNetwork { get; private set; }
         public bool isAlreadyConnected { get; private set; }
-        public NodeInformation correctNodeInfo { get; private set; }
+        public NodeInformation<T> correctNodeInfo { get; private set; }
         public bool isOldCreaVersion { get; private set; }
         public int protocolVersion { get; private set; }
         public string client { get; private set; }
@@ -1800,12 +1800,12 @@ namespace CREA2014
             {
                 if (Version == 0)
                 {
-                    yield return new MainDataInfomation(typeof(NodeInformation), 0, () => nodeInfo, (o) => nodeInfo = (NodeInformation)o);
+                    yield return new MainDataInfomation(typeof(NodeInformation<T>), 0, () => nodeInfo, (o) => nodeInfo = (NodeInformation<T>)o);
                     yield return new MainDataInfomation(typeof(bool), () => isSameNetwork, (o) => isSameNetwork = (bool)o);
                     bool isCorrectNodeInfo = correctNodeInfo == null;
                     yield return new MainDataInfomation(typeof(bool), () => isCorrectNodeInfo, (o) => isCorrectNodeInfo = (bool)o);
                     if (!isCorrectNodeInfo)
-                        yield return new MainDataInfomation(typeof(NodeInformation), 0, () => correctNodeInfo, (o) => correctNodeInfo = (NodeInformation)o);
+                        yield return new MainDataInfomation(typeof(NodeInformation<T>), 0, () => correctNodeInfo, (o) => correctNodeInfo = (NodeInformation<T>)o);
                     yield return new MainDataInfomation(typeof(bool), () => isOldCreaVersion, (o) => isOldCreaVersion = (bool)o);
                     yield return new MainDataInfomation(typeof(bool), () => isAlreadyConnected, (o) => isAlreadyConnected = (bool)o);
                     yield return new MainDataInfomation(typeof(int), () => protocolVersion, (o) => protocolVersion = (int)o);
@@ -1980,16 +1980,16 @@ namespace CREA2014
         }
     }
 
-    public class NeighborNodes : MessageBase
+    public class NeighborNodes<T> : MessageBase where T : HASHBASE
     {
-        public NeighborNodes(NodeInformation[] _nodeInfos)
+        public NeighborNodes(NodeInformation<T>[] _nodeInfos)
             : base(0)
         {
             nodeInfos = _nodeInfos;
         }
 
-        private NodeInformation[] nodeInfos;
-        public NodeInformation[] NodeInfos
+        private NodeInformation<T>[] nodeInfos;
+        public NodeInformation<T>[] NodeInfos
         {
             get { return nodeInfos.ToArray(); }
         }
@@ -2000,7 +2000,7 @@ namespace CREA2014
             {
                 if (Version == 0)
                     return (msrw) => new MainDataInfomation[]{
-                        new MainDataInfomation(typeof(NodeInformation[]), 0, null, () => nodeInfos, (o) => nodeInfos = (NodeInformation[])o),
+                        new MainDataInfomation(typeof(NodeInformation<T>[]), 0, null, () => nodeInfos, (o) => nodeInfos = (NodeInformation<T>[])o),
                     };
                 else
                     throw new NotSupportedException("neighbor_nodes_main_data_info");
@@ -2183,7 +2183,7 @@ namespace CREA2014
         }
     }
 
-    public abstract class CREANODEBASE2 : P2PNODE2
+    public abstract class CREANODEBASE2<T> : P2PNODE2 where T : HASHBASE
     {
         public CREANODEBASE2(ushort _portNumber, int _creaVersion, string _appnameWithVersion)
             : base(_portNumber)
@@ -2197,20 +2197,20 @@ namespace CREA2014
         private readonly int creaVersion;
         private readonly string appnameWithVersion;
 
-        public NodeInformation nodeInfo { get; private set; }
+        public NodeInformation<T> nodeInfo { get; private set; }
 
         protected abstract bool IsContinue { get; }
 
-        protected abstract bool IsAlreadyConnected(NodeInformation nodeInfo);
-        protected abstract void UpdateNodeState(NodeInformation nodeInfo, bool isSucceeded);
-        protected abstract bool IsListenerCanContinue(NodeInformation nodeInfo);
-        protected abstract bool IsWantToContinue(NodeInformation nodeInfo);
-        protected abstract bool IsClientCanContinue(NodeInformation nodeInfo);
+        protected abstract bool IsAlreadyConnected(NodeInformation<T> nodeInfo);
+        protected abstract void UpdateNodeState(NodeInformation<T> nodeInfo, bool isSucceeded);
+        protected abstract bool IsListenerCanContinue(NodeInformation<T> nodeInfo);
+        protected abstract bool IsWantToContinue(NodeInformation<T> nodeInfo);
+        protected abstract bool IsClientCanContinue(NodeInformation<T> nodeInfo);
         protected abstract void InboundProtocol(IChannel sc, Action<string> _ConsoleWriteLine);
         protected abstract void OutboundProtocol(MessageBase[] messages, IChannel sc, Action<string> _ConsoleWriteLine);
-        protected abstract void InboundContinue(NodeInformation nodeInfo, SocketChannel sc, Action<string> _ConsoleWriteLine);
-        protected abstract void OutboundContinue(NodeInformation nodeInfo, SocketChannel sc, Action<string> _ConsoleWriteLine);
-        protected abstract void Request(NodeInformation nodeinfo, params MessageBase[] messages);
+        protected abstract void InboundContinue(NodeInformation<T> nodeInfo, SocketChannel sc, Action<string> _ConsoleWriteLine);
+        protected abstract void OutboundContinue(NodeInformation<T> nodeInfo, SocketChannel sc, Action<string> _ConsoleWriteLine);
+        protected abstract void Request(NodeInformation<T> nodeinfo, params MessageBase[] messages);
         protected abstract void Diffuse(params MessageBase[] messages);
 
         protected override void CreateNodeInfo()
@@ -2218,34 +2218,34 @@ namespace CREA2014
             using (RSACryptoServiceProvider rsacsp = new RSACryptoServiceProvider(2048))
             {
                 rsacsp.FromXmlString(privateRsaParameters);
-                nodeInfo = new NodeInformation(ipAddress, portNumber, Network, rsacsp.ToXmlString(false));
+                nodeInfo = new NodeInformation<T>(ipAddress, portNumber, Network, rsacsp.ToXmlString(false));
             }
         }
 
         protected override void OnAccepted(SocketChannel sc)
         {
-            Header header = SHAREDDATA.FromBinary<Header>(sc.ReadBytes());
+            Header<T> header = SHAREDDATA.FromBinary<Header<T>>(sc.ReadBytes());
 
-            NodeInformation aiteNodeInfo = null;
+            NodeInformation<T> aiteNodeInfo = null;
             if (!header.nodeInfo.IpAddress.Equals(sc.aiteIpAddress))
             {
-                this.RaiseNotification("aite_wrong_node_info".GetLogMessage(sc.aiteIpAddress.ToString(), header.nodeInfo.Port.ToString()), 5);
+                this.RaiseNotification("aite_wrong_node_info".GetLogMessage(sc.aiteIpAddress.ToString(), header.nodeInfo.PortNumber.ToString()), 5);
 
-                aiteNodeInfo = new NodeInformation(sc.aiteIpAddress, header.nodeInfo.Port, header.nodeInfo.Network, header.nodeInfo.PublicRSAParameters);
+                aiteNodeInfo = new NodeInformation<T>(sc.aiteIpAddress, header.nodeInfo.PortNumber, header.nodeInfo.Network, header.nodeInfo.PublicRSAParameters);
             }
 
-            HeaderResponse headerResponse = new HeaderResponse(nodeInfo, header.nodeInfo.Network == Network, IsAlreadyConnected(header.nodeInfo), aiteNodeInfo, header.creaVersion < creaVersion, protocolVersion, appnameWithVersion);
+            HeaderResponse<T> headerResponse = new HeaderResponse<T>(nodeInfo, header.nodeInfo.Network == Network, IsAlreadyConnected(header.nodeInfo), aiteNodeInfo, header.creaVersion < creaVersion, protocolVersion, appnameWithVersion);
 
             if (aiteNodeInfo == null)
                 aiteNodeInfo = header.nodeInfo;
 
-            if ((!headerResponse.isSameNetwork).RaiseNotification(GetType(), "aite_wrong_network".GetLogMessage(aiteNodeInfo.IpAddress.ToString(), aiteNodeInfo.Port.ToString()), 5))
+            if ((!headerResponse.isSameNetwork).RaiseNotification(GetType(), "aite_wrong_network".GetLogMessage(aiteNodeInfo.IpAddress.ToString(), aiteNodeInfo.PortNumber.ToString()), 5))
             {
                 sc.Close();
 
                 return;
             }
-            if (headerResponse.isAlreadyConnected.RaiseNotification(GetType(), "aite_already_connected".GetLogMessage(aiteNodeInfo.IpAddress.ToString(), aiteNodeInfo.Port.ToString()), 5))
+            if (headerResponse.isAlreadyConnected.RaiseNotification(GetType(), "aite_already_connected".GetLogMessage(aiteNodeInfo.IpAddress.ToString(), aiteNodeInfo.PortNumber.ToString()), 5))
             {
                 sc.Close();
 
@@ -2304,8 +2304,8 @@ namespace CREA2014
         {
             SocketChannel sc = Connect(aiteIpAddress, aitePortNumber);
 
-            sc.WriteBytes(new Header(nodeInfo, creaVersion, protocolVersion, appnameWithVersion, isTemporary).ToBinary());
-            HeaderResponse headerResponse = SHAREDDATA.FromBinary<HeaderResponse>(sc.ReadBytes());
+            sc.WriteBytes(new Header<T>(nodeInfo, creaVersion, protocolVersion, appnameWithVersion, isTemporary).ToBinary());
+            HeaderResponse<T> headerResponse = SHAREDDATA.FromBinary<HeaderResponse<T>>(sc.ReadBytes());
 
             if ((!headerResponse.isSameNetwork).RaiseNotification(GetType(), "wrong_network".GetLogMessage(aiteIpAddress.ToString(), aitePortNumber.ToString()), 5))
             {
@@ -2380,7 +2380,7 @@ namespace CREA2014
 
     #region 試験用
 
-    public abstract class CreaNodeLocalTest2 : CREANODEBASE2
+    public abstract class CreaNodeLocalTest2<T> : CREANODEBASE2<T> where T : HASHBASE
     {
         public CreaNodeLocalTest2(ushort _portNumber, int _creaVersion, string _appnameWithVersion) : base(_portNumber, _creaVersion, _appnameWithVersion) { }
 
@@ -2392,8 +2392,8 @@ namespace CREA2014
         private readonly Dictionary<Sha256Hash, byte[]> txtests = new Dictionary<Sha256Hash, byte[]>();
         private readonly object txtestsLock = new object();
 
-        public event EventHandler<NodeInformation> TxtestReceived = delegate { };
-        public event EventHandler<NodeInformation> TxtestAlreadyExisted = delegate { };
+        public event EventHandler<NodeInformation<T>> TxtestReceived = delegate { };
+        public event EventHandler<NodeInformation<T>> TxtestAlreadyExisted = delegate { };
 
         static CreaNodeLocalTest2()
         {
@@ -2499,7 +2499,7 @@ namespace CREA2014
         }
     }
 
-    public class CreaNodeLocalTestNotContinue2 : CreaNodeLocalTest2
+    public class CreaNodeLocalTestNotContinue2<T> : CreaNodeLocalTest2<T> where T : HASHBASE
     {
         public CreaNodeLocalTestNotContinue2(ushort _portNumber, int _creaVersion, string _appnameWithVersion) : base(_portNumber, _creaVersion, _appnameWithVersion) { }
 
@@ -2508,23 +2508,23 @@ namespace CREA2014
             get { return false; }
         }
 
-        protected override bool IsAlreadyConnected(NodeInformation nodeInfo) { return false; }
+        protected override bool IsAlreadyConnected(NodeInformation<T> nodeInfo) { return false; }
 
-        protected override void UpdateNodeState(NodeInformation nodeInfo, bool isSucceeded) { }
+        protected override void UpdateNodeState(NodeInformation<T> nodeInfo, bool isSucceeded) { }
 
-        protected override bool IsListenerCanContinue(NodeInformation nodeInfo) { return false; }
+        protected override bool IsListenerCanContinue(NodeInformation<T> nodeInfo) { return false; }
 
-        protected override bool IsWantToContinue(NodeInformation nodeInfo) { return false; }
+        protected override bool IsWantToContinue(NodeInformation<T> nodeInfo) { return false; }
 
-        protected override bool IsClientCanContinue(NodeInformation nodeInfo) { return false; }
+        protected override bool IsClientCanContinue(NodeInformation<T> nodeInfo) { return false; }
 
-        protected override void InboundContinue(NodeInformation nodeInfo, SocketChannel sc, Action<string> _ConsoleWriteLine) { }
+        protected override void InboundContinue(NodeInformation<T> nodeInfo, SocketChannel sc, Action<string> _ConsoleWriteLine) { }
 
-        protected override void OutboundContinue(NodeInformation nodeInfo, SocketChannel sc, Action<string> _ConsoleWriteLine) { }
+        protected override void OutboundContinue(NodeInformation<T> nodeInfo, SocketChannel sc, Action<string> _ConsoleWriteLine) { }
 
-        protected override void Request(NodeInformation nodeinfo, params MessageBase[] messages)
+        protected override void Request(NodeInformation<T> nodeinfo, params MessageBase[] messages)
         {
-            Connect(nodeinfo.IpAddress, nodeinfo.Port, true, () => { }, messages);
+            Connect(nodeinfo.IpAddress, nodeinfo.PortNumber, true, () => { }, messages);
         }
 
         protected override void Diffuse(params MessageBase[] messages)
@@ -2536,7 +2536,7 @@ namespace CREA2014
         protected override void KeepConnections() { }
     }
 
-    public class CreaNodeLocalTestContinue2 : CreaNodeLocalTest2
+    public class CreaNodeLocalTestContinue2<T> : CreaNodeLocalTest2<T> where T : HASHBASE
     {
         public CreaNodeLocalTestContinue2(ushort _portNumber, int _creaVersion, string _appnameWithVersion) : base(_portNumber, _creaVersion, _appnameWithVersion) { }
 
@@ -2544,9 +2544,9 @@ namespace CREA2014
         private readonly int maxOutboundConnection = 8;
 
         private readonly object clientNodesLock = new object();
-        private Dictionary<NodeInformation, Connection> clientNodes = new Dictionary<NodeInformation, Connection>();
+        private Dictionary<NodeInformation<T>, Connection> clientNodes = new Dictionary<NodeInformation<T>, Connection>();
         private readonly object listenerNodesLock = new object();
-        private Dictionary<NodeInformation, Connection> listenerNodes = new Dictionary<NodeInformation, Connection>();
+        private Dictionary<NodeInformation<T>, Connection> listenerNodes = new Dictionary<NodeInformation<T>, Connection>();
 
         public class Connection
         {
@@ -2565,7 +2565,7 @@ namespace CREA2014
             get { return true; }
         }
 
-        protected override bool IsAlreadyConnected(NodeInformation nodeInfo)
+        protected override bool IsAlreadyConnected(NodeInformation<T> nodeInfo)
         {
             lock (clientNodesLock)
                 if (clientNodes.Keys.Contains(nodeInfo))
@@ -2576,27 +2576,27 @@ namespace CREA2014
             return false;
         }
 
-        protected override void UpdateNodeState(NodeInformation nodeInfo, bool isSucceeded) { }
+        protected override void UpdateNodeState(NodeInformation<T> nodeInfo, bool isSucceeded) { }
 
-        protected override bool IsListenerCanContinue(NodeInformation nodeInfo)
+        protected override bool IsListenerCanContinue(NodeInformation<T> nodeInfo)
         {
             lock (listenerNodesLock)
                 return listenerNodes.Count < maxInboundConnection;
         }
 
-        protected override bool IsWantToContinue(NodeInformation nodeInfo)
+        protected override bool IsWantToContinue(NodeInformation<T> nodeInfo)
         {
             lock (listenerNodesLock)
                 return listenerNodes.Count < maxInboundConnection;
         }
 
-        protected override bool IsClientCanContinue(NodeInformation nodeInfo)
+        protected override bool IsClientCanContinue(NodeInformation<T> nodeInfo)
         {
             lock (clientNodesLock)
                 return clientNodes.Count < maxOutboundConnection;
         }
 
-        protected override void InboundContinue(NodeInformation nodeInfo, SocketChannel sc, Action<string> _ConsoleWriteLine)
+        protected override void InboundContinue(NodeInformation<T> nodeInfo, SocketChannel sc, Action<string> _ConsoleWriteLine)
         {
             lock (listenerNodesLock)
                 listenerNodes.Add(nodeInfo, new Connection(sc, _ConsoleWriteLine));
@@ -2615,7 +2615,7 @@ namespace CREA2014
             Continue(nodeInfo, sc, _ConsoleWriteLine);
         }
 
-        protected override void OutboundContinue(NodeInformation nodeInfo, SocketChannel sc, Action<string> _ConsoleWriteLine)
+        protected override void OutboundContinue(NodeInformation<T> nodeInfo, SocketChannel sc, Action<string> _ConsoleWriteLine)
         {
             lock (clientNodesLock)
                 clientNodes.Add(nodeInfo, new Connection(sc, _ConsoleWriteLine));
@@ -2634,7 +2634,7 @@ namespace CREA2014
             Continue(nodeInfo, sc, _ConsoleWriteLine);
         }
 
-        private void Continue(NodeInformation nodeInfo, SocketChannel sc, Action<string> _ConsoleWriteLine)
+        private void Continue(NodeInformation<T> nodeInfo, SocketChannel sc, Action<string> _ConsoleWriteLine)
         {
             _ConsoleWriteLine("常時接続" + string.Join(",", clientNodes.Count.ToString(), listenerNodes.Count.ToString()));
 
@@ -2659,7 +2659,7 @@ namespace CREA2014
             };
         }
 
-        protected override void Request(NodeInformation nodeinfo, params MessageBase[] messages)
+        protected override void Request(NodeInformation<T> nodeinfo, params MessageBase[] messages)
         {
             Connection connection = null;
 
@@ -2698,7 +2698,7 @@ namespace CREA2014
             else
                 try
                 {
-                    Connect(nodeInfo.IpAddress, nodeInfo.Port, true, () => { }, messages);
+                    Connect(nodeInfo.IpAddress, nodeInfo.PortNumber, true, () => { }, messages);
                 }
                 catch (Exception ex)
                 {
@@ -2870,14 +2870,14 @@ namespace CREA2014
                 int counter = 0;
 
                 int numOfNodes = 5;
-                CreaNodeLocalTestContinue2[] cnlts = new CreaNodeLocalTestContinue2[numOfNodes];
+                CreaNodeLocalTestContinue2<Sha256HashNew>[] cnlts = new CreaNodeLocalTestContinue2<Sha256HashNew>[numOfNodes];
                 for (int i = 0; i < numOfNodes; i++)
                 {
-                    cnlts[i] = new CreaNodeLocalTestContinue2((ushort)(7777 + i), 0, "test");
+                    cnlts[i] = new CreaNodeLocalTestContinue2<Sha256HashNew>((ushort)(7777 + i), 0, "test");
                     cnlts[i].TxtestReceived += (sender2, e2) =>
                     {
                         counter++;
-                        (string.Join(":", e2.IpAddress.ToString(), e2.Port.ToString()) + " " + counter.ToString() + " " + ((double)counter / (double)numOfNodes).ToString() + " " + stopwatch.Elapsed.ToString()).ConsoleWriteLine();
+                        (string.Join(":", e2.IpAddress.ToString(), e2.PortNumber.ToString()) + " " + counter.ToString() + " " + ((double)counter / (double)numOfNodes).ToString() + " " + stopwatch.Elapsed.ToString()).ConsoleWriteLine();
 
                         if (counter == numOfNodes - 1)
                             stopwatch.Stop();
@@ -2896,11 +2896,11 @@ namespace CREA2014
 
             private void Test2NodesInv2()
             {
-                CreaNodeLocalTestContinue2 cnlt1 = new CreaNodeLocalTestContinue2(7777, 0, "test");
+                CreaNodeLocalTestContinue2<Sha256HashNew> cnlt1 = new CreaNodeLocalTestContinue2<Sha256HashNew>(7777, 0, "test");
                 cnlt1.Start();
                 while (!cnlt1.isStartCompleted)
                     Thread.Sleep(100);
-                CreaNodeLocalTestContinue2 cnlt2 = new CreaNodeLocalTestContinue2(7778, 0, "test");
+                CreaNodeLocalTestContinue2<Sha256HashNew> cnlt2 = new CreaNodeLocalTestContinue2<Sha256HashNew>(7778, 0, "test");
                 cnlt2.Start();
                 while (!cnlt2.isStartCompleted)
                     Thread.Sleep(100);
@@ -3171,32 +3171,32 @@ namespace CREA2014
 
     #region Cremlia実装
 
-    public class CremliaIdFactory : ICremliaIdFactory
+    public class CremliaIdFactory<T> : ICremliaIdFactory where T : HASHBASE
     {
         public CremliaIdFactory() { }
 
-        public ICremliaId Create() { return new CremliaId(); }
+        public ICremliaId Create() { return new CremliaId<T>(); }
     }
 
-    public class CremliaId : ICremliaId, IComparable<CremliaId>, IEquatable<CremliaId>, IComparable
+    public class CremliaId<T> : ICremliaId, IComparable<CremliaId<T>>, IEquatable<CremliaId<T>>, IComparable where T : HASHBASE
     {
-        public CremliaId() : this(new Sha256Hash()) { }
+        public CremliaId() : this(Activator.CreateInstance(typeof(T)) as T) { }
 
-        public CremliaId(Sha256Hash _hash)
+        public CremliaId(T _hash)
         {
             hash = _hash;
         }
 
-        public readonly Sha256Hash hash;
+        public readonly T hash;
 
         public int Size
         {
-            get { return hash.size; }
+            get { return hash.SizeBit; }
         }
 
         public byte[] Bytes
         {
-            get { return hash.bytes; }
+            get { return hash.hash; }
         }
 
         public void FromBytes(byte[] bytes)
@@ -3204,7 +3204,7 @@ namespace CREA2014
             if (bytes.Length != Bytes.Length)
                 throw new ArgumentException("cremlia_id_bytes_length");
 
-            hash.bytes = bytes;
+            hash.FromHash(bytes);
         }
 
         public ICremliaId XOR(ICremliaId id)
@@ -3215,48 +3215,48 @@ namespace CREA2014
             byte[] xorBytes = new byte[Bytes.Length];
             for (int i = 0; i < xorBytes.Length; i++)
                 xorBytes[i] = (byte)(Bytes[i] ^ id.Bytes[i]);
-            return new CremliaId(new Sha256Hash(xorBytes));
+            return new CremliaId<T>(HASHBASE.FromHash<T>(xorBytes));
         }
 
         public override bool Equals(object obj)
         {
-            if (!(obj is CremliaId))
+            if (!(obj is CremliaId<T>))
                 return false;
-            return hash.Equals((obj as CremliaId).hash);
+            return hash.Equals((obj as CremliaId<T>).hash);
         }
 
-        public bool Equals(CremliaId other) { return hash.Equals(other); }
+        public bool Equals(CremliaId<T> other) { return hash.Equals(other); }
 
-        public int CompareTo(object obj) { return hash.CompareTo((obj as CremliaId).hash); }
+        public int CompareTo(object obj) { return hash.CompareTo((obj as CremliaId<T>).hash); }
 
-        public int CompareTo(CremliaId other) { return hash.CompareTo(other.hash); }
+        public int CompareTo(CremliaId<T> other) { return hash.CompareTo(other.hash); }
 
         public override int GetHashCode() { return hash.GetHashCode(); }
 
         public override string ToString() { return hash.ToString(); }
     }
 
-    public class CremliaNodeInfomation : ICremliaNodeInfomation, IEquatable<CremliaNodeInfomation>
+    public class CremliaNodeInfomation<T> : ICremliaNodeInfomation, IEquatable<CremliaNodeInfomation<T>> where T : HASHBASE
     {
-        public CremliaNodeInfomation(NodeInformation _nodeInfo)
+        public CremliaNodeInfomation(NodeInformation<T> _nodeInfo)
         {
             nodeInfo = _nodeInfo;
         }
 
-        public readonly NodeInformation nodeInfo;
+        public readonly NodeInformation<T> nodeInfo;
 
         public ICremliaId Id
         {
-            get { return new CremliaId(nodeInfo.Id); }
+            get { return new CremliaId<T>(nodeInfo.Id); }
         }
 
-        public override bool Equals(object obj) { return (obj as CremliaNodeInfomation).Operate((o) => o != null && Equals(o)); }
+        public override bool Equals(object obj) { return (obj as CremliaNodeInfomation<T>).Operate((o) => o != null && Equals(o)); }
 
         public override int GetHashCode() { return Id.GetHashCode(); }
 
         public override string ToString() { return Id.ToString(); }
 
-        public bool Equals(CremliaNodeInfomation other) { return Id.Equals(other.Id); }
+        public bool Equals(CremliaNodeInfomation<T> other) { return Id.Equals(other.Id); }
     }
 
     public class CremliaDatabaseIo : ICremliaDatabaseIo
@@ -4058,6 +4058,13 @@ namespace CREA2014
         public int SizeByte { get { return SizeBit / 8; } }
 
         public void FromHash(byte[] _hash) { hash = _hash; }
+
+        public static T FromHash<T>(byte[] hash) where T : HASHBASE
+        {
+            T t = Activator.CreateInstance(typeof(T)) as T;
+            t.FromHash(hash);
+            return t;
+        }
 
         protected override Func<ReaderWriter, IEnumerable<MainDataInfomation>> StreamInfo
         {
@@ -4974,9 +4981,24 @@ namespace CREA2014
         }
     }
 
-    public class Transaction<T> where T : HASHBASE
+    public abstract class Transaction { }
+
+    public class CoinbaseTransaction<T> : Transaction where T : HASHBASE
     {
-        public Transaction(int _version, TransactionInput<T>[] _inputs, TransactionOutput<T>[] _outputs)
+        public CoinbaseTransaction(TransactionOutput<T>[] _outputs)
+        {
+            if (_outputs.Length == 0)
+                throw new InvalidDataException("coinbase_tx_outputs_empty");
+
+            outputs = _outputs;
+        }
+
+        public TransactionOutput<T>[] outputs { get; private set; }
+    }
+
+    public class TransferTransaction<T> : Transaction where T : HASHBASE
+    {
+        public TransferTransaction(int _version, TransactionInput<T>[] _inputs, TransactionOutput<T>[] _outputs)
         {
             if (_version != 0)
                 throw new NotSupportedException("tx_not_supported");
@@ -5022,7 +5044,6 @@ namespace CREA2014
             amount = _amount;
         }
 
-        //P2PHではScriptの一部
         public T receiverPubKeyHash { get; private set; }
         public int amount { get; private set; }
     }
