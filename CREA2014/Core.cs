@@ -1481,7 +1481,7 @@ namespace CREA2014
         IdsAndValues = 108,
     }
 
-    public class Message : SHAREDDATA
+    public class Message<U> : SHAREDDATA where U : HASHBASE
     {
         public Message() : this(null) { }
 
@@ -1497,9 +1497,9 @@ namespace CREA2014
         {
             get
             {
-                if (messageBase is Inv)
+                if (messageBase is Inv<U>)
                     return MessageName.inv;
-                else if (messageBase is Getdata)
+                else if (messageBase is Getdata<U>)
                     return MessageName.getdata;
                 else if (messageBase is TxTest)
                     return MessageName.tx;
@@ -1521,9 +1521,9 @@ namespace CREA2014
                 {
                     mn = (MessageName)o;
                     if (mn == MessageName.inv)
-                        messageBase = new Inv();
+                        messageBase = new Inv<U>();
                     else if (mn == MessageName.getdata)
-                        messageBase = new Getdata();
+                        messageBase = new Getdata<U>();
                     else if (mn == MessageName.tx)
                         messageBase = new TxTest();
                     else
@@ -1565,34 +1565,34 @@ namespace CREA2014
         }
     }
 
-    public abstract class MessageSha256Hash : MessageBase
+    public abstract class MessageHash<U> : MessageBase where U : HASHBASE
     {
-        public MessageSha256Hash(Sha256Hash _hash) : this(null, _hash) { }
+        public MessageHash(U _hash) : this(null, _hash) { }
 
-        public MessageSha256Hash(int? _version, Sha256Hash _hash)
+        public MessageHash(int? _version, U _hash)
             : base(_version)
         {
             hash = _hash;
         }
 
-        public Sha256Hash hash { get; private set; }
+        public U hash { get; private set; }
 
         protected override Func<ReaderWriter, IEnumerable<MainDataInfomation>> StreamInfo
         {
             get
             {
                 return (msrw) => new MainDataInfomation[]{
-                    new MainDataInfomation(typeof(Sha256Hash), null, () => hash, (o) => hash = (Sha256Hash)o),
+                    new MainDataInfomation(typeof(U), null, () => hash, (o) => hash = (U)o),
                 };
             }
         }
     }
 
-    public class Inv : MessageSha256Hash
+    public class Inv<U> : MessageHash<U> where U : HASHBASE
     {
-        public Inv() : this(new Sha256Hash()) { }
+        public Inv() : this(Activator.CreateInstance(typeof(U)) as U) { }
 
-        public Inv(Sha256Hash _hash) : base(0, _hash) { }
+        public Inv(U _hash) : base(0, _hash) { }
 
         protected override Func<ReaderWriter, IEnumerable<MainDataInfomation>> StreamInfo
         {
@@ -1622,11 +1622,11 @@ namespace CREA2014
         }
     }
 
-    public class Getdata : MessageSha256Hash
+    public class Getdata<U> : MessageHash<U> where U : HASHBASE
     {
-        public Getdata() : this(new Sha256Hash()) { }
+        public Getdata() : this(Activator.CreateInstance(typeof(U)) as U) { }
 
-        public Getdata(Sha256Hash _hash) : base(0, _hash) { }
+        public Getdata(U _hash) : base(0, _hash) { }
 
         protected override Func<ReaderWriter, IEnumerable<MainDataInfomation>> StreamInfo
         {
@@ -1897,16 +1897,16 @@ namespace CREA2014
         }
     }
 
-    public class StoreReq : MessageBase
+    public class StoreReq<IdType> : MessageBase where IdType : HASHBASE
     {
-        public StoreReq(Sha256Hash _id, byte[] _data)
+        public StoreReq(IdType _id, byte[] _data)
             : base(0)
         {
             id = _id;
             data = _data;
         }
 
-        public Sha256Hash id { get; private set; }
+        public IdType id { get; private set; }
         public byte[] data { get; private set; }
 
         protected override Func<ReaderWriter, IEnumerable<MainDataInfomation>> StreamInfo
@@ -1915,7 +1915,7 @@ namespace CREA2014
             {
                 if (Version == 0)
                     return (msrw) => new MainDataInfomation[]{
-                        new MainDataInfomation(typeof(Sha256Hash), null, () => id, (o) => id = (Sha256Hash)o),
+                        new MainDataInfomation(typeof(IdType), null, () => id, (o) => id = (IdType)o),
                         new MainDataInfomation(typeof(byte[]), null, () => data, (o) => data = (byte[])o),
                     };
                 else
@@ -1940,15 +1940,15 @@ namespace CREA2014
         }
     }
 
-    public class FindNodesReq : MessageBase
+    public class FindNodesReq<IdType> : MessageBase where IdType : HASHBASE
     {
-        public FindNodesReq(Sha256Hash _id)
+        public FindNodesReq(IdType _id)
             : base(0)
         {
             id = _id;
         }
 
-        public Sha256Hash id { get; private set; }
+        public IdType id { get; private set; }
 
         protected override Func<ReaderWriter, IEnumerable<MainDataInfomation>> StreamInfo
         {
@@ -1956,7 +1956,7 @@ namespace CREA2014
             {
                 if (Version == 0)
                     return (msrw) => new MainDataInfomation[]{
-                        new MainDataInfomation(typeof(Sha256Hash), null, () => id, (o) => id = (Sha256Hash)o),
+                        new MainDataInfomation(typeof(IdType), null, () => id, (o) => id = (IdType)o),
                     };
                 else
                     throw new NotSupportedException("find_nodes_req_main_data_info");
@@ -2024,15 +2024,15 @@ namespace CREA2014
         }
     }
 
-    public class FindValueReq : MessageBase
+    public class FindValueReq<IdType> : MessageBase where IdType : HASHBASE
     {
-        public FindValueReq(Sha256Hash _id)
+        public FindValueReq(IdType _id)
             : base(0)
         {
             id = _id;
         }
 
-        public Sha256Hash id { get; private set; }
+        public IdType id { get; private set; }
 
         protected override Func<ReaderWriter, IEnumerable<MainDataInfomation>> StreamInfo
         {
@@ -2040,7 +2040,7 @@ namespace CREA2014
             {
                 if (Version == 0)
                     return (msrw) => new MainDataInfomation[] {
-                        new MainDataInfomation(typeof(Sha256Hash), null, () => id, (o) => id = (Sha256Hash)o),
+                        new MainDataInfomation(typeof(IdType), null, () => id, (o) => id = (IdType)o),
                     };
                 else
                     throw new NotSupportedException("find_value_req_main_data_info");
@@ -2136,12 +2136,12 @@ namespace CREA2014
         }
     }
 
-    public class IdsAndValues : MessageBase
+    public class IdsAndValues<IdType> : MessageBase where IdType : HASHBASE
     {
         public IdsAndValues() : base(0) { }
 
-        private Sha256Hash[] ids;
-        public Sha256Hash[] Ids
+        private IdType[] ids;
+        public IdType[] Ids
         {
             get { return ids.ToArray(); }
         }
@@ -2158,7 +2158,7 @@ namespace CREA2014
             {
                 if (Version == 0)
                     return (msrw) => new MainDataInfomation[] {
-                        new MainDataInfomation(typeof(Sha256Hash[]), null, null, () => ids, (o) => ids = (Sha256Hash[])o),
+                        new MainDataInfomation(typeof(IdType[]), null, null, () => ids, (o) => ids = (IdType[])o),
                         new MainDataInfomation(typeof(byte[][]), null, () => datas, (o) => datas = (byte[][])o),
                     };
                 else
@@ -2380,7 +2380,9 @@ namespace CREA2014
 
     #region 試験用
 
-    public abstract class CreaNodeLocalTest2<T> : CREANODEBASE2<T> where T : HASHBASE
+    public abstract class CreaNodeLocalTest2<T, U> : CREANODEBASE2<T>
+        where T : HASHBASE
+        where U : HASHBASE
     {
         public CreaNodeLocalTest2(ushort _portNumber, int _creaVersion, string _appnameWithVersion) : base(_portNumber, _creaVersion, _appnameWithVersion) { }
 
@@ -2389,7 +2391,7 @@ namespace CREA2014
         private static readonly string testPrivateRsaParameters;
 
         //試験用
-        private readonly Dictionary<Sha256Hash, byte[]> txtests = new Dictionary<Sha256Hash, byte[]>();
+        private readonly Dictionary<U, byte[]> txtests = new Dictionary<U, byte[]>();
         private readonly object txtestsLock = new object();
 
         public event EventHandler<NodeInformation<T>> TxtestReceived = delegate { };
@@ -2434,10 +2436,10 @@ namespace CREA2014
 
         protected override void InboundProtocol(IChannel sc, Action<string> _ConsoleWriteLine)
         {
-            Message message = SHAREDDATA.FromBinary<Message>(sc.ReadBytes());
+            Message<U> message = SHAREDDATA.FromBinary<Message<U>>(sc.ReadBytes());
             if (message.name == MessageName.inv)
             {
-                Inv inv = message.messageBase as Inv;
+                Inv<U> inv = message.messageBase as Inv<U>;
                 bool isNew = !txtests.Keys.Contains(inv.hash);
                 sc.WriteBytes(BitConverter.GetBytes(isNew));
                 if (isNew)
@@ -2468,7 +2470,7 @@ namespace CREA2014
 
         protected override void OutboundProtocol(MessageBase[] messages, IChannel sc, Action<string> _ConsoleWriteLine)
         {
-            Message message = new Message(messages[0]);
+            Message<U> message = new Message<U>(messages[0]);
 
             sc.WriteBytes(message.ToBinary());
             if (message.name == MessageName.inv)
@@ -2482,12 +2484,12 @@ namespace CREA2014
         }
 
         //試験用
-        public void DiffuseInv(TxTest txtest, Inv inv)
+        public void DiffuseInv(TxTest txtest, Inv<U> inv)
         {
             if (txtest == null && inv == null)
             {
                 txtest = new TxTest();
-                inv = new Inv(new Sha256Hash(txtest.data.ComputeSha256()));
+                inv = new Inv<U>(Activator.CreateInstance(typeof(U), txtest.data) as U);
 
                 lock (txtestsLock)
                     txtests.Add(inv.hash, txtest.data);
@@ -2499,7 +2501,9 @@ namespace CREA2014
         }
     }
 
-    public class CreaNodeLocalTestNotContinue2<T> : CreaNodeLocalTest2<T> where T : HASHBASE
+    public class CreaNodeLocalTestNotContinue2<T, U> : CreaNodeLocalTest2<T, U>
+        where T : HASHBASE
+        where U : HASHBASE
     {
         public CreaNodeLocalTestNotContinue2(ushort _portNumber, int _creaVersion, string _appnameWithVersion) : base(_portNumber, _creaVersion, _appnameWithVersion) { }
 
@@ -2536,7 +2540,9 @@ namespace CREA2014
         protected override void KeepConnections() { }
     }
 
-    public class CreaNodeLocalTestContinue2<T> : CreaNodeLocalTest2<T> where T : HASHBASE
+    public class CreaNodeLocalTestContinue2<T, U> : CreaNodeLocalTest2<T, U>
+        where T : HASHBASE
+        where U : HASHBASE
     {
         public CreaNodeLocalTestContinue2(ushort _portNumber, int _creaVersion, string _appnameWithVersion) : base(_portNumber, _creaVersion, _appnameWithVersion) { }
 
@@ -2870,10 +2876,10 @@ namespace CREA2014
                 int counter = 0;
 
                 int numOfNodes = 5;
-                CreaNodeLocalTestContinue2<Sha256HashNew>[] cnlts = new CreaNodeLocalTestContinue2<Sha256HashNew>[numOfNodes];
+                CreaNodeLocalTestContinue2<Sha256HashNew, Sha256HashNew>[] cnlts = new CreaNodeLocalTestContinue2<Sha256HashNew, Sha256HashNew>[numOfNodes];
                 for (int i = 0; i < numOfNodes; i++)
                 {
-                    cnlts[i] = new CreaNodeLocalTestContinue2<Sha256HashNew>((ushort)(7777 + i), 0, "test");
+                    cnlts[i] = new CreaNodeLocalTestContinue2<Sha256HashNew, Sha256HashNew>((ushort)(7777 + i), 0, "test");
                     cnlts[i].TxtestReceived += (sender2, e2) =>
                     {
                         counter++;
@@ -2896,11 +2902,11 @@ namespace CREA2014
 
             private void Test2NodesInv2()
             {
-                CreaNodeLocalTestContinue2<Sha256HashNew> cnlt1 = new CreaNodeLocalTestContinue2<Sha256HashNew>(7777, 0, "test");
+                CreaNodeLocalTestContinue2<Sha256HashNew, Sha256HashNew> cnlt1 = new CreaNodeLocalTestContinue2<Sha256HashNew, Sha256HashNew>(7777, 0, "test");
                 cnlt1.Start();
                 while (!cnlt1.isStartCompleted)
                     Thread.Sleep(100);
-                CreaNodeLocalTestContinue2<Sha256HashNew> cnlt2 = new CreaNodeLocalTestContinue2<Sha256HashNew>(7778, 0, "test");
+                CreaNodeLocalTestContinue2<Sha256HashNew, Sha256HashNew> cnlt2 = new CreaNodeLocalTestContinue2<Sha256HashNew, Sha256HashNew>(7778, 0, "test");
                 cnlt2.Start();
                 while (!cnlt2.isStartCompleted)
                     Thread.Sleep(100);
@@ -4144,136 +4150,6 @@ namespace CREA2014
         protected override byte[] ComputeHash(byte[] data) { return data.ComputeSha256().ComputeRipemd160(); }
     }
 
-    //<未改良>2014/05/03 Sha256HashとRipemd160hashの統合
-    //　　　　共通の基底クラスを作る
-    public class Sha256Hash : SHAREDDATA, IComparable<Sha256Hash>, IEquatable<Sha256Hash>, IComparable
-    {
-        public Sha256Hash()
-        {
-            bytesLength = 32;
-            size = bytesLength * 8;
-            bytes = new byte[bytesLength];
-        }
-
-        public Sha256Hash(string value) : this(value.FromHexstring()) { }
-
-        public Sha256Hash(byte[] _bytes)
-        {
-            bytesLength = 32;
-            size = bytesLength * 8;
-
-            if (_bytes.Length != bytesLength)
-                throw new ArgumentException("Sha256_bytes_length");
-
-            bytes = _bytes;
-        }
-
-        public readonly int bytesLength;
-        public readonly int size;
-
-        public byte[] bytes { get; set; }
-
-        protected override Func<ReaderWriter, IEnumerable<MainDataInfomation>> StreamInfo
-        {
-            get
-            {
-                return (msrw) => new MainDataInfomation[]{
-                    new MainDataInfomation(typeof(byte[]), bytesLength, () => bytes, (o) => bytes = (byte[])o),
-                };
-            }
-        }
-
-        public override bool Equals(object obj) { return (obj as Sha256Hash).Operate((o) => o != null && Equals(o)); }
-
-        public bool Equals(Sha256Hash other) { return bytes.BytesEquals(other.bytes); }
-
-        public int CompareTo(object obj) { return bytes.BytesCompareTo((obj as Sha256Hash).bytes); }
-
-        public int CompareTo(Sha256Hash other) { return bytes.BytesCompareTo(other.bytes); }
-
-        public override int GetHashCode()
-        {
-            //暗号通貨におけるハッシュ値は先頭に0が並ぶことがあるので
-            //ビットの並びをばらばらにしてから計算することにした
-            //この実装でも0の数は変わらないので値が偏るのかもしれない
-            //先頭の0を取り除いたものから計算するべきなのかもしれない
-            //2014/04/06 常に同一の並びでなければ値が毎回変わってしまう
-            byte[] ramdomBytes = bytes.BytesRandomCache();
-            byte[] intByte = new byte[4];
-            for (int i = 0; i < 4; i++)
-                for (int j = 0; j < 8; j++)
-                    intByte[i] ^= ramdomBytes[i * 8 + j];
-            int hash = 0;
-            for (int i = 0; i < 4; i++)
-                hash |= intByte[i] << (i * 8);
-            return hash;
-        }
-
-        public override string ToString() { return bytes.ToHexstring(); }
-    }
-
-    //<未改良>2014/05/03 Sha256HashとRipemd160hashの統合
-    //　　　　共通の基底クラスを作る
-    public class Ripemd160Hash : SHAREDDATA, IComparable<Ripemd160Hash>, IEquatable<Ripemd160Hash>, IComparable
-    {
-        public Ripemd160Hash()
-        {
-            bytes = new byte[bytesLength];
-        }
-
-        public Ripemd160Hash(string value) : this(value.FromHexstring()) { }
-
-        public Ripemd160Hash(byte[] _bytes)
-        {
-            if (_bytes.Length != bytesLength)
-                throw new ArgumentException("Ripemd160_bytes_length");
-
-            bytes = _bytes;
-        }
-
-        private readonly int bytesLength = 20;
-
-        public byte[] bytes { get; private set; }
-
-        protected override Func<ReaderWriter, IEnumerable<MainDataInfomation>> StreamInfo
-        {
-            get
-            {
-                return (msrw) => new MainDataInfomation[]{
-                    new MainDataInfomation(typeof(byte[]), bytesLength, () => bytes, (o) => bytes = (byte[])o),
-                };
-            }
-        }
-
-        public override bool Equals(object obj) { return (obj as Ripemd160Hash).Operate((o) => o != null && Equals(o)); }
-
-        public bool Equals(Ripemd160Hash other) { return bytes.BytesEquals(other.bytes); }
-
-        public int CompareTo(object obj) { return bytes.BytesCompareTo((obj as Ripemd160Hash).bytes); }
-
-        public int CompareTo(Ripemd160Hash other) { return bytes.BytesCompareTo(other.bytes); }
-
-        public override int GetHashCode()
-        {
-            //暗号通貨におけるハッシュ値は先頭に0が並ぶことがあるので
-            //ビットの並びをばらばらにしてから計算することにした
-            //この実装でも0の数は変わらないので値が偏るのかもしれない
-            //先頭の0を取り除いたものから計算するべきなのかもしれない
-            //2014/04/06 常に同一の並びでなければ値が毎回変わってしまう
-            byte[] ramdomBytes = bytes.BytesRandomCache();
-            byte[] intByte = new byte[4];
-            for (int i = 0; i < 4; i++)
-                for (int j = 0; j < 5; j++)
-                    intByte[i] ^= ramdomBytes[i * 5 + j];
-            int hash = 0;
-            for (int i = 0; i < 4; i++)
-                hash |= intByte[i] << (i * 8);
-            return hash;
-        }
-
-        public override string ToString() { return bytes.ToHexstring(); }
-    }
-
     public class EcdsaKey : SHAREDDATA
     {
         private EcdsaKeyLength keyLength;
@@ -4356,6 +4232,20 @@ namespace CREA2014
 
     public class Account : SHAREDDATA
     {
+        public Account() : this(string.Empty, string.Empty, EcdsaKey.EcdsaKeyLength.Ecdsa256) { }
+
+        public Account(EcdsaKey.EcdsaKeyLength _keyLength) : this(string.Empty, string.Empty, _keyLength) { }
+
+        public Account(string _name, string _description) : this(_name, _description, EcdsaKey.EcdsaKeyLength.Ecdsa256) { }
+
+        public Account(string _name, string _description, EcdsaKey.EcdsaKeyLength _keyLength)
+            : base(0)
+        {
+            name = _name;
+            description = _description;
+            key = new EcdsaKey(_keyLength);
+        }
+
         private string name;
         public string Name
         {
@@ -4376,24 +4266,16 @@ namespace CREA2014
             get { return key; }
         }
 
-        public Account(string _name, string _description, EcdsaKey.EcdsaKeyLength _keyLength)
-            : base(0)
-        {
-            name = _name;
-            description = _description;
-            key = new EcdsaKey(_keyLength);
-        }
-
-        public Account(string _name, string _description) : this(_name, _description, EcdsaKey.EcdsaKeyLength.Ecdsa256) { }
-
-        public Account(EcdsaKey.EcdsaKeyLength _keyLength) : this(string.Empty, string.Empty, _keyLength) { }
-
-        public Account() : this(string.Empty, string.Empty, EcdsaKey.EcdsaKeyLength.Ecdsa256) { }
-
         public class AccountAddress
         {
-            private Ripemd160Hash hash;
-            public Ripemd160Hash Hash
+            public AccountAddress(byte[] _publicKey) { hash = new Sha256Ripemd160Hash(_publicKey); }
+
+            public AccountAddress(Sha256Ripemd160Hash _hash) { hash = _hash; }
+
+            public AccountAddress(string _base58) { base58 = _base58; }
+
+            private Sha256Ripemd160Hash hash;
+            public Sha256Ripemd160Hash Hash
             {
                 get
                 {
@@ -4424,7 +4306,7 @@ namespace CREA2014
                         if (!identifierBytes.BytesEquals(correctIdentifierBytes))
                             throw new InvalidDataException("base58_identifier");
 
-                        return hash = new Ripemd160Hash(hashBytes);
+                        return hash = HASHBASE.FromHash<Sha256Ripemd160Hash>(hashBytes);
                     }
                 }
                 set
@@ -4445,7 +4327,7 @@ namespace CREA2014
                     {
                         //base58表現の先頭がCREAになるようなバイト配列を使っている
                         byte[] identifierBytes = new byte[] { 84, 122, 143 };
-                        byte[] hashBytes = hash.bytes;
+                        byte[] hashBytes = hash.hash;
 
                         byte[] mergedBytes = new byte[identifierBytes.Length + hashBytes.Length];
                         Array.Copy(identifierBytes, 0, mergedBytes, 0, identifierBytes.Length);
@@ -4466,21 +4348,6 @@ namespace CREA2014
                     base58 = value;
                     hash = null;
                 }
-            }
-
-            public AccountAddress(byte[] _publicKey)
-            {
-                hash = new Ripemd160Hash(_publicKey.ComputeSha256().ComputeRipemd160());
-            }
-
-            public AccountAddress(Ripemd160Hash _hash)
-            {
-                hash = _hash;
-            }
-
-            public AccountAddress(string _base58)
-            {
-                base58 = _base58;
             }
 
             public override string ToString() { return Base58; }
@@ -4853,21 +4720,21 @@ namespace CREA2014
         }
     }
 
-    public class MerkleTree<T> where T : HASHBASE
+    public class MerkleTree<U> where U : HASHBASE
     {
-        public MerkleTree(T[] _hashes)
+        public MerkleTree(U[] _hashes)
         {
-            hashes = new List<T>();
-            tree = new T[1][];
-            tree[0] = new T[0];
+            hashes = new List<U>();
+            tree = new U[1][];
+            tree[0] = new U[0];
 
             Add(_hashes);
         }
 
-        public List<T> hashes { get; private set; }
-        public T[][] tree { get; private set; }
+        public List<U> hashes { get; private set; }
+        public U[][] tree { get; private set; }
 
-        public T Root
+        public U Root
         {
             get
             {
@@ -4878,7 +4745,7 @@ namespace CREA2014
             }
         }
 
-        public void Add(T[] hs)
+        public void Add(U[] hs)
         {
             int start = hashes.Count;
             hashes.AddRange(hs);
@@ -4897,9 +4764,9 @@ namespace CREA2014
                         newHeight++;
                     }
 
-                T[][] newTree = new T[newHeight][];
+                U[][] newTree = new U[newHeight][];
                 for (int i = 0; i < newTree.Length; i++, newLength /= 2)
-                    newTree[i] = new T[newLength];
+                    newTree[i] = new U[newLength];
 
                 for (int i = 0; i < tree.Length; i++)
                     for (int j = 0; j < tree[i].Length; j++)
@@ -4921,13 +4788,13 @@ namespace CREA2014
             for (int i = 1; i < tree.Length; i++)
             {
                 for (int j = start; j < end; j++)
-                    tree[i][j] = Activator.CreateInstance(typeof(T), (tree[i - 1][j * 2] as HASHBASE).hash.Combine((tree[i - 1][j * 2 + 1] as HASHBASE).hash)) as T;
+                    tree[i][j] = Activator.CreateInstance(typeof(U), (tree[i - 1][j * 2] as HASHBASE).hash.Combine((tree[i - 1][j * 2 + 1] as HASHBASE).hash)) as U;
                 start /= 2;
                 end /= 2;
             }
         }
 
-        public MerkleProof<T> GetProof(T target)
+        public MerkleProof<U> GetProof(U target)
         {
             int? index = null;
             for (int i = 0; i < tree[0].Length; i++)
@@ -4941,33 +4808,33 @@ namespace CREA2014
                 throw new InvalidOperationException("merkle_tree_target");
 
             int index2 = index.Value;
-            T[] proof = new T[tree.Length];
+            U[] proof = new U[tree.Length];
             for (int i = 0; i < proof.Length - 1; i++, index /= 2)
                 proof[i] = index % 2 == 0 ? tree[i][index.Value + 1] : tree[i][index.Value - 1];
             proof[proof.Length - 1] = tree[proof.Length - 1][0];
 
-            return new MerkleProof<T>(index2, proof);
+            return new MerkleProof<U>(index2, proof);
         }
 
-        public static bool Verify(T target, MerkleProof<T> proof)
+        public static bool Verify(U target, MerkleProof<U> proof)
         {
-            T cal = Activator.CreateInstance(typeof(T)) as T;
+            U cal = Activator.CreateInstance(typeof(U)) as U;
             cal.FromHash(target.hash);
             int index = proof.index;
             for (int i = 0; i < proof.proof.Length - 1; i++, index /= 2)
-                cal = Activator.CreateInstance(typeof(T), index % 2 == 0 ? cal.hash.Combine(proof.proof[i].hash) : proof.proof[i].hash.Combine(cal.hash)) as T;
+                cal = Activator.CreateInstance(typeof(U), index % 2 == 0 ? cal.hash.Combine(proof.proof[i].hash) : proof.proof[i].hash.Combine(cal.hash)) as U;
             return cal.Equals(proof.proof[proof.proof.Length - 1]);
         }
     }
 
-    public class MerkleProof<T> : SHAREDDATA where T : HASHBASE
+    public class MerkleProof<U> : SHAREDDATA where U : HASHBASE
     {
         public MerkleProof() { }
 
-        public MerkleProof(int _index, T[] _proof) { index = _index; proof = _proof; }
+        public MerkleProof(int _index, U[] _proof) { index = _index; proof = _proof; }
 
         public int index { get; private set; }
-        public T[] proof { get; private set; }
+        public U[] proof { get; private set; }
 
         protected override Func<ReaderWriter, IEnumerable<MainDataInfomation>> StreamInfo
         {
@@ -4975,17 +4842,40 @@ namespace CREA2014
             {
                 return (msrw) => new MainDataInfomation[]{
                     new MainDataInfomation(typeof(int), () => index, (o) => index = (int)o),
-                    new MainDataInfomation(typeof(T[]), null, null, () => proof, (o) => proof = (T[])o),
+                    new MainDataInfomation(typeof(U[]), null, null, () => proof, (o) => proof = (U[])o),
                 };
             }
         }
     }
 
-    public abstract class Transaction { }
-
-    public class CoinbaseTransaction<T> : Transaction where T : HASHBASE
+    public abstract class Transaction<TxidHashType> : SHAREDDATA where TxidHashType : HASHBASE
     {
-        public CoinbaseTransaction(TransactionOutput<T>[] _outputs)
+        public Transaction(int? _version) : base(_version) { }
+
+        protected bool isModified;
+
+        protected TxidHashType idCache;
+        public virtual TxidHashType Id
+        {
+            get
+            {
+                if (isModified || idCache == null)
+                    idCache = Activator.CreateInstance(typeof(TxidHashType), ToBinary()) as TxidHashType;
+                return idCache;
+            }
+        }
+
+        public abstract bool IsValid { get; }
+    }
+
+    public class CoinbaseTransaction<TxidHashType, PubKeyHashType> : Transaction<TxidHashType>
+        where TxidHashType : HASHBASE
+        where PubKeyHashType : HASHBASE
+    {
+        public CoinbaseTransaction() : base(0) { }
+
+        public CoinbaseTransaction(TransactionOutput<PubKeyHashType>[] _outputs)
+            : base(0)
         {
             if (_outputs.Length == 0)
                 throw new InvalidDataException("coinbase_tx_outputs_empty");
@@ -4993,15 +4883,39 @@ namespace CREA2014
             outputs = _outputs;
         }
 
-        public TransactionOutput<T>[] outputs { get; private set; }
+        public TransactionOutput<PubKeyHashType>[] outputs { get; private set; }
+
+        public override bool IsValid
+        {
+            get
+            {
+                return outputs.All((e) => e.IsValid);
+            }
+        }
+
+        protected override Func<ReaderWriter, IEnumerable<MainDataInfomation>> StreamInfo
+        {
+            get
+            {
+                if (Version == 0)
+                    return (msrw) => new MainDataInfomation[]{
+                        new MainDataInfomation(typeof(TransactionOutput<PubKeyHashType>[]), null, null, () => outputs, (o) => outputs = (TransactionOutput<PubKeyHashType>[])o),
+                    };
+                else
+                    throw new NotSupportedException("coinbase_tx_main_data_info");
+            }
+        }
+
+        public override bool IsVersioned { get { return true; } }
     }
 
-    public class TransferTransaction<T> : Transaction where T : HASHBASE
+    public class TransferTransaction<TxidHashType, PubKeyHashType> : Transaction<TxidHashType>
+        where TxidHashType : HASHBASE
+        where PubKeyHashType : HASHBASE
     {
-        public TransferTransaction(int _version, TransactionInput<T>[] _inputs, TransactionOutput<T>[] _outputs)
+        public TransferTransaction(TransactionInput<TxidHashType>[] _inputs, TransactionOutput<PubKeyHashType>[] _outputs)
+            : base(0)
         {
-            if (_version != 0)
-                throw new NotSupportedException("tx_not_supported");
             if (_inputs.Length == 0)
                 throw new InvalidDataException("tx_inputs_empty");
             if (_outputs.Length == 0)
@@ -5010,56 +4924,228 @@ namespace CREA2014
             //<未実装>取引入力及び取引出力に矛盾がないか確認
             //prevTxHash及びprevTxIndexが有効か確認
 
-            version = _version;
             inputs = _inputs;
             outputs = _outputs;
         }
 
-        public int version { get; private set; }
+        public TransactionInput<TxidHashType>[] inputs { get; private set; }
+        public TransactionOutput<PubKeyHashType>[] outputs { get; private set; }
 
-        public TransactionInput<T>[] inputs { get; private set; }
-        public TransactionOutput<T>[] outputs { get; private set; }
+        public override bool IsValid
+        {
+            get { throw new NotImplementedException(); }
+        }
+
+        protected override Func<ReaderWriter, IEnumerable<MainDataInfomation>> StreamInfo
+        {
+            get { throw new NotImplementedException(); }
+        }
+
+        public override bool IsVersioned { get { return true; } }
     }
 
-    public class TransactionInput<T> where T : HASHBASE
+    public class TransactionInput<U> where U : HASHBASE
     {
-        public TransactionInput(T _prevTxHash, int _prevTxOutputIndex)
+        public TransactionInput(U _prevTxHash, int _prevTxOutputIndex)
         {
             //有効性の確認は取引の作成時に行うものとする
             prevTxHash = _prevTxHash;
             prevTxOutputIndex = _prevTxOutputIndex;
         }
 
-        public T prevTxHash { get; private set; }
+        public U prevTxHash { get; private set; }
         public int prevTxOutputIndex { get; private set; }
         public byte[] senderSig { get; private set; }
         public byte[] senderPubKey { get; private set; }
     }
 
-    public class TransactionOutput<T> where T : HASHBASE
+    public class TransactionOutput<PubKeyHashType> : SHAREDDATA where PubKeyHashType : HASHBASE
     {
-        public TransactionOutput(T _receiverPubKeyHash, int _amount)
+        public TransactionOutput() : base(null) { }
+
+        public TransactionOutput(PubKeyHashType _receiverPubKeyHash, CurrencyUnit _amount)
+            : base(null)
         {
             receiverPubKeyHash = _receiverPubKeyHash;
             amount = _amount;
         }
 
-        public T receiverPubKeyHash { get; private set; }
-        public int amount { get; private set; }
+        public static CurrencyUnit dustTxout = new Yumina(0.1m);
+
+        public PubKeyHashType receiverPubKeyHash { get; private set; }
+        public CurrencyUnit amount { get; private set; }
+
+        public bool IsValid
+        {
+            get
+            {
+                if (amount.rawAmount < dustTxout.rawAmount)
+                    return false;
+                return true;
+            }
+        }
+
+        protected override Func<ReaderWriter, IEnumerable<MainDataInfomation>> StreamInfo
+        {
+            get
+            {
+                return (msrw) => new MainDataInfomation[]{
+                    new MainDataInfomation(typeof(PubKeyHashType), null, () => receiverPubKeyHash, (o) => receiverPubKeyHash = (PubKeyHashType)o),
+                    new MainDataInfomation(typeof(ulong), () => amount.rawAmount, (o) => amount = new CurrencyUnit((ulong)o)),
+                };
+            }
+        }
     }
 
-    public class Transactions
+    public class CurrencyUnit
     {
+        public CurrencyUnit() { }
 
+        public CurrencyUnit(ulong _rawAmount) { rawAmount = _rawAmount; }
+
+        public ulong rawAmount { get; protected set; }
+
+        public virtual decimal Amount { get { throw new NotImplementedException("currency_unit_amount"); } }
+        public virtual Creacoin AmountInCreacoin { get { return new Creacoin(rawAmount); } }
+        public virtual Yumina AmountInYumina { get { return new Yumina(rawAmount); } }
     }
 
-    public class BlockHeader
+    public class Creacoin : CurrencyUnit
     {
-        public Sha256Hash hash { get; private set; }
-        public Sha256Hash prevHash { get; private set; }
-        public Sha256Hash merkleHash { get; private set; }
+        public Creacoin(ulong _rawAmount) { rawAmount = _rawAmount; }
+
+        public Creacoin(decimal _amountInCreacoin)
+        {
+            if (_amountInCreacoin < 0.0m)
+                throw new ArgumentException("creacoin_out_of_range");
+
+            decimal amountInMinimumUnit = _amountInCreacoin * CreacoinInMinimumUnit;
+            if (amountInMinimumUnit != Math.Floor(amountInMinimumUnit))
+                throw new InvalidDataException("creacoin_precision");
+
+            rawAmount = (ulong)amountInMinimumUnit;
+        }
+
+        public static decimal CreacoinInMinimumUnit = 100000000.0m;
+
+        public override decimal Amount { get { return rawAmount / CreacoinInMinimumUnit; } }
+        public override Creacoin AmountInCreacoin { get { return this; } }
+    }
+
+    public class Yumina : CurrencyUnit
+    {
+        public Yumina(ulong _rawAmount) { rawAmount = _rawAmount; }
+
+        public Yumina(decimal _amountInYumina)
+        {
+            if (_amountInYumina < 0.0m)
+                throw new ArgumentException("yumina_out_of_range");
+
+            decimal amountInMinimumUnit = _amountInYumina * YuminaInMinimumUnit;
+            if (amountInMinimumUnit != Math.Floor(amountInMinimumUnit))
+                throw new InvalidDataException("yumina_precision");
+
+            rawAmount = (ulong)amountInMinimumUnit;
+        }
+
+        public static decimal YuminaInMinimumUnit = 1000000.0m;
+
+        public override decimal Amount { get { return rawAmount / YuminaInMinimumUnit; } }
+        public override Yumina AmountInYumina { get { return this; } }
+    }
+
+    public class Block<BlockidHashType, TxidHashType, PubKeyHashType> : SHAREDDATA
+        where BlockidHashType : HASHBASE
+        where TxidHashType : HASHBASE
+        where PubKeyHashType : HASHBASE
+    {
+        static Block()
+        {
+            rewards = new decimal[numberOfCycles];
+            rewards[0] = 1.0m;
+            for (int i = 1; i < numberOfCycles; i++)
+                rewards[i] = rewards[i - 1] * 0.8m;
+        }
+
+        public Block() : base(0) { }
+
+        public Block(BlockHeader<BlockidHashType, TxidHashType> _header, CoinbaseTransaction<TxidHashType, PubKeyHashType> _coinbaseTransaction)
+        {
+            header = _header;
+            coinbaseTransaction = _coinbaseTransaction;
+        }
+
+        public static ulong blockGenerationInterval = 1; //[sec]
+        public static ulong cycle = 60 * 60 * 24 * 365; //[sec]
+        public static int numberOfCycles = 8;
+        public static decimal[] rewards; //[CREA]
+        public static decimal foundationShare = 0.1m;
+
+        public BlockHeader<BlockidHashType, TxidHashType> header { get; private set; }
+        public CoinbaseTransaction<TxidHashType, PubKeyHashType> coinbaseTransaction { get; private set; }
+
+        public bool IsValid
+        {
+            get
+            {
+                //<未改良>取引手数料の考慮
+                if (coinbaseTransaction.outputs.Select((e) => e.amount.Amount).Sum() != GetRewardForMiner(header.index).Amount)
+                    return false;
+                return true;
+            }
+        }
+
+        protected override Func<ReaderWriter, IEnumerable<MainDataInfomation>> StreamInfo
+        {
+            get { throw new NotImplementedException(); }
+        }
+
+        public override bool IsVersioned { get { return true; } }
+
+        public static Creacoin GetRewardForAll(ulong index)
+        {
+            ulong sec = index * blockGenerationInterval;
+
+            if (sec < 0)
+                throw new ArgumentException("block_index_out_of_range");
+
+            for (int i = 0; i < numberOfCycles; i++)
+                if (sec < cycle * (ulong)(i + 1))
+                    return new Creacoin(rewards[i] * blockGenerationInterval);
+            //<未改良>
+            return new Creacoin(0.0m);
+        }
+
+        public static Creacoin GetRewardForMiner(ulong index)
+        {
+            return new Creacoin(GetRewardForAll(index).Amount * (1.0m - foundationShare));
+        }
+
+        public static Creacoin GetRewardForFoundation(ulong index)
+        {
+            return new Creacoin(GetRewardForAll(index).Amount * foundationShare);
+        }
+    }
+
+    public class BlockHeader<BlockidHashType, TxidHashType> : SHAREDDATA
+        where BlockidHashType : HASHBASE
+        where TxidHashType : HASHBASE
+    {
+        public BlockHeader() : base(0) { }
+
+        public ulong index { get; private set; }
+        public BlockidHashType prevBlockHash { get; private set; }
+        public TxidHashType merkleRootHash { get; private set; }
         public DateTime timestamp { get; private set; }
-        public byte[] solution { get; private set; }
+        public uint difficulty { get; private set; }
+        public byte[] nonce { get; private set; }
+
+        protected override Func<ReaderWriter, IEnumerable<MainDataInfomation>> StreamInfo
+        {
+            get { throw new NotImplementedException(); }
+        }
+
+        public override bool IsVersioned { get { return true; } }
     }
 
     #endregion

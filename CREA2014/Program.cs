@@ -891,6 +891,7 @@ namespace CREA2014
             public abstract void WriteUint(uint data);
             public abstract void WriteFloat(float data);
             public abstract void WriteLong(long data);
+            public abstract void WriteUlong(ulong data);
             public abstract void WriteDouble(double data);
             public abstract void WriteDateTime(DateTime data);
             public abstract void WriteString(string data);
@@ -905,6 +906,7 @@ namespace CREA2014
             public abstract uint ReadUint();
             public abstract float ReadFloat();
             public abstract long ReadLong();
+            public abstract ulong ReadUlong();
             public abstract double ReadDouble();
             public abstract DateTime ReadDateTime();
             public abstract string ReadString();
@@ -1091,6 +1093,8 @@ namespace CREA2014
                     writer.WriteFloat((float)o);
                 else if (type == typeof(long))
                     writer.WriteLong((long)o);
+                else if (type == typeof(ulong))
+                    writer.WriteUlong((ulong)o);
                 else if (type == typeof(double))
                     writer.WriteDouble((double)o);
                 else if (type == typeof(DateTime))
@@ -1141,6 +1145,8 @@ namespace CREA2014
                     return reader.ReadFloat();
                 else if (type == typeof(long))
                     return reader.ReadLong();
+                else if (type == typeof(ulong))
+                    return reader.ReadUlong();
                 else if (type == typeof(double))
                     return reader.ReadDouble();
                 else if (type == typeof(DateTime))
@@ -1211,6 +1217,11 @@ namespace CREA2014
                 ca.WriteBytes(BitConverter.GetBytes(data));
             }
 
+            public override void WriteUlong(ulong data)
+            {
+                ca.WriteBytes(BitConverter.GetBytes(data));
+            }
+
             public override void WriteDouble(double data)
             {
                 ca.WriteBytes(BitConverter.GetBytes(data));
@@ -1277,6 +1288,11 @@ namespace CREA2014
             public override long ReadLong()
             {
                 return BitConverter.ToInt64(ca.ReadBytes(), 0);
+            }
+
+            public override ulong ReadUlong()
+            {
+                return BitConverter.ToUInt64(ca.ReadBytes(), 0);
             }
 
             public override double ReadDouble()
@@ -1387,6 +1403,8 @@ namespace CREA2014
 
             public override void WriteLong(long data) { stream.Write(BitConverter.GetBytes(data), 0, 8); }
 
+            public override void WriteUlong(ulong data) { stream.Write(BitConverter.GetBytes(data), 0, 8); }
+
             public override void WriteDouble(double data) { stream.Write(BitConverter.GetBytes(data), 0, 8); }
 
             public override void WriteDateTime(DateTime data) { stream.Write(BitConverter.GetBytes((data).ToBinary()), 0, 8); }
@@ -1468,6 +1486,13 @@ namespace CREA2014
                 byte[] bytes = new byte[8];
                 stream.Read(bytes, 0, 8);
                 return BitConverter.ToInt64(bytes, 0);
+            }
+
+            public override ulong ReadUlong()
+            {
+                byte[] bytes = new byte[8];
+                stream.Read(bytes, 0, 8);
+                return BitConverter.ToUInt64(bytes, 0);
             }
 
             public override double ReadDouble()
@@ -1623,9 +1648,9 @@ namespace CREA2014
                 {
                     if (type == typeof(bool) || type == typeof(byte))
                         return 1;
-                    else if (type == typeof(int) || type == typeof(float))
+                    else if (type == typeof(int) || type == typeof(uint) || type == typeof(float))
                         return 4;
-                    else if (type == typeof(long) || type == typeof(double) || type == typeof(DateTime))
+                    else if (type == typeof(long) || type == typeof(ulong) || type == typeof(double) || type == typeof(DateTime))
                         return 8;
                     else if (type == typeof(string))
                         return null;
