@@ -5122,47 +5122,46 @@ namespace CREA2014
         }
     }
 
-    public abstract class StateTransitionSystem<StateType, InputType>
-    {
-        public StateTransitionSystem(StateType _initialState) { state = _initialState; }
-
-        public StateType state { get; private set; }
-
-        public abstract void GoForward(InputType input);
-        public abstract void GoBackward(InputType input);
-    }
-
-    public class Utxo<TxidHashType, PubKeyHashType>
+    public class Utxo<BlockIdHashType, TxidHashType, PubKeyHashType, PubKeyType>
+        where BlockIdHashType : HASHBASE
         where TxidHashType : HASHBASE
         where PubKeyHashType : HASHBASE
+        where PubKeyType : DSAPUBKEYBASE
     {
-        public Utxo() { unspentTxOutputs = new Dictionary<TxidHashType, TransactionOutput<PubKeyHashType>[]>(); }
-
-        private Dictionary<TxidHashType, TransactionOutput<PubKeyHashType>[]> unspentTxOutputs;
-
-        public bool IsContain(TxidHashType txid, int index)
+        public Utxo()
         {
-            TransactionOutput<PubKeyHashType>[] txOutputs = unspentTxOutputs[txid];
-            return txOutputs != null && txOutputs.Length > index && txOutputs[index] != null;
+            unspentTxOutputs = new Dictionary<ulong, Dictionary<TxidHashType, TransactionOutput<PubKeyHashType>[]>>();
+            currentIndex = 0;
         }
 
+        private Dictionary<ulong, Dictionary<TxidHashType, TransactionOutput<PubKeyHashType>[]>> unspentTxOutputs;
+        private ulong currentIndex;
 
-    }
-
-    public class TransactionSts<TxidHashType, PubKeyHashType> : StateTransitionSystem<Utxo<TxidHashType, PubKeyHashType>, CoinbaseTransaction<TxidHashType, PubKeyHashType>>
-        where TxidHashType : HASHBASE
-        where PubKeyHashType : HASHBASE
-    {
-        public TransactionSts(Utxo<TxidHashType, PubKeyHashType> _initialState) : base(_initialState) { }
-
-        public override void GoForward(CoinbaseTransaction<TxidHashType, PubKeyHashType> input)
+        public bool GoForward(TransactionalBlock<BlockIdHashType, TxidHashType, PubKeyHashType, PubKeyType> txBlock)
         {
+            if (txBlock.header.index != currentIndex + 1)
+                throw new InvalidOperationException("utxo_invalid_index");
+            if (unspentTxOutputs.ContainsKey(txBlock.header.index))
+                throw new InvalidDataException("utxo_already_exist_index");
 
-        }
+            TransactionOutput<PubKeyHashType>[][] prevTxOutputss = new TransactionOutput<PubKeyHashType>[txBlock.transferTxs.Length][];
+            for (int i = 0; i < txBlock.transferTxs.Length; i++)
+            {
+                prevTxOutputss[i] = new TransactionOutput<PubKeyHashType>[txBlock.transferTxs[i].inputs.Length];
+                for (int j = 0; j < txBlock.transferTxs[i].inputs.Length; j++)
+                {
+                    //if()
+                }
+            }
 
-        public override void GoBackward(CoinbaseTransaction<TxidHashType, PubKeyHashType> input)
-        {
+            Dictionary<TxidHashType, TransactionOutput<PubKeyHashType>[]> txs = new Dictionary<TxidHashType, TransactionOutput<PubKeyHashType>[]>();
 
+
+            unspentTxOutputs.Add(txBlock.header.index, txs);
+
+            currentIndex++;
+
+            return true;
         }
     }
 
@@ -5615,12 +5614,7 @@ namespace CREA2014
                 {
                     //<未実装>ブロックの頭部の（index以外の）妥当性検証
 
-                    if (GetRewardToAll(header.index, Version).rawAmount == 0)
-                    {
-                        if (!(this is RewardlessBlock<BlockidHashType, TxidHashType, PubKeyHashType, PubKeyType>))
-                            return false;
-                    }
-                    else if (header.index % foundationInterval == 0)
+                    if (header.index % foundationInterval == 0)
                     {
                         if (!(this is FoundationalBlock<BlockidHashType, TxidHashType, PubKeyHashType, PubKeyType>))
                             return false;
@@ -5748,28 +5742,6 @@ namespace CREA2014
             else
                 throw new NotSupportedException("tx_block_not_supported");
         }
-    }
-
-    public class RewardlessBlock<BlockidHashType, TxidHashType, PubKeyHashType, PubKeyType> : TransactionalBlock<BlockidHashType, TxidHashType, PubKeyHashType, PubKeyType>
-        where BlockidHashType : HASHBASE
-        where TxidHashType : HASHBASE
-        where PubKeyHashType : HASHBASE
-        where PubKeyType : DSAPUBKEYBASE
-    {
-        public RewardlessBlock(BlockHeader<BlockidHashType, TxidHashType> _header, CoinbaseTransaction<TxidHashType, PubKeyHashType> _coinbaseTxToMiner, TransferTransaction<TxidHashType, PubKeyHashType, PubKeyType>[] _transferTransactions) : base(0, _header, _coinbaseTxToMiner, _transferTransactions) { }
-
-        protected override Func<ReaderWriter, IEnumerable<MainDataInfomation>> StreamInfo
-        {
-            get
-            {
-                if (Version == 0)
-                    return base.StreamInfo;
-                else
-                    throw new NotSupportedException("rewardless_block_main_data_info");
-            }
-        }
-
-        public override bool IsVersioned { get { return true; } }
     }
 
     public class NormalBlock<BlockidHashType, TxidHashType, PubKeyHashType, PubKeyType> : TransactionalBlock<BlockidHashType, TxidHashType, PubKeyHashType, PubKeyType>
