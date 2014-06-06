@@ -10,6 +10,7 @@ using System.IO.Compression;
 using System.Linq;
 using System.Net;
 using System.Net.Sockets;
+using System.Numerics;
 using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Security;
@@ -2876,10 +2877,10 @@ namespace CREA2014
                 int counter = 0;
 
                 int numOfNodes = 5;
-                CreaNodeLocalTestContinue2<Sha256HashNew, Sha256HashNew>[] cnlts = new CreaNodeLocalTestContinue2<Sha256HashNew, Sha256HashNew>[numOfNodes];
+                CreaNodeLocalTestContinue2<Sha256Hash, Sha256Hash>[] cnlts = new CreaNodeLocalTestContinue2<Sha256Hash, Sha256Hash>[numOfNodes];
                 for (int i = 0; i < numOfNodes; i++)
                 {
-                    cnlts[i] = new CreaNodeLocalTestContinue2<Sha256HashNew, Sha256HashNew>((ushort)(7777 + i), 0, "test");
+                    cnlts[i] = new CreaNodeLocalTestContinue2<Sha256Hash, Sha256Hash>((ushort)(7777 + i), 0, "test");
                     cnlts[i].TxtestReceived += (sender2, e2) =>
                     {
                         counter++;
@@ -2902,11 +2903,11 @@ namespace CREA2014
 
             private void Test2NodesInv2()
             {
-                CreaNodeLocalTestContinue2<Sha256HashNew, Sha256HashNew> cnlt1 = new CreaNodeLocalTestContinue2<Sha256HashNew, Sha256HashNew>(7777, 0, "test");
+                CreaNodeLocalTestContinue2<Sha256Hash, Sha256Hash> cnlt1 = new CreaNodeLocalTestContinue2<Sha256Hash, Sha256Hash>(7777, 0, "test");
                 cnlt1.Start();
                 while (!cnlt1.isStartCompleted)
                     Thread.Sleep(100);
-                CreaNodeLocalTestContinue2<Sha256HashNew, Sha256HashNew> cnlt2 = new CreaNodeLocalTestContinue2<Sha256HashNew, Sha256HashNew>(7778, 0, "test");
+                CreaNodeLocalTestContinue2<Sha256Hash, Sha256Hash> cnlt2 = new CreaNodeLocalTestContinue2<Sha256Hash, Sha256Hash>(7778, 0, "test");
                 cnlt2.Start();
                 while (!cnlt2.isStartCompleted)
                     Thread.Sleep(100);
@@ -4023,6 +4024,8 @@ namespace CREA2014
 
     #region データ
 
+    #region 要約関数
+
     public abstract class HASHBASE : SHAREDDATA, IComparable<HASHBASE>, IEquatable<HASHBASE>, IComparable
     {
         public HASHBASE()
@@ -4111,13 +4114,13 @@ namespace CREA2014
         public override string ToString() { return hash.ToHexstring(); }
     }
 
-    public class Sha256HashNew : HASHBASE
+    public class Sha256Hash : HASHBASE
     {
-        public Sha256HashNew() : base() { }
+        public Sha256Hash() : base() { }
 
-        public Sha256HashNew(string stringHash) : base(stringHash) { }
+        public Sha256Hash(string stringHash) : base(stringHash) { }
 
-        public Sha256HashNew(byte[] data) : base(data) { }
+        public Sha256Hash(byte[] data) : base(data) { }
 
         public override int SizeBit { get { return 256; } }
 
@@ -4149,6 +4152,277 @@ namespace CREA2014
 
         protected override byte[] ComputeHash(byte[] data) { return data.ComputeSha256().ComputeRipemd160(); }
     }
+
+    public class X14Hash : HASHBASE
+    {
+        public X14Hash() : base() { }
+
+        public X14Hash(string stringHash) : base(stringHash) { }
+
+        public X14Hash(byte[] data) : base(data) { }
+
+        public override int SizeBit { get { return 256; } }
+
+        protected override byte[] ComputeHash(byte[] data)
+        {
+            return data.ComputeBlake512().ComputeBmw512().ComputeGroestl512().ComputeSkein512().ComputeJh512().ComputeKeccak512().ComputeLuffa512().ComputeCubehash512().ComputeShavite512().ComputeSimd512().ComputeEcho512().ComputeFugue512().ComputeHamsi512().ComputeShabal512().Decompose(0, SizeByte);
+        }
+    }
+
+    public class X15Hash : HASHBASE
+    {
+        public X15Hash() : base() { }
+
+        public X15Hash(string stringHash) : base(stringHash) { }
+
+        public X15Hash(byte[] data) : base(data) { }
+
+        public string tripKey { get; private set; }
+        public string trip { get; private set; }
+
+        public override int SizeBit { get { return 256; } }
+
+        protected override byte[] ComputeHash(byte[] data)
+        {
+            tripKey = Convert.ToBase64String(data.ComputeSha1());
+
+            byte[] sha1base64shiftjissha1 = Encoding.GetEncoding("Shift-JIS").GetBytes(tripKey).ComputeSha1();
+
+            tripKey += "#";
+            trip = "◆" + Convert.ToBase64String(sha1base64shiftjissha1).Substring(0, 12).Replace('+', '.');
+
+            byte[] blake512 = data.ComputeBlake512();
+            byte[] bmw512 = data.ComputeBmw512();
+            byte[] groestl512 = data.ComputeGroestl512();
+            byte[] skein512 = data.ComputeSkein512();
+            byte[] jh512 = data.ComputeJh512();
+            byte[] keccak512 = data.ComputeKeccak512();
+            byte[] luffa512 = data.ComputeLuffa512();
+
+            byte[] cubehash512 = sha1base64shiftjissha1.Combine(blake512).ComputeCubehash512();
+            byte[] shavite512 = bmw512.Combine(groestl512).ComputeShavite512();
+            byte[] simd512 = skein512.Combine(jh512).ComputeSimd512();
+            byte[] echo512 = keccak512.Combine(luffa512).ComputeEcho512();
+
+            byte[] fugue512 = cubehash512.Combine(shavite512).ComputeFugue512();
+            byte[] hamsi512 = simd512.Combine(echo512).ComputeHamsi512();
+
+            byte[] shabal512 = fugue512.Combine(hamsi512).ComputeShabal512();
+
+            return shavite512.Decompose(0, SizeByte);
+        }
+    }
+
+    #endregion
+
+    #region 電子署名
+
+    public abstract class DSAPUBKEYBASE : SHAREDDATA
+    {
+        public DSAPUBKEYBASE() : base(null) { }
+
+        public DSAPUBKEYBASE(byte[] _pubKey) : base(null) { pubKey = _pubKey; }
+
+        public byte[] pubKey { get; private set; }
+
+        public abstract bool Verify(byte[] data, byte[] signature);
+
+        protected override Func<ReaderWriter, IEnumerable<MainDataInfomation>> StreamInfo
+        {
+            get
+            {
+                return (msrw) => new MainDataInfomation[]{
+                    new MainDataInfomation(typeof(byte[]), null, () => pubKey, (o) => pubKey = (byte[])o),
+                };
+            }
+        }
+        public Func<ReaderWriter, IEnumerable<MainDataInfomation>> PublicStreamInfo { get { return StreamInfo; } }
+    }
+
+    public abstract class DSAPRIVKEYBASE : SHAREDDATA
+    {
+        public DSAPRIVKEYBASE() : base(null) { }
+
+        public DSAPRIVKEYBASE(byte[] _privKey) : base(null) { privKey = _privKey; }
+
+        public byte[] privKey { get; private set; }
+
+        public abstract byte[] Sign(byte[] data);
+
+        protected override Func<ReaderWriter, IEnumerable<MainDataInfomation>> StreamInfo
+        {
+            get
+            {
+                return (msrw) => new MainDataInfomation[]{
+                    new MainDataInfomation(typeof(byte[]), null, () => privKey, (o) => privKey = (byte[])o),
+                };
+            }
+        }
+        public Func<ReaderWriter, IEnumerable<MainDataInfomation>> PublicStreamInfo { get { return StreamInfo; } }
+    }
+
+    public abstract class DSAKEYPAIRBASE<DsaPubKeyType, DsaPrivKeyType> : SHAREDDATA
+        where DsaPubKeyType : DSAPUBKEYBASE
+        where DsaPrivKeyType : DSAPRIVKEYBASE
+    {
+        public DSAKEYPAIRBASE() : base(null) { }
+
+        public DsaPubKeyType pubKey { get; protected set; }
+        public DsaPrivKeyType privKey { get; protected set; }
+
+        protected override Func<ReaderWriter, IEnumerable<MainDataInfomation>> StreamInfo { get { return (msrw) => StreamInfoInner(msrw); } }
+        private IEnumerable<MainDataInfomation> StreamInfoInner(ReaderWriter msrw)
+        {
+            if (pubKey == null)
+                pubKey = Activator.CreateInstance(typeof(DsaPubKeyType)) as DsaPubKeyType;
+            if (privKey == null)
+                privKey = Activator.CreateInstance(typeof(DsaPrivKeyType)) as DsaPrivKeyType;
+
+            foreach (var mdi in pubKey.PublicStreamInfo(null))
+                yield return mdi;
+            foreach (var mdi in privKey.PublicStreamInfo(null))
+                yield return mdi;
+        }
+    }
+
+    public class Ecdsa256PubKey : DSAPUBKEYBASE
+    {
+        public Ecdsa256PubKey() : base() { }
+
+        public Ecdsa256PubKey(byte[] _pubKey) : base(_pubKey) { }
+
+        public override bool Verify(byte[] data, byte[] signature)
+        {
+            return data.VerifyEcdsa(signature, pubKey);
+        }
+    }
+
+    public class Ecdsa256PrivKey : DSAPRIVKEYBASE
+    {
+        public Ecdsa256PrivKey() : base() { }
+
+        public Ecdsa256PrivKey(byte[] _privKey) : base(_privKey) { }
+
+        public override byte[] Sign(byte[] data)
+        {
+            return data.SignEcdsaSha256(privKey);
+        }
+    }
+
+    public class Ecdsa256KeyPair : DSAKEYPAIRBASE<Ecdsa256PubKey, Ecdsa256PrivKey>
+    {
+        public Ecdsa256KeyPair() : this(false) { }
+
+        public Ecdsa256KeyPair(bool isCreate)
+        {
+            if (isCreate)
+            {
+                CngKey ck = CngKey.Create(CngAlgorithm.ECDsaP256, null, new CngKeyCreationParameters { ExportPolicy = CngExportPolicies.AllowPlaintextExport });
+
+                pubKey = new Ecdsa256PubKey(ck.Export(CngKeyBlobFormat.EccPublicBlob));
+                privKey = new Ecdsa256PrivKey(ck.Export(CngKeyBlobFormat.EccPrivateBlob));
+            }
+        }
+    }
+
+    public class Secp256k1PubKey<HashType> : DSAPUBKEYBASE where HashType : HASHBASE
+    {
+        public Secp256k1PubKey(byte[] _pubKey) : base(_pubKey) { }
+
+        public override bool Verify(byte[] data, byte[] signature)
+        {
+            var r = new byte[32];
+            var s = new byte[32];
+            Buffer.BlockCopy(signature, 1, r, 0, 32);
+            Buffer.BlockCopy(signature, 33, s, 0, 32);
+            var recId = signature[0] - 27;
+
+            ECDsaSigner signer = new ECDsaSigner();
+
+            byte[] hash = (Activator.CreateInstance(typeof(HashType), data) as HashType).hash;
+
+            ECPoint publicKey = ECPoint.DecodePoint(pubKey);
+
+            return signer.VerifySignature(publicKey, hash, r.ToBigIntegerUnsigned(true), s.ToBigIntegerUnsigned(true));
+        }
+
+        public static bool RecoverAndVerify(byte[] data, byte[] signature)
+        {
+            var r = new byte[32];
+            var s = new byte[32];
+            Buffer.BlockCopy(signature, 1, r, 0, 32);
+            Buffer.BlockCopy(signature, 33, s, 0, 32);
+            var recId = signature[0] - 27;
+
+            ECDsaSigner signer = new ECDsaSigner();
+
+            byte[] hash = (Activator.CreateInstance(typeof(HashType), data) as HashType).hash;
+
+            ECPoint publicKey = signer.RecoverFromSignature(hash, r.ToBigIntegerUnsigned(true), s.ToBigIntegerUnsigned(true), recId);
+
+            return signer.VerifySignature(publicKey, hash, r.ToBigIntegerUnsigned(true), s.ToBigIntegerUnsigned(true));
+        }
+    }
+
+    public class Secp256k1PribKey<HashType> : DSAPRIVKEYBASE where HashType : HASHBASE
+    {
+        public Secp256k1PribKey(byte[] _pribKey) : base(_pribKey) { }
+
+        public override byte[] Sign(byte[] data)
+        {
+            ECDsaSigner signer = new ECDsaSigner();
+
+            byte[] hash = (Activator.CreateInstance(typeof(HashType), data) as HashType).hash;
+            BigInteger privateKey = privKey.ToBigIntegerUnsigned(true);
+            BigInteger[] signature = signer.GenerateSignature(privateKey, hash);
+
+            int? recId = null;
+            ECPoint publicKey = Secp256k1.G.Multiply(privateKey);
+
+            for (var i = 0; i < 4 && recId == null; i++)
+            {
+                ECPoint Q = signer.RecoverFromSignature(hash, signature[0], signature[1], i);
+
+                if (Q.X == publicKey.X && Q.Y == publicKey.Y)
+                    recId = i;
+            }
+            if (recId == null)
+                throw new Exception("Did not find proper recid");
+
+            byte[] sig = new byte[65];
+
+            sig[0] = (byte)(27 + recId);
+            byte[] rByteArray = signature[0].ToByteArrayUnsigned(true);
+            byte[] sByteArray = signature[1].ToByteArrayUnsigned(true);
+
+            Buffer.BlockCopy(rByteArray, 0, sig, 1 + (32 - rByteArray.Length), rByteArray.Length);
+            Buffer.BlockCopy(sByteArray, 0, sig, 33 + (32 - sByteArray.Length), sByteArray.Length);
+
+            return sig;
+        }
+    }
+
+    public class Secp256k1KeyPair<HashType> : DSAKEYPAIRBASE<Secp256k1PubKey<HashType>, Secp256k1PribKey<HashType>> where HashType : HASHBASE
+    {
+        public Secp256k1KeyPair() : this(false) { }
+
+        public Secp256k1KeyPair(bool isCreate)
+        {
+            if (isCreate)
+            {
+                byte[] privKeyBytes = new byte[32];
+                using (RNGCryptoServiceProvider rngcsp = new RNGCryptoServiceProvider())
+                    rngcsp.GetBytes(privKeyBytes);
+                BigInteger privateKey = privKeyBytes.ToBigIntegerUnsigned(true);
+                ECPoint publicKey = Secp256k1.G.Multiply(privateKey);
+
+                pubKey = new Secp256k1PubKey<HashType>(publicKey.EncodePoint(false));
+                privKey = new Secp256k1PribKey<HashType>(privKeyBytes);
+            }
+        }
+    }
+
+    #endregion
 
     public class EcdsaKey : SHAREDDATA
     {
@@ -4848,40 +5122,144 @@ namespace CREA2014
         }
     }
 
-    public abstract class Transaction<TxidHashType> : SHAREDDATA where TxidHashType : HASHBASE
+    public abstract class StateTransitionSystem<StateType, InputType>
     {
-        public Transaction(int? _version) : base(_version) { }
+        public StateTransitionSystem(StateType _initialState) { state = _initialState; }
+
+        public StateType state { get; private set; }
+
+        public abstract void GoForward(InputType input);
+        public abstract void GoBackward(InputType input);
+    }
+
+    public class Utxo<TxidHashType, PubKeyHashType>
+        where TxidHashType : HASHBASE
+        where PubKeyHashType : HASHBASE
+    {
+        public Utxo() { unspentTxOutputs = new Dictionary<TxidHashType, TransactionOutput<PubKeyHashType>[]>(); }
+
+        private Dictionary<TxidHashType, TransactionOutput<PubKeyHashType>[]> unspentTxOutputs;
+
+        public bool IsContain(TxidHashType txid, int index)
+        {
+            TransactionOutput<PubKeyHashType>[] txOutputs = unspentTxOutputs[txid];
+            return txOutputs != null && txOutputs.Length > index && txOutputs[index] != null;
+        }
+
+
+    }
+
+    public class TransactionSts<TxidHashType, PubKeyHashType> : StateTransitionSystem<Utxo<TxidHashType, PubKeyHashType>, CoinbaseTransaction<TxidHashType, PubKeyHashType>>
+        where TxidHashType : HASHBASE
+        where PubKeyHashType : HASHBASE
+    {
+        public TransactionSts(Utxo<TxidHashType, PubKeyHashType> _initialState) : base(_initialState) { }
+
+        public override void GoForward(CoinbaseTransaction<TxidHashType, PubKeyHashType> input)
+        {
+
+        }
+
+        public override void GoBackward(CoinbaseTransaction<TxidHashType, PubKeyHashType> input)
+        {
+
+        }
+    }
+
+    public class CurrencyUnit
+    {
+        protected CurrencyUnit() { }
+
+        public CurrencyUnit(long _rawAmount) { rawAmount = _rawAmount; }
+
+        public long rawAmount { get; protected set; }
+
+        public virtual decimal Amount { get { throw new NotImplementedException("currency_unit_amount"); } }
+        public virtual Creacoin AmountInCreacoin { get { return new Creacoin(rawAmount); } }
+        public virtual Yumina AmountInYumina { get { return new Yumina(rawAmount); } }
+    }
+
+    public class Creacoin : CurrencyUnit
+    {
+        public Creacoin(long _rawAmount) : base(_rawAmount) { }
+
+        public Creacoin(decimal _amountInCreacoin)
+        {
+            if (_amountInCreacoin < 0.0m)
+                throw new ArgumentException("creacoin_out_of_range");
+
+            decimal amountInMinimumUnit = _amountInCreacoin * CreacoinInMinimumUnit;
+            if (amountInMinimumUnit != Math.Floor(amountInMinimumUnit))
+                throw new InvalidDataException("creacoin_precision");
+
+            rawAmount = (long)amountInMinimumUnit;
+        }
+
+        public static decimal CreacoinInMinimumUnit = 100000000.0m;
+
+        public override decimal Amount { get { return rawAmount / CreacoinInMinimumUnit; } }
+        public override Creacoin AmountInCreacoin { get { return this; } }
+    }
+
+    public class Yumina : CurrencyUnit
+    {
+        public Yumina(long _rawAmount) : base(_rawAmount) { }
+
+        public Yumina(decimal _amountInYumina)
+        {
+            if (_amountInYumina < 0.0m)
+                throw new ArgumentException("yumina_out_of_range");
+
+            decimal amountInMinimumUnit = _amountInYumina * YuminaInMinimumUnit;
+            if (amountInMinimumUnit != Math.Floor(amountInMinimumUnit))
+                throw new InvalidDataException("yumina_precision");
+
+            rawAmount = (long)amountInMinimumUnit;
+        }
+
+        public static decimal YuminaInMinimumUnit = 1000000.0m;
+
+        public override decimal Amount { get { return rawAmount / YuminaInMinimumUnit; } }
+        public override Yumina AmountInYumina { get { return this; } }
+    }
+
+    public abstract class TXBLOCKBASE<TxidBlockidHashType> : SHAREDDATA
+        where TxidBlockidHashType : HASHBASE
+    {
+        public TXBLOCKBASE(int? _version) : base(_version) { }
 
         protected bool isModified;
 
-        protected TxidHashType idCache;
-        public virtual TxidHashType Id
+        protected TxidBlockidHashType idCache;
+        public virtual TxidBlockidHashType Id
         {
             get
             {
                 if (isModified || idCache == null)
-                    idCache = Activator.CreateInstance(typeof(TxidHashType), ToBinary()) as TxidHashType;
+                    idCache = Activator.CreateInstance(typeof(TxidBlockidHashType), ToBinary()) as TxidBlockidHashType;
                 return idCache;
             }
         }
 
-        public abstract bool IsValid { get; }
+        public virtual bool IsValid { get { return true; } }
     }
 
-    public class CoinbaseTransaction<TxidHashType, PubKeyHashType> : Transaction<TxidHashType>
+    public abstract class Transaction<TxidHashType, PubKeyHashType> : TXBLOCKBASE<TxidHashType>
         where TxidHashType : HASHBASE
         where PubKeyHashType : HASHBASE
     {
-        public CoinbaseTransaction() : base(0) { }
+        public Transaction(int? _version) : base(_version) { }
 
-        public CoinbaseTransaction(TransactionOutput<PubKeyHashType>[] _outputs)
-            : base(0)
+        public Transaction(int? _version, TransactionOutput<PubKeyHashType>[] _outputs)
+            : base(_version)
         {
             if (_outputs.Length == 0)
-                throw new InvalidDataException("coinbase_tx_outputs_empty");
+                throw new InvalidDataException("tx_outputs_empty");
 
             outputs = _outputs;
         }
+
+        public static CurrencyUnit dustTxout = new Yumina(0.1m);
 
         public TransactionOutput<PubKeyHashType>[] outputs { get; private set; }
 
@@ -4889,7 +5267,13 @@ namespace CREA2014
         {
             get
             {
-                return outputs.All((e) => e.IsValid);
+                if (!base.IsValid)
+                    return false;
+
+                if (Version == 0)
+                    return outputs.All((e) => e.amount.rawAmount >= dustTxout.rawAmount);
+                else
+                    throw new NotSupportedException("tx_is_valid_not_supported");
             }
         }
 
@@ -4897,10 +5281,27 @@ namespace CREA2014
         {
             get
             {
+                return (msrw) => new MainDataInfomation[]{
+                    new MainDataInfomation(typeof(TransactionOutput<PubKeyHashType>[]), null, null, () => outputs, (o) => outputs = (TransactionOutput<PubKeyHashType>[])o),
+                };
+            }
+        }
+    }
+
+    public class CoinbaseTransaction<TxidHashType, PubKeyHashType> : Transaction<TxidHashType, PubKeyHashType>
+        where TxidHashType : HASHBASE
+        where PubKeyHashType : HASHBASE
+    {
+        public CoinbaseTransaction() : base(0) { }
+
+        public CoinbaseTransaction(TransactionOutput<PubKeyHashType>[] _outputs) : base(0, _outputs) { }
+
+        protected override Func<ReaderWriter, IEnumerable<MainDataInfomation>> StreamInfo
+        {
+            get
+            {
                 if (Version == 0)
-                    return (msrw) => new MainDataInfomation[]{
-                        new MainDataInfomation(typeof(TransactionOutput<PubKeyHashType>[]), null, null, () => outputs, (o) => outputs = (TransactionOutput<PubKeyHashType>[])o),
-                    };
+                    return base.StreamInfo;
                 else
                     throw new NotSupportedException("coinbase_tx_main_data_info");
             }
@@ -4909,54 +5310,183 @@ namespace CREA2014
         public override bool IsVersioned { get { return true; } }
     }
 
-    public class TransferTransaction<TxidHashType, PubKeyHashType> : Transaction<TxidHashType>
+    public class TransferTransaction<TxidHashType, PubKeyHashType, PubKeyType> : Transaction<TxidHashType, PubKeyHashType>
         where TxidHashType : HASHBASE
         where PubKeyHashType : HASHBASE
+        where PubKeyType : DSAPUBKEYBASE
     {
-        public TransferTransaction(TransactionInput<TxidHashType>[] _inputs, TransactionOutput<PubKeyHashType>[] _outputs)
-            : base(0)
+        public TransferTransaction() : base(0) { }
+
+        public TransferTransaction(TransactionInput<TxidHashType, PubKeyType>[] _inputs, TransactionOutput<PubKeyHashType>[] _outputs)
+            : base(0, _outputs)
         {
             if (_inputs.Length == 0)
                 throw new InvalidDataException("tx_inputs_empty");
-            if (_outputs.Length == 0)
-                throw new InvalidDataException("tx_outputs_empty");
-
-            //<未実装>取引入力及び取引出力に矛盾がないか確認
-            //prevTxHash及びprevTxIndexが有効か確認
 
             inputs = _inputs;
-            outputs = _outputs;
         }
 
-        public TransactionInput<TxidHashType>[] inputs { get; private set; }
-        public TransactionOutput<PubKeyHashType>[] outputs { get; private set; }
-
-        public override bool IsValid
-        {
-            get { throw new NotImplementedException(); }
-        }
+        public TransactionInput<TxidHashType, PubKeyType>[] inputs { get; private set; }
 
         protected override Func<ReaderWriter, IEnumerable<MainDataInfomation>> StreamInfo
         {
-            get { throw new NotImplementedException(); }
+            get
+            {
+                if (Version == 0)
+                    return (msrw) => base.StreamInfo(msrw).Concat(new MainDataInfomation[]{
+                        new MainDataInfomation(typeof(TransactionInput<TxidHashType, PubKeyType>[]), null, null, () => inputs, (o) => inputs = (TransactionInput<TxidHashType, PubKeyType>[])o),
+                    });
+                else
+                    throw new NotSupportedException("transfer_tx_main_data_info");
+            }
         }
 
         public override bool IsVersioned { get { return true; } }
-    }
 
-    public class TransactionInput<U> where U : HASHBASE
-    {
-        public TransactionInput(U _prevTxHash, int _prevTxOutputIndex)
+        private Func<ReaderWriter, IEnumerable<MainDataInfomation>> StreamInfoToSign(TransactionOutput<PubKeyHashType>[] prevTxOutputs) { return (msrw) => StreamInfoToSignInner(prevTxOutputs); }
+        private IEnumerable<MainDataInfomation> StreamInfoToSignInner(TransactionOutput<PubKeyHashType>[] prevTxOutputs)
         {
-            //有効性の確認は取引の作成時に行うものとする
-            prevTxHash = _prevTxHash;
-            prevTxOutputIndex = _prevTxOutputIndex;
+            if (Version == 0)
+            {
+                for (int i = 0; i < inputs.Length; i++)
+                {
+                    foreach (var mdi in inputs[i].StreamInfoToSign(null))
+                        yield return mdi;
+                    foreach (var mdi in prevTxOutputs[i].StreamInfoToSignPrev(null))
+                        yield return mdi;
+                }
+                for (int i = 0; i < outputs.Length; i++)
+                    foreach (var mdi in outputs[i].StreamInfoToSign(null))
+                        yield return mdi;
+            }
+            else
+                throw new NotSupportedException("transfer_tx_mdi_sign");
         }
 
-        public U prevTxHash { get; private set; }
+        public byte[] GetBytesToSign(TransactionOutput<PubKeyHashType>[] prevTxOutputs)
+        {
+            if (prevTxOutputs.Length != inputs.Length)
+                throw new ArgumentException("inputs_and_prev_outputs");
+
+            return ToBinaryMainData(StreamInfoToSign(prevTxOutputs));
+        }
+
+        public void Sign(TransactionOutput<PubKeyHashType>[] prevTxOutputs, DSAPRIVKEYBASE[] privKeys)
+        {
+            if (prevTxOutputs.Length != inputs.Length)
+                throw new ArgumentException("inputs_and_prev_outputs");
+            if (privKeys.Length != inputs.Length)
+                throw new ArgumentException("inputs_and_priv_keys");
+
+            byte[] bytesToSign = GetBytesToSign(prevTxOutputs);
+
+            for (int i = 0; i < inputs.Length; i++)
+                inputs[i].SetSenderSig(privKeys[i].Sign(bytesToSign));
+        }
+
+        public bool VerifySignature(TransactionOutput<PubKeyHashType>[] prevTxOutputs)
+        {
+            if (prevTxOutputs.Length != inputs.Length)
+                throw new ArgumentException("inputs_and_prev_outputs");
+
+            byte[] bytesToSign = GetBytesToSign(prevTxOutputs);
+
+            for (int i = 0; i < inputs.Length; i++)
+                if (!inputs[i].senderPubKey.Verify(bytesToSign, inputs[i].senderSig))
+                    return false;
+            return true;
+        }
+
+        public bool VerifyPubKey(TransactionOutput<PubKeyHashType>[] prevTxOutputs)
+        {
+            if (prevTxOutputs.Length != inputs.Length)
+                throw new ArgumentException("inputs_and_prev_outputs");
+
+            for (int i = 0; i < inputs.Length; i++)
+                if (!(Activator.CreateInstance(typeof(PubKeyHashType), inputs[i].senderPubKey.pubKey) as PubKeyHashType).Equals(prevTxOutputs[i].receiverPubKeyHash))
+                    return false;
+            return true;
+        }
+
+        public bool VerifyAmount(TransactionOutput<PubKeyHashType>[] prevTxOutputs)
+        {
+            if (prevTxOutputs.Length != inputs.Length)
+                throw new ArgumentException("inputs_and_prev_outputs");
+
+            return GetFee(prevTxOutputs).rawAmount >= 0;
+        }
+
+        public bool VerifyAll(TransactionOutput<PubKeyHashType>[] prevTxOutputs)
+        {
+            if (prevTxOutputs.Length != inputs.Length)
+                throw new ArgumentException("inputs_and_prev_outputs");
+
+            if (Version == 0)
+                return VerifySignature(prevTxOutputs) && VerifyPubKey(prevTxOutputs) && VerifyAmount(prevTxOutputs);
+            else
+                throw new NotSupportedException("transfer_tx_verify_all");
+        }
+
+        public CurrencyUnit GetFee(TransactionOutput<PubKeyHashType>[] prevTxOutputs)
+        {
+            if (prevTxOutputs.Length != inputs.Length)
+                throw new ArgumentException("inputs_and_prev_outputs");
+
+            long totalPrevOutputs = 0;
+            for (int i = 0; i < prevTxOutputs.Length; i++)
+                totalPrevOutputs += prevTxOutputs[i].amount.rawAmount;
+            long totalOutpus = 0;
+            for (int i = 0; i < outputs.Length; i++)
+                totalOutpus += outputs[i].amount.rawAmount;
+
+            return new CurrencyUnit(totalPrevOutputs - totalOutpus);
+        }
+    }
+
+    public class TransactionInput<TxidHashType, PubKeyType> : SHAREDDATA
+        where TxidHashType : HASHBASE
+        where PubKeyType : DSAPUBKEYBASE
+    {
+        public TransactionInput() : base(null) { }
+
+        public TransactionInput(TxidHashType _prevTxHash, int _prevTxOutputIndex, PubKeyType _senderPubKey)
+            : base(null)
+        {
+            prevTxHash = _prevTxHash;
+            prevTxOutputIndex = _prevTxOutputIndex;
+            senderPubKey = _senderPubKey;
+        }
+
+        public TxidHashType prevTxHash { get; private set; }
         public int prevTxOutputIndex { get; private set; }
         public byte[] senderSig { get; private set; }
-        public byte[] senderPubKey { get; private set; }
+        public PubKeyType senderPubKey { get; private set; }
+
+        protected override Func<ReaderWriter, IEnumerable<MainDataInfomation>> StreamInfo
+        {
+            get
+            {
+                return (msrw) => new MainDataInfomation[]{
+                    new MainDataInfomation(typeof(TxidHashType), null, () => prevTxHash, (o) => prevTxHash = (TxidHashType)o),
+                    new MainDataInfomation(typeof(int), () => prevTxOutputIndex, (o) => prevTxOutputIndex = (int)o),
+                    new MainDataInfomation(typeof(byte[]), null, () => senderSig, (o) => senderSig = (byte[])o),
+                    new MainDataInfomation(typeof(PubKeyType), null, () => senderPubKey, (o) => senderPubKey = (PubKeyType)o),
+                };
+            }
+        }
+
+        public Func<ReaderWriter, IEnumerable<MainDataInfomation>> StreamInfoToSign
+        {
+            get
+            {
+                return (msrw) => new MainDataInfomation[]{
+                    new MainDataInfomation(typeof(TxidHashType), null, () => prevTxHash, (o) => { throw new NotSupportedException("tx_in_si_to_sign"); }),
+                    new MainDataInfomation(typeof(int), () => prevTxOutputIndex, (o) => { throw new NotSupportedException("tx_in_si_to_sign"); }),
+                };
+            }
+        }
+
+        public void SetSenderSig(byte[] sig) { senderSig = sig; }
     }
 
     public class TransactionOutput<PubKeyHashType> : SHAREDDATA where PubKeyHashType : HASHBASE
@@ -4970,18 +5500,138 @@ namespace CREA2014
             amount = _amount;
         }
 
-        public static CurrencyUnit dustTxout = new Yumina(0.1m);
-
         public PubKeyHashType receiverPubKeyHash { get; private set; }
         public CurrencyUnit amount { get; private set; }
 
-        public bool IsValid
+        protected override Func<ReaderWriter, IEnumerable<MainDataInfomation>> StreamInfo
         {
             get
             {
-                if (amount.rawAmount < dustTxout.rawAmount)
+                return (msrw) => new MainDataInfomation[]{
+                    new MainDataInfomation(typeof(PubKeyHashType), null, () => receiverPubKeyHash, (o) => receiverPubKeyHash = (PubKeyHashType)o),
+                    new MainDataInfomation(typeof(long), () => amount.rawAmount, (o) => amount = new CurrencyUnit((long)o)),
+                };
+            }
+        }
+
+        public Func<ReaderWriter, IEnumerable<MainDataInfomation>> StreamInfoToSign
+        {
+            get
+            {
+                return (msrw) => new MainDataInfomation[]{
+                    new MainDataInfomation(typeof(PubKeyHashType), null, () => receiverPubKeyHash, (o) => { throw new NotSupportedException("tx_out_si_to_sign"); }),
+                    new MainDataInfomation(typeof(long), () => amount.rawAmount, (o) => { throw new NotSupportedException("tx_out_si_to_sign"); }),
+                };
+            }
+        }
+
+        public Func<ReaderWriter, IEnumerable<MainDataInfomation>> StreamInfoToSignPrev
+        {
+            get
+            {
+                return (msrw) => new MainDataInfomation[]{
+                    new MainDataInfomation(typeof(PubKeyHashType), null, () => receiverPubKeyHash, (o) => { throw new NotSupportedException("tx_out_si_to_sign_prev"); }),
+                };
+            }
+        }
+    }
+
+    public abstract class Block<BlockidHashType> : TXBLOCKBASE<BlockidHashType>
+        where BlockidHashType : HASHBASE
+    {
+        public Block(int? _version) : base(_version) { }
+    }
+
+    public class GenesisBlock<BlockidHashType> : Block<BlockidHashType>
+        where BlockidHashType : HASHBASE
+    {
+        public GenesisBlock() : base(null) { }
+
+        public readonly string genesisWord = "Bitstamp 2014/05/25 BTC/USD High 586.34";
+
+        protected override Func<ReaderWriter, IEnumerable<MainDataInfomation>> StreamInfo
+        {
+            get
+            {
+                return (msrw) => new MainDataInfomation[]{
+                    new MainDataInfomation(typeof(string), () => genesisWord, (o) => { throw new NotSupportedException("genesis_block_cant_read"); }),
+                };
+            }
+        }
+    }
+
+    public abstract class TransactionalBlock<BlockidHashType, TxidHashType, PubKeyHashType, PubKeyType> : Block<BlockidHashType>
+        where BlockidHashType : HASHBASE
+        where TxidHashType : HASHBASE
+        where PubKeyHashType : HASHBASE
+        where PubKeyType : DSAPUBKEYBASE
+    {
+        static TransactionalBlock()
+        {
+            rewards = new decimal[numberOfCycles];
+            rewards[0] = 1.0m;
+            for (int i = 1; i < numberOfCycles; i++)
+                rewards[i] = rewards[i - 1] * 0.8m;
+        }
+
+        public TransactionalBlock(int? _version, BlockHeader<BlockidHashType, TxidHashType> _header, CoinbaseTransaction<TxidHashType, PubKeyHashType> _coinbaseTxToMiner, TransferTransaction<TxidHashType, PubKeyHashType, PubKeyType>[] _transferTxs)
+            : base(_version)
+        {
+            header = _header;
+            coinbaseTxToMiner = _coinbaseTxToMiner;
+            transferTxs = _transferTxs;
+        }
+
+        public static ulong blockGenerationInterval = 1; //[sec]
+        public static ulong cycle = 60 * 60 * 24 * 365; //[sec]
+        public static int numberOfCycles = 8;
+        public static ulong rewardlessStart = cycle * (ulong)numberOfCycles; //[sec]
+        public static decimal[] rewards; //[CREA]
+        public static decimal foundationShare = 0.1m;
+        public static ulong foundationInterval = 60 * 60 * 24; //[block]
+
+        public BlockHeader<BlockidHashType, TxidHashType> header { get; private set; }
+        public CoinbaseTransaction<TxidHashType, PubKeyHashType> coinbaseTxToMiner { get; private set; }
+        public TransferTransaction<TxidHashType, PubKeyHashType, PubKeyType>[] transferTxs { get; private set; }
+
+        public virtual IEnumerable<Transaction<TxidHashType, PubKeyHashType>> Transactions
+        {
+            get
+            {
+                yield return coinbaseTxToMiner;
+                foreach (var transferTx in transferTxs)
+                    yield return transferTx;
+            }
+        }
+
+        public override bool IsValid
+        {
+            get
+            {
+                if (!base.IsValid)
                     return false;
-                return true;
+
+                if (Version == 0)
+                {
+                    //<未実装>ブロックの頭部の（index以外の）妥当性検証
+
+                    if (GetRewardToAll(header.index, Version).rawAmount == 0)
+                    {
+                        if (!(this is RewardlessBlock<BlockidHashType, TxidHashType, PubKeyHashType, PubKeyType>))
+                            return false;
+                    }
+                    else if (header.index % foundationInterval == 0)
+                    {
+                        if (!(this is FoundationalBlock<BlockidHashType, TxidHashType, PubKeyHashType, PubKeyType>))
+                            return false;
+                    }
+                    else if (!(this is NormalBlock<BlockidHashType, TxidHashType, PubKeyHashType, PubKeyType>))
+                        return false;
+
+                    return Transactions.All((e) => e.IsValid);
+                }
+                else
+                    throw new NotSupportedException("tx_block_is_valid_not_supported");
             }
         }
 
@@ -4990,140 +5640,218 @@ namespace CREA2014
             get
             {
                 return (msrw) => new MainDataInfomation[]{
-                    new MainDataInfomation(typeof(PubKeyHashType), null, () => receiverPubKeyHash, (o) => receiverPubKeyHash = (PubKeyHashType)o),
-                    new MainDataInfomation(typeof(ulong), () => amount.rawAmount, (o) => amount = new CurrencyUnit((ulong)o)),
+                    new MainDataInfomation(typeof(BlockHeader<BlockidHashType, TxidHashType>), null, () => header, (o) => header = (BlockHeader<BlockidHashType, TxidHashType>)o),
+                    new MainDataInfomation(typeof(CoinbaseTransaction<TxidHashType, PubKeyHashType>), 0, () => coinbaseTxToMiner, (o) => coinbaseTxToMiner = (CoinbaseTransaction<TxidHashType, PubKeyHashType>)o),
+                    new MainDataInfomation(typeof(TransferTransaction<TxidHashType, PubKeyHashType, PubKeyType>[]), 0, null, () => transferTxs, (o) => transferTxs = (TransferTransaction<TxidHashType, PubKeyHashType, PubKeyType>[])o),
                 };
             }
         }
-    }
 
-    public class CurrencyUnit
-    {
-        public CurrencyUnit() { }
-
-        public CurrencyUnit(ulong _rawAmount) { rawAmount = _rawAmount; }
-
-        public ulong rawAmount { get; protected set; }
-
-        public virtual decimal Amount { get { throw new NotImplementedException("currency_unit_amount"); } }
-        public virtual Creacoin AmountInCreacoin { get { return new Creacoin(rawAmount); } }
-        public virtual Yumina AmountInYumina { get { return new Yumina(rawAmount); } }
-    }
-
-    public class Creacoin : CurrencyUnit
-    {
-        public Creacoin(ulong _rawAmount) { rawAmount = _rawAmount; }
-
-        public Creacoin(decimal _amountInCreacoin)
+        public bool VerifyTransferTransaction(TransactionOutput<PubKeyHashType>[][] prevTxOutputss)
         {
-            if (_amountInCreacoin < 0.0m)
-                throw new ArgumentException("creacoin_out_of_range");
+            if (prevTxOutputss.Length != transferTxs.Length)
+                throw new ArgumentException("transfet_txs_and_prev_outputs");
 
-            decimal amountInMinimumUnit = _amountInCreacoin * CreacoinInMinimumUnit;
-            if (amountInMinimumUnit != Math.Floor(amountInMinimumUnit))
-                throw new InvalidDataException("creacoin_precision");
-
-            rawAmount = (ulong)amountInMinimumUnit;
+            for (int i = 0; i < transferTxs.Length; i++)
+                if (!transferTxs[i].VerifyAll(prevTxOutputss[i]))
+                    return false;
+            return true;
         }
 
-        public static decimal CreacoinInMinimumUnit = 100000000.0m;
-
-        public override decimal Amount { get { return rawAmount / CreacoinInMinimumUnit; } }
-        public override Creacoin AmountInCreacoin { get { return this; } }
-    }
-
-    public class Yumina : CurrencyUnit
-    {
-        public Yumina(ulong _rawAmount) { rawAmount = _rawAmount; }
-
-        public Yumina(decimal _amountInYumina)
+        public virtual bool VerifyRewardAndTxFee(TransactionOutput<PubKeyHashType>[][] prevTxOutputss)
         {
-            if (_amountInYumina < 0.0m)
-                throw new ArgumentException("yumina_out_of_range");
+            if (prevTxOutputss.Length != transferTxs.Length)
+                throw new ArgumentException("transfet_txs_and_prev_outputs");
 
-            decimal amountInMinimumUnit = _amountInYumina * YuminaInMinimumUnit;
-            if (amountInMinimumUnit != Math.Floor(amountInMinimumUnit))
-                throw new InvalidDataException("yumina_precision");
-
-            rawAmount = (ulong)amountInMinimumUnit;
+            return GetActualRewardToMinerAndTxFee().rawAmount == GetValidRewardToMinerAndTxFee(prevTxOutputss).rawAmount;
         }
 
-        public static decimal YuminaInMinimumUnit = 1000000.0m;
+        public virtual bool VerifyAll(TransactionOutput<PubKeyHashType>[][] prevTxOutputss)
+        {
+            if (prevTxOutputss.Length != transferTxs.Length)
+                throw new ArgumentException("transfet_txs_and_prev_outputs");
 
-        public override decimal Amount { get { return rawAmount / YuminaInMinimumUnit; } }
-        public override Yumina AmountInYumina { get { return this; } }
+            if (Version == 0)
+                //<未実装>ブロックの頭部の（index以外の）妥当性検証
+                return VerifyTransferTransaction(prevTxOutputss) && VerifyRewardAndTxFee(prevTxOutputss);
+            else
+                throw new NotSupportedException("tx_block_not_supported");
+        }
+
+        public CurrencyUnit GetValidRewardToMiner() { return GetRewardToMiner(header.index, Version); }
+
+        public CurrencyUnit GetValidTxFee(TransactionOutput<PubKeyHashType>[][] prevTxOutputss)
+        {
+            if (prevTxOutputss.Length != transferTxs.Length)
+                throw new ArgumentException("transfet_txs_and_prev_outputs");
+
+            long rawTxFee = 0;
+            for (int i = 0; i < transferTxs.Length; i++)
+                rawTxFee += transferTxs[i].GetFee(prevTxOutputss[i]).rawAmount;
+            return new CurrencyUnit(rawTxFee);
+        }
+
+        public CurrencyUnit GetValidRewardToMinerAndTxFee(TransactionOutput<PubKeyHashType>[][] prevTxOutputss)
+        {
+            if (prevTxOutputss.Length != transferTxs.Length)
+                throw new ArgumentException("transfet_txs_and_prev_outputs");
+
+            return new CurrencyUnit(GetValidRewardToMiner().rawAmount + GetValidTxFee(prevTxOutputss).rawAmount);
+        }
+
+        public CurrencyUnit GetActualRewardToMinerAndTxFee()
+        {
+            long rawTxFee = 0;
+            for (int i = 0; i < coinbaseTxToMiner.outputs.Length; i++)
+                rawTxFee += coinbaseTxToMiner.outputs[i].amount.rawAmount;
+            return new CurrencyUnit(rawTxFee);
+        }
+
+        public static CurrencyUnit GetRewardToAll(ulong index, int version)
+        {
+            if (version == 0)
+            {
+                ulong sec = index * blockGenerationInterval;
+
+                if (sec < 0)
+                    throw new ArgumentException("block_index_out_of_range");
+
+                for (int i = 0; i < numberOfCycles; i++)
+                    if (sec < cycle * (ulong)(i + 1))
+                        return new Creacoin(rewards[i] * blockGenerationInterval);
+                return new Creacoin(0.0m);
+            }
+            else
+                throw new NotSupportedException("tx_block_not_supported");
+        }
+
+        public static CurrencyUnit GetRewardToMiner(ulong index, int version)
+        {
+            if (version == 0)
+                return new Creacoin(GetRewardToAll(index, version).AmountInCreacoin.Amount * (1.0m - foundationShare));
+            else
+                throw new NotSupportedException("tx_block_not_supported");
+        }
+
+        public static CurrencyUnit GetRewardToFoundation(ulong index, int version)
+        {
+            if (version == 0)
+                return new Creacoin(GetRewardToAll(index, version).AmountInCreacoin.Amount * foundationShare);
+            else
+                throw new NotSupportedException("tx_block_not_supported");
+        }
+
+        public static CurrencyUnit GetRewardToFoundationInterval(ulong index, int version)
+        {
+            if (version == 0)
+                return new Creacoin(GetRewardToFoundation(index, version).AmountInCreacoin.Amount * foundationInterval);
+            else
+                throw new NotSupportedException("tx_block_not_supported");
+        }
     }
 
-    public class Block<BlockidHashType, TxidHashType, PubKeyHashType> : SHAREDDATA
+    public class RewardlessBlock<BlockidHashType, TxidHashType, PubKeyHashType, PubKeyType> : TransactionalBlock<BlockidHashType, TxidHashType, PubKeyHashType, PubKeyType>
         where BlockidHashType : HASHBASE
         where TxidHashType : HASHBASE
         where PubKeyHashType : HASHBASE
+        where PubKeyType : DSAPUBKEYBASE
     {
-        static Block()
-        {
-            rewards = new decimal[numberOfCycles];
-            rewards[0] = 1.0m;
-            for (int i = 1; i < numberOfCycles; i++)
-                rewards[i] = rewards[i - 1] * 0.8m;
-        }
+        public RewardlessBlock(BlockHeader<BlockidHashType, TxidHashType> _header, CoinbaseTransaction<TxidHashType, PubKeyHashType> _coinbaseTxToMiner, TransferTransaction<TxidHashType, PubKeyHashType, PubKeyType>[] _transferTransactions) : base(0, _header, _coinbaseTxToMiner, _transferTransactions) { }
 
-        public Block() : base(0) { }
-
-        public Block(BlockHeader<BlockidHashType, TxidHashType> _header, CoinbaseTransaction<TxidHashType, PubKeyHashType> _coinbaseTransaction)
-        {
-            header = _header;
-            coinbaseTransaction = _coinbaseTransaction;
-        }
-
-        public static ulong blockGenerationInterval = 1; //[sec]
-        public static ulong cycle = 60 * 60 * 24 * 365; //[sec]
-        public static int numberOfCycles = 8;
-        public static decimal[] rewards; //[CREA]
-        public static decimal foundationShare = 0.1m;
-
-        public BlockHeader<BlockidHashType, TxidHashType> header { get; private set; }
-        public CoinbaseTransaction<TxidHashType, PubKeyHashType> coinbaseTransaction { get; private set; }
-
-        public bool IsValid
+        protected override Func<ReaderWriter, IEnumerable<MainDataInfomation>> StreamInfo
         {
             get
             {
-                //<未改良>取引手数料の考慮
-                if (coinbaseTransaction.outputs.Select((e) => e.amount.Amount).Sum() != GetRewardForMiner(header.index).Amount)
-                    return false;
-                return true;
+                if (Version == 0)
+                    return base.StreamInfo;
+                else
+                    throw new NotSupportedException("rewardless_block_main_data_info");
+            }
+        }
+
+        public override bool IsVersioned { get { return true; } }
+    }
+
+    public class NormalBlock<BlockidHashType, TxidHashType, PubKeyHashType, PubKeyType> : TransactionalBlock<BlockidHashType, TxidHashType, PubKeyHashType, PubKeyType>
+        where BlockidHashType : HASHBASE
+        where TxidHashType : HASHBASE
+        where PubKeyHashType : HASHBASE
+        where PubKeyType : DSAPUBKEYBASE
+    {
+        public NormalBlock(BlockHeader<BlockidHashType, TxidHashType> _header, CoinbaseTransaction<TxidHashType, PubKeyHashType> _coinbaseTxToMiner, TransferTransaction<TxidHashType, PubKeyHashType, PubKeyType>[] _transferTransactions) : base(0, _header, _coinbaseTxToMiner, _transferTransactions) { }
+
+        protected override Func<ReaderWriter, IEnumerable<MainDataInfomation>> StreamInfo
+        {
+            get
+            {
+                if (Version == 0)
+                    return base.StreamInfo;
+                else
+                    throw new NotSupportedException("normal_block_main_data_info");
+            }
+        }
+
+        public override bool IsVersioned { get { return true; } }
+    }
+
+    public class FoundationalBlock<BlockidHashType, TxidHashType, PubKeyHashType, PubKeyType> : TransactionalBlock<BlockidHashType, TxidHashType, PubKeyHashType, PubKeyType>
+        where BlockidHashType : HASHBASE
+        where TxidHashType : HASHBASE
+        where PubKeyHashType : HASHBASE
+        where PubKeyType : DSAPUBKEYBASE
+    {
+        public FoundationalBlock(BlockHeader<BlockidHashType, TxidHashType> _header, CoinbaseTransaction<TxidHashType, PubKeyHashType> _coinbaseTxToMiner, CoinbaseTransaction<TxidHashType, PubKeyHashType> _coinbaseTxToFoundation, TransferTransaction<TxidHashType, PubKeyHashType, PubKeyType>[] _transferTransactions)
+            : base(0, _header, _coinbaseTxToMiner, _transferTransactions)
+        {
+            coinbaseTxToFoundation = _coinbaseTxToFoundation;
+        }
+
+        public CoinbaseTransaction<TxidHashType, PubKeyHashType> coinbaseTxToFoundation { get; private set; }
+
+        public override IEnumerable<Transaction<TxidHashType, PubKeyHashType>> Transactions
+        {
+            get
+            {
+                foreach (var tx in base.Transactions)
+                    yield return tx;
+                yield return coinbaseTxToFoundation;
             }
         }
 
         protected override Func<ReaderWriter, IEnumerable<MainDataInfomation>> StreamInfo
         {
-            get { throw new NotImplementedException(); }
+            get
+            {
+                if (Version == 0)
+                    return (msrw) => base.StreamInfo(msrw).Concat(new MainDataInfomation[]{
+                        new MainDataInfomation(typeof(CoinbaseTransaction<TxidHashType, PubKeyHashType>), 0, () => coinbaseTxToFoundation, (o) => coinbaseTxToFoundation = (CoinbaseTransaction<TxidHashType, PubKeyHashType>)o),
+                    });
+                else
+                    throw new NotSupportedException("foundational_block_main_data_info");
+            }
         }
 
         public override bool IsVersioned { get { return true; } }
 
-        public static Creacoin GetRewardForAll(ulong index)
+        public override bool VerifyRewardAndTxFee(TransactionOutput<PubKeyHashType>[][] prevTxOutputss)
         {
-            ulong sec = index * blockGenerationInterval;
+            if (!base.VerifyRewardAndTxFee(prevTxOutputss))
+                return false;
 
-            if (sec < 0)
-                throw new ArgumentException("block_index_out_of_range");
-
-            for (int i = 0; i < numberOfCycles; i++)
-                if (sec < cycle * (ulong)(i + 1))
-                    return new Creacoin(rewards[i] * blockGenerationInterval);
-            //<未改良>
-            return new Creacoin(0.0m);
+            return GetActualRewardToFoundation().rawAmount == GetValidRewardToFoundation().rawAmount;
         }
 
-        public static Creacoin GetRewardForMiner(ulong index)
+        public CurrencyUnit GetValidRewardToFoundation()
         {
-            return new Creacoin(GetRewardForAll(index).Amount * (1.0m - foundationShare));
+            return GetRewardToFoundationInterval(header.index, Version);
         }
 
-        public static Creacoin GetRewardForFoundation(ulong index)
+        public CurrencyUnit GetActualRewardToFoundation()
         {
-            return new Creacoin(GetRewardForAll(index).Amount * foundationShare);
+            long rawTxFee = 0;
+            for (int i = 0; i < coinbaseTxToFoundation.outputs.Length; i++)
+                rawTxFee += coinbaseTxToFoundation.outputs[i].amount.rawAmount;
+            return new CurrencyUnit(rawTxFee);
         }
     }
 
@@ -5133,6 +5861,7 @@ namespace CREA2014
     {
         public BlockHeader() : base(0) { }
 
+        //<要検討>入れるか入れないか
         public ulong index { get; private set; }
         public BlockidHashType prevBlockHash { get; private set; }
         public TxidHashType merkleRootHash { get; private set; }
@@ -5643,6 +6372,609 @@ namespace CREA2014
     public class AddressFormatException : Exception
     {
         public AddressFormatException(string message, Exception innerException = null) : base(message, innerException) { }
+    }
+
+    #endregion
+
+    #region secp256k1
+
+    public static class Secp256k1
+    {
+        public static readonly BigInteger P = "FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEFFFFFC2F".HexToBigInteger();
+        public static readonly ECPoint G = ECPoint.DecodePoint("0479BE667EF9DCBBAC55A06295CE870B07029BFCDB2DCE28D959F2815B16F81798483ADA7726A3C4655DA4FBFC0E1108A8FD17B448A68554199C47D08FFB10D4B8".HexToBytes());
+        public static readonly BigInteger N = "FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364141".HexToBigInteger();
+    }
+
+    public class ECDsaSigner
+    {
+        private RNGCryptoServiceProvider rngCsp = new RNGCryptoServiceProvider();
+
+        public ECPoint RecoverFromSignature(byte[] hash, BigInteger r, BigInteger s, int recId)
+        {
+            var x = r;
+            if (recId > 1 && recId < 4)
+            {
+                x += Secp256k1.N;
+                x = x % Secp256k1.P;
+            }
+
+            if (x >= Secp256k1.P)
+            {
+                return null;
+            }
+
+            byte[] xBytes = x.ToByteArrayUnsigned(true);
+            byte[] compressedPoint = new Byte[33];
+            compressedPoint[0] = (byte)(0x02 + (recId % 2));
+            Buffer.BlockCopy(xBytes, 0, compressedPoint, 33 - xBytes.Length, xBytes.Length);
+
+            ECPoint publicKey = ECPoint.DecodePoint(compressedPoint);
+
+            if (!publicKey.Multiply(Secp256k1.N).IsInfinity) return null;
+
+            var z = -hash.ToBigIntegerUnsigned(true) % Secp256k1.N;
+            if (z < 0)
+            {
+                z += Secp256k1.N;
+            }
+
+            var rr = r.ModInverse(Secp256k1.N);
+            var u1 = (z * rr) % Secp256k1.N;
+            var u2 = (s * rr) % Secp256k1.N;
+
+            var Q = Secp256k1.G.Multiply(u1).Add(publicKey.Multiply(u2));
+
+            return Q;
+        }
+
+        public BigInteger[] GenerateSignature(BigInteger privateKey, byte[] hash)
+        {
+            return GenerateSignature(privateKey, hash, null);
+        }
+
+        public BigInteger[] GenerateSignature(BigInteger privateKey, byte[] hash, BigInteger? k)
+        {
+            for (int i = 0; i < 100; i++)
+            {
+                if (k == null)
+                {
+                    byte[] kBytes = new byte[33];
+                    rngCsp.GetBytes(kBytes);
+                    kBytes[32] = 0;
+
+                    k = new BigInteger(kBytes);
+                }
+                var z = hash.ToBigIntegerUnsigned(true);
+
+                if (k.Value.IsZero || k >= Secp256k1.N) continue;
+
+                var r = Secp256k1.G.Multiply(k.Value).X % Secp256k1.N;
+
+                if (r.IsZero) continue;
+
+                var ss = (z + r * privateKey);
+                var s = (ss * (k.Value.ModInverse(Secp256k1.N))) % Secp256k1.N;
+
+                if (s.IsZero) continue;
+
+                return new BigInteger[] { r, s };
+            }
+
+            throw new Exception("Unable to generate signature");
+        }
+
+        public bool VerifySignature(ECPoint publicKey, byte[] hash, BigInteger r, BigInteger s)
+        {
+            if (r >= Secp256k1.N || r.IsZero || s >= Secp256k1.N || s.IsZero)
+            {
+                return false;
+            }
+
+            var z = hash.ToBigIntegerUnsigned(true);
+            var w = s.ModInverse(Secp256k1.N);
+            var u1 = (z * w) % Secp256k1.N;
+            var u2 = (r * w) % Secp256k1.N;
+            var pt = Secp256k1.G.Multiply(u1).Add(publicKey.Multiply(u2));
+            var pmod = pt.X % Secp256k1.N;
+
+            return pmod == r;
+        }
+    }
+
+    public class ECPoint : ICloneable
+    {
+        private readonly bool _isInfinity;
+        private readonly BigInteger _x;
+        private BigInteger _y;
+
+        public ECPoint(BigInteger x, BigInteger y)
+            : this(x, y, false)
+        {
+        }
+
+        public ECPoint(BigInteger x, BigInteger y, bool isInfinity)
+        {
+            _x = x;
+            _y = y;
+            _isInfinity = isInfinity;
+        }
+
+        private ECPoint()
+        {
+            _isInfinity = true;
+        }
+
+        public BigInteger X
+        {
+            get { return _x; }
+        }
+
+        public BigInteger Y
+        {
+            get { return _y; }
+        }
+
+        public static ECPoint Infinity
+        {
+            get { return new ECPoint(); }
+        }
+
+        public bool IsInfinity
+        {
+            get { return _isInfinity; }
+        }
+
+        public object Clone()
+        {
+            return new ECPoint(_x, _y, _isInfinity);
+        }
+
+        //TODO: Rename to Encode (point is implied)
+        public byte[] EncodePoint(bool compressed)
+        {
+            if (IsInfinity)
+                return new byte[1];
+
+            byte[] x = X.ToByteArrayUnsigned(true);
+            byte[] encoded;
+            if (!compressed)
+            {
+                byte[] y = Y.ToByteArrayUnsigned(true);
+                encoded = new byte[65];
+                encoded[0] = 0x04;
+                Buffer.BlockCopy(y, 0, encoded, 33 + (32 - y.Length), y.Length);
+            }
+            else
+            {
+                encoded = new byte[33];
+                encoded[0] = (byte)(Y.TestBit(0) ? 0x03 : 0x02);
+            }
+
+            Buffer.BlockCopy(x, 0, encoded, 1 + (32 - x.Length), x.Length);
+            return encoded;
+        }
+
+        //TODO: Rename to Decode (point is implied)
+        public static ECPoint DecodePoint(byte[] encoded)
+        {
+            if (encoded == null || ((encoded.Length != 33 && encoded[0] != 0x02 && encoded[0] != 0x03) && (encoded.Length != 65 && encoded[0] != 0x04)))
+                throw new FormatException("Invalid encoded point");
+
+            var unsigned = new byte[32];
+            Buffer.BlockCopy(encoded, 1, unsigned, 0, 32);
+            BigInteger x = unsigned.ToBigIntegerUnsigned(true);
+            BigInteger y;
+            byte prefix = encoded[0];
+
+            if (prefix == 0x04) //uncompressed PubKey
+            {
+                Buffer.BlockCopy(encoded, 33, unsigned, 0, 32);
+                y = unsigned.ToBigIntegerUnsigned(true);
+            }
+            else // compressed PubKey
+            {
+                // solve y
+                y = ((x * x * x + 7) % Secp256k1.P).ShanksSqrt(Secp256k1.P);
+
+                if (y.IsEven ^ prefix == 0x02) // negate y for prefix (0x02 indicates y is even, 0x03 indicates y is odd)
+                    y = -y + Secp256k1.P;      // TODO:  DRY replace this and body of Negate() with call to static method
+            }
+            return new ECPoint(x, y);
+        }
+
+        public ECPoint Negate()
+        {
+            var r = (ECPoint)Clone();
+            r._y = -r._y + Secp256k1.P;
+            return r;
+        }
+
+        public ECPoint Subtract(ECPoint b)
+        {
+            return Add(b.Negate());
+        }
+
+        public ECPoint Add(ECPoint b)
+        {
+            BigInteger m;
+            //[Resharper unused local variable] BigInteger r = 0;
+
+            if (IsInfinity)
+                return b;
+            if (b.IsInfinity)
+                return this;
+
+            if (X - b.X == 0)
+            {
+                if (Y - b.Y == 0)
+                    m = 3 * X * X * (2 * Y).ModInverse(Secp256k1.P);
+                else
+                    return Infinity;
+            }
+            else
+            {
+                var mx = (X - b.X);
+                if (mx < 0)
+                    mx += Secp256k1.P;
+                m = (Y - b.Y) * mx.ModInverse(Secp256k1.P);
+            }
+
+            m = m % Secp256k1.P;
+
+            var v = Y - m * X;
+            var x3 = (m * m - X - b.X);
+            x3 = x3 % Secp256k1.P;
+            if (x3 < 0)
+                x3 += Secp256k1.P;
+            var y3 = -(m * x3 + v);
+            y3 = y3 % Secp256k1.P;
+            if (y3 < 0)
+                y3 += Secp256k1.P;
+
+            return new ECPoint(x3, y3);
+        }
+
+        public ECPoint Twice()
+        {
+            return Add(this);
+        }
+
+        public ECPoint Multiply(BigInteger b)
+        {
+            if (b.Sign == -1)
+                throw new FormatException("The multiplicator cannot be negative");
+
+            b = b % Secp256k1.N;
+
+            ECPoint result = Infinity;
+            ECPoint temp = null;
+
+            //[Resharper local variable only assigned not used] int bit = 0;
+            do
+            {
+                temp = temp == null ? this : temp.Twice();
+
+                if (!b.IsEven)
+                    result = result.Add(temp);
+                //bit++;
+            }
+            while ((b >>= 1) != 0);
+
+            return result;
+        }
+    }
+
+    public static class Hex
+    {
+        private static readonly string[] _byteToHex = new[]
+        {
+            "00", "01", "02", "03", "04", "05", "06", "07", 
+            "08", "09", "0a", "0b", "0c", "0d", "0e", "0f",
+            "10", "11", "12", "13", "14", "15", "16", "17", 
+            "18", "19", "1a", "1b", "1c", "1d", "1e", "1f",
+            "20", "21", "22", "23", "24", "25", "26", "27", 
+            "28", "29", "2a", "2b", "2c", "2d", "2e", "2f",
+            "30", "31", "32", "33", "34", "35", "36", "37", 
+            "38", "39", "3a", "3b", "3c", "3d", "3e", "3f",
+            "40", "41", "42", "43", "44", "45", "46", "47", 
+            "48", "49", "4a", "4b", "4c", "4d", "4e", "4f",
+            "50", "51", "52", "53", "54", "55", "56", "57", 
+            "58", "59", "5a", "5b", "5c", "5d", "5e", "5f",
+            "60", "61", "62", "63", "64", "65", "66", "67", 
+            "68", "69", "6a", "6b", "6c", "6d", "6e", "6f",
+            "70", "71", "72", "73", "74", "75", "76", "77", 
+            "78", "79", "7a", "7b", "7c", "7d", "7e", "7f",
+            "80", "81", "82", "83", "84", "85", "86", "87", 
+            "88", "89", "8a", "8b", "8c", "8d", "8e", "8f",
+            "90", "91", "92", "93", "94", "95", "96", "97", 
+            "98", "99", "9a", "9b", "9c", "9d", "9e", "9f",
+            "a0", "a1", "a2", "a3", "a4", "a5", "a6", "a7", 
+            "a8", "a9", "aa", "ab", "ac", "ad", "ae", "af",
+            "b0", "b1", "b2", "b3", "b4", "b5", "b6", "b7", 
+            "b8", "b9", "ba", "bb", "bc", "bd", "be", "bf",
+            "c0", "c1", "c2", "c3", "c4", "c5", "c6", "c7", 
+            "c8", "c9", "ca", "cb", "cc", "cd", "ce", "cf",
+            "d0", "d1", "d2", "d3", "d4", "d5", "d6", "d7", 
+            "d8", "d9", "da", "db", "dc", "dd", "de", "df",
+            "e0", "e1", "e2", "e3", "e4", "e5", "e6", "e7", 
+            "e8", "e9", "ea", "eb", "ec", "ed", "ee", "ef",
+            "f0", "f1", "f2", "f3", "f4", "f5", "f6", "f7", 
+            "f8", "f9", "fa", "fb", "fc", "fd", "fe", "ff"
+        };
+
+        private static readonly Dictionary<string, byte> _hexToByte = new Dictionary<string, byte>();
+
+        static Hex()
+        {
+            for (byte b = 0; b < 255; b++)
+            {
+                _hexToByte[_byteToHex[b]] = b;
+            }
+
+            _hexToByte["ff"] = 255;
+        }
+
+        public static string BigIntegerToHex(BigInteger value)
+        {
+            return BytesToHex(value.ToByteArrayUnsigned(true));
+        }
+
+        public static BigInteger HexToBigInteger(string hex)
+        {
+            byte[] bytes = HexToBytes(hex);
+            Array.Reverse(bytes);
+            Array.Resize(ref bytes, bytes.Length + 1);
+            bytes[bytes.Length - 1] = 0x00;
+            return new BigInteger(bytes);
+        }
+
+        public static string BytesToHex(byte[] bytes)
+        {
+            var hex = new StringBuilder(bytes.Length * 2);
+            foreach (byte b in bytes)
+            {
+                hex.Append(_byteToHex[b]);
+            }
+
+            return hex.ToString();
+        }
+
+        public static byte[] HexToBytes(string hex)
+        {
+            if (hex.Length % 2 != 0)
+            {
+                hex = "0" + hex;
+            }
+
+            hex = hex.ToLower();
+
+            var bytes = new byte[hex.Length / 2];
+            for (int i = 0; i < hex.Length / 2; i++)
+            {
+                bytes[i] = _hexToByte[hex.Substring(i * 2, 2)];
+            }
+
+            return bytes;
+        }
+
+        public static string AsciiToHex(string ascii)
+        {
+            char[] chars = ascii.ToCharArray();
+            var hex = new StringBuilder(ascii.Length);
+
+            foreach (var currentChar in chars)
+            {
+                hex.Append(String.Format("{0:X}", Convert.ToInt32(currentChar)));
+            }
+
+            return hex.ToString();
+        }
+    }
+
+    public static class BigIntExtensions
+    {
+        public static BigInteger ModInverse(this BigInteger n, BigInteger p)
+        {
+            BigInteger x = 1;
+            BigInteger y = 0;
+            BigInteger a = p;
+            BigInteger b = n;
+
+            while (b != 0)
+            {
+                BigInteger t = b;
+                BigInteger q = BigInteger.Divide(a, t);
+                b = a - q * t;
+                a = t;
+                t = x;
+                x = y - q * t;
+                y = t;
+            }
+
+            if (y < 0)
+                return y + p;
+            //else
+            return y;
+        }
+
+        public static bool TestBit(this BigInteger i, int n)
+        {
+            //[resharper:unused local variable] int bitLength = i.BitLength();
+            return !(i >> n).IsEven;
+        }
+
+        public static int BitLength(this BigInteger i)
+        {
+            int bitLength = 0;
+            do
+            {
+                bitLength++;
+            }
+            while ((i >>= 1) != 0);
+            return bitLength;
+        }
+
+        public static byte[] ToByteArrayUnsigned(this BigInteger i, bool bigEndian)
+        {
+            byte[] bytes = i.ToByteArray();
+            if (bytes[bytes.Length - 1] == 0x00)
+                Array.Resize(ref bytes, bytes.Length - 1);
+            if (bigEndian)
+                Array.Reverse(bytes, 0, bytes.Length);
+
+            return bytes;
+        }
+
+        public static BigInteger Order(this BigInteger b, BigInteger p)
+        {
+            BigInteger m = 1;
+            BigInteger e = 0;
+
+            while (BigInteger.ModPow(b, m, p) != 1)
+            {
+                m *= 2;
+                e++;
+            }
+
+            return e;
+        }
+
+        private static BigInteger FindS(BigInteger p)
+        {
+            BigInteger s = p - 1;
+            BigInteger e = 0;
+
+            while (s % 2 == 0)
+            {
+                s /= 2;
+                e += 1;
+            }
+
+            return s;
+        }
+
+        private static BigInteger FindE(BigInteger p)
+        {
+            BigInteger s = p - 1;
+            BigInteger e = 0;
+
+            while (s % 2 == 0)
+            {
+                s /= 2;
+                e += 1;
+            }
+
+            return e;
+        }
+
+        private static BigInteger TwoExp(BigInteger e)
+        {
+            BigInteger a = 1;
+
+            while (e > 0)
+            {
+                a *= 2;
+                e--;
+            }
+
+            return a;
+        }
+
+        public static string ToHex(this BigInteger b)
+        {
+            return Hex.BigIntegerToHex(b);
+        }
+
+        public static string ToHex(this byte[] bytes)
+        {
+            return Hex.BytesToHex(bytes);
+        }
+
+        public static BigInteger HexToBigInteger(this string s)
+        {
+            return Hex.HexToBigInteger(s);
+        }
+
+        public static byte[] HexToBytes(this string s)
+        {
+            return Hex.HexToBytes(s);
+        }
+
+        public static BigInteger ToBigInteger(this byte[] bytes, bool bigEndian)
+        {
+            byte[] clone = new byte[bytes.Length];
+            Buffer.BlockCopy(bytes, 0, clone, 0, bytes.Length);
+            Array.Reverse(clone);
+
+            return new BigInteger(bytes);
+        }
+
+        public static BigInteger ToBigIntegerUnsigned(this byte[] bytes, bool bigEndian)
+        {
+            byte[] clone;
+            if (bigEndian)
+            {
+                if (bytes[0] != 0x00)
+                {
+                    clone = new byte[bytes.Length + 1];
+                    Buffer.BlockCopy(bytes, 0, clone, 1, bytes.Length);
+                    Array.Reverse(clone);
+                    return new BigInteger(clone);
+                }
+                clone = new byte[bytes.Length];
+                Buffer.BlockCopy(bytes, 0, clone, 0, bytes.Length);
+                Array.Reverse(clone);
+                return new BigInteger(clone);
+            }
+
+            if (bytes[bytes.Length - 1] == 0x00)
+                return new BigInteger(bytes);
+
+            clone = new byte[bytes.Length + 1];
+            Buffer.BlockCopy(bytes, 0, clone, 0, bytes.Length);
+            return new BigInteger(clone);
+        }
+
+        public static BigInteger ShanksSqrt(this BigInteger a, BigInteger p)
+        {
+            if (BigInteger.ModPow(a, (p - 1) / 2, p) == (p - 1))
+                return -1;
+
+            if (p % 4 == 3)
+                return BigInteger.ModPow(a, (p + 1) / 4, p);
+
+            //Initialize 
+            BigInteger s = FindS(p);
+            BigInteger e = FindE(p);
+            BigInteger n = 2;
+
+            while (BigInteger.ModPow(n, (p - 1) / 2, p) == 1)
+                n++;
+
+            BigInteger x = BigInteger.ModPow(a, (s + 1) / 2, p);
+            BigInteger b = BigInteger.ModPow(a, s, p);
+            BigInteger g = BigInteger.ModPow(n, s, p);
+            BigInteger r = e;
+            BigInteger m = b.Order(p);
+
+#if(DEBUG)
+            Debug.WriteLine("{0}, {1}, {2}, {3}, {4}", m, x, b, g, r);
+#endif
+            while (m > 0)
+            {
+                x = (x * BigInteger.ModPow(g, TwoExp(r - m - 1), p)) % p;
+                b = (b * BigInteger.ModPow(g, TwoExp(r - m), p)) % p;
+                g = BigInteger.ModPow(g, TwoExp(r - m), p);
+                r = m;
+                m = b.Order(p);
+
+#if(DEBUG)
+                Debug.WriteLine("{0}, {1}, {2}, {3}, {4}", m, x, b, g, r);
+#endif
+            }
+
+            return x;
+        }
     }
 
     #endregion

@@ -1,6 +1,7 @@
 ﻿//がをがを～！
 //作譜者：@pizyumi
 
+using HashLib;
 using Microsoft.Win32;
 using System;
 using System.Collections.Generic;
@@ -504,18 +505,193 @@ namespace CREA2014
             return bytes.BytesRandom(bytes.Length.RandomNumsCache());
         }
 
+        private static HashAlgorithm haSha1 = null;
+        private static HashAlgorithm haSha256 = null;
+        private static HashAlgorithm haRipemd160 = null;
+        private static IHash haBlake512 = null;
+        private static IHash haBmw512 = null;
+        private static IHash haGroestl512 = null;
+        private static IHash haSkein512 = null;
+        private static IHash haJh512 = null;
+        private static IHash haKeccak512 = null;
+        private static IHash haLuffa512 = null;
+        private static IHash haCubehash512 = null;
+        private static IHash haShavite512 = null;
+        private static IHash haSimd512 = null;
+        private static IHash haEcho512 = null;
+        private static IHash haFugue512 = null;
+        private static IHash haHamsi512 = null;
+        private static IHash haShabal512 = null;
+
+        //バイト配列のSHA1ハッシュ値を計算する（拡張：バイト配列型）
+        public static byte[] ComputeSha1(this byte[] bytes)
+        {
+            if (haSha1 == null)
+                haSha1 = new SHA1CryptoServiceProvider();
+
+            return haSha1.ComputeHash(bytes);
+        }
+
         //バイト配列のSHA256ハッシュ値を計算する（拡張：バイト配列型）
         public static byte[] ComputeSha256(this byte[] bytes)
         {
-            using (HashAlgorithm ha = HashAlgorithm.Create("SHA-256"))
-                return ha.ComputeHash(bytes);
+            if (haSha256 == null)
+                haSha256 = HashAlgorithm.Create("SHA-256");
+
+            return haSha256.ComputeHash(bytes);
         }
 
         //バイト配列のRIPEMD160ハッシュ値を計算する（拡張：バイト配列型）
         public static byte[] ComputeRipemd160(this byte[] bytes)
         {
-            using (HashAlgorithm ha = HashAlgorithm.Create("RIPEMD-160"))
-                return ha.ComputeHash(bytes);
+            if (haRipemd160 == null)
+                haRipemd160 = HashAlgorithm.Create("RIPEMD-160");
+
+            return haRipemd160.ComputeHash(bytes);
+        }
+
+        //バイト配列のBlake512ハッシュ値を計算する（拡張：バイト配列型）
+        public static byte[] ComputeBlake512(this byte[] bytes)
+        {
+            if (haBlake512 == null)
+                haBlake512 = HashFactory.Crypto.SHA3.CreateBlake512();
+
+            return haBlake512.ComputeBytes(bytes).GetBytes();
+        }
+
+        //バイト配列のBmw512ハッシュ値を計算する（拡張：バイト配列型）
+        public static byte[] ComputeBmw512(this byte[] bytes)
+        {
+            if (haBmw512 == null)
+                haBmw512 = HashFactory.Crypto.SHA3.CreateBlueMidnightWish512();
+
+            return haBmw512.ComputeBytes(bytes).GetBytes();
+        }
+
+        //バイト配列のGroestl512ハッシュ値を計算する（拡張：バイト配列型）
+        public static byte[] ComputeGroestl512(this byte[] bytes)
+        {
+            if (haGroestl512 == null)
+                haGroestl512 = HashFactory.Crypto.SHA3.CreateGroestl512();
+
+            return haGroestl512.ComputeBytes(bytes).GetBytes();
+        }
+
+        //バイト配列のSkein512ハッシュ値を計算する（拡張：バイト配列型）
+        public static byte[] ComputeSkein512(this byte[] bytes)
+        {
+            if (haSkein512 == null)
+                haSkein512 = HashFactory.Crypto.SHA3.CreateSkein512();
+
+            return haSkein512.ComputeBytes(bytes).GetBytes();
+        }
+
+        //バイト配列のJh512ハッシュ値を計算する（拡張：バイト配列型）
+        public static byte[] ComputeJh512(this byte[] bytes)
+        {
+            if (haJh512 == null)
+                haJh512 = HashFactory.Crypto.SHA3.CreateJH512();
+
+            return haJh512.ComputeBytes(bytes).GetBytes();
+        }
+
+        //バイト配列のKeccak512ハッシュ値を計算する（拡張：バイト配列型）
+        public static byte[] ComputeKeccak512(this byte[] bytes)
+        {
+            if (haKeccak512 == null)
+                haKeccak512 = HashFactory.Crypto.SHA3.CreateKeccak512();
+
+            return haKeccak512.ComputeBytes(bytes).GetBytes();
+        }
+
+        //バイト配列のLuffa512ハッシュ値を計算する（拡張：バイト配列型）
+        public static byte[] ComputeLuffa512(this byte[] bytes)
+        {
+            if (haLuffa512 == null)
+                haLuffa512 = HashFactory.Crypto.SHA3.CreateLuffa512();
+
+            return haLuffa512.ComputeBytes(bytes).GetBytes();
+        }
+
+        //バイト配列のCubehash512ハッシュ値を計算する（拡張：バイト配列型）
+        public static byte[] ComputeCubehash512(this byte[] bytes)
+        {
+            if (haCubehash512 == null)
+                haCubehash512 = HashFactory.Crypto.SHA3.CreateCubeHash512();
+
+            return haCubehash512.ComputeBytes(bytes).GetBytes();
+        }
+
+        //バイト配列のShavite512ハッシュ値を計算する（拡張：バイト配列型）
+        public static byte[] ComputeShavite512(this byte[] bytes)
+        {
+            if (haShavite512 == null)
+                haShavite512 = HashFactory.Crypto.SHA3.CreateSHAvite3_512();
+
+            return haShavite512.ComputeBytes(bytes).GetBytes();
+        }
+
+        //バイト配列のSimd512ハッシュ値を計算する（拡張：バイト配列型）
+        public static byte[] ComputeSimd512(this byte[] bytes)
+        {
+            if (haSimd512 == null)
+                haSimd512 = HashFactory.Crypto.SHA3.CreateSIMD512();
+
+            return haSimd512.ComputeBytes(bytes).GetBytes();
+        }
+
+        //バイト配列のEcho512ハッシュ値を計算する（拡張：バイト配列型）
+        public static byte[] ComputeEcho512(this byte[] bytes)
+        {
+            if (haEcho512 == null)
+                haEcho512 = HashFactory.Crypto.SHA3.CreateEcho512();
+
+            return haEcho512.ComputeBytes(bytes).GetBytes();
+        }
+
+        //バイト配列のFugue512ハッシュ値を計算する（拡張：バイト配列型）
+        public static byte[] ComputeFugue512(this byte[] bytes)
+        {
+            if (haFugue512 == null)
+                haFugue512 = HashFactory.Crypto.SHA3.CreateFugue512();
+
+            return haFugue512.ComputeBytes(bytes).GetBytes();
+        }
+
+        //バイト配列のHamsi512ハッシュ値を計算する（拡張：バイト配列型）
+        public static byte[] ComputeHamsi512(this byte[] bytes)
+        {
+            if (haHamsi512 == null)
+                haHamsi512 = HashFactory.Crypto.SHA3.CreateHamsi512();
+
+            return haHamsi512.ComputeBytes(bytes).GetBytes();
+        }
+
+        //バイト配列のShabal512ハッシュ値を計算する（拡張：バイト配列型）
+        public static byte[] ComputeShabal512(this byte[] bytes)
+        {
+            if (haShabal512 == null)
+                haShabal512 = HashFactory.Crypto.SHA3.CreateShabal512();
+
+            return haShabal512.ComputeBytes(bytes).GetBytes();
+        }
+
+        //バイト配列のECDSA署名（要約関数はSHA256）を計算する（拡張：バイト配列型）
+        public static byte[] SignEcdsaSha256(this byte[] data, byte[] privKey)
+        {
+            using (ECDsaCng dsa = new ECDsaCng(CngKey.Import(privKey, CngKeyBlobFormat.EccPrivateBlob)))
+            {
+                dsa.HashAlgorithm = CngAlgorithm.Sha256;
+
+                return dsa.SignData(data);
+            }
+        }
+
+        //バイト配列のECDSA署名を検証する（拡張：バイト配列型）
+        public static bool VerifyEcdsa(this byte[] data, byte[] signature, byte[] pubKey)
+        {
+            using (ECDsaCng dsa = new ECDsaCng(CngKey.Import(pubKey, CngKeyBlobFormat.EccPublicBlob)))
+                return dsa.VerifyData(data, signature);
         }
 
         //配列を結合する（拡張：任意の配列型）
@@ -1710,22 +1886,24 @@ namespace CREA2014
             }
         }
 
-        private byte[] ToBinaryMainData()
+        protected byte[] ToBinaryMainData(Func<ReaderWriter, IEnumerable<MainDataInfomation>> si)
         {
             using (MemoryStream ms = new MemoryStream())
             {
                 MyStreamWriter writer = new MyStreamWriter(ms);
 
-                foreach (var mdi in StreamInfo(new ReaderWriter(writer, new MyStreamReader(ms), ReaderWriter.Mode.write)))
+                foreach (var mdi in si(new ReaderWriter(writer, new MyStreamReader(ms), ReaderWriter.Mode.write)))
                     Write(writer, mdi);
 
                 return ms.ToArray();
             }
         }
 
-        public byte[] ToBinary()
+        public byte[] ToBinaryMainData() { return ToBinaryMainData(StreamInfo); }
+
+        protected byte[] ToBinary(Func<ReaderWriter, IEnumerable<MainDataInfomation>> si)
         {
-            byte[] mainDataBytes = ToBinaryMainData();
+            byte[] mainDataBytes = ToBinaryMainData(si);
 
             using (MemoryStream ms = new MemoryStream())
             {
@@ -1761,6 +1939,8 @@ namespace CREA2014
                 return ms.ToArray();
             }
         }
+
+        public byte[] ToBinary() { return ToBinary(StreamInfo); }
 
         public void FromBinary(byte[] binary)
         {
