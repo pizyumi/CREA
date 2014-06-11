@@ -5137,6 +5137,19 @@ namespace CREA2014
         private Dictionary<ulong, Dictionary<TxidHashType, TransactionOutput<PubKeyHashType>[]>> unspentTxOutputs;
         private ulong currentIndex;
 
+        public TransactionOutput<PubKeyHashType> GetTxOutput(TransactionInput<TxidHashType, PubKeyType> txInput)
+        {
+            if (!unspentTxOutputs.ContainsKey(txInput.prevTxBlockIndex))
+                return null;
+            Dictionary<TxidHashType, TransactionOutput<PubKeyHashType>[]> prevTxs = unspentTxOutputs[txInput.prevTxBlockIndex];
+            if (!prevTxs.ContainsKey(txInput.prevTxHash))
+                return null;
+            TransactionOutput<PubKeyHashType>[] prevTxOutputs = prevTxs[txInput.prevTxHash];
+            if (txInput.prevTxOutputIndex >= prevTxOutputs.Length)
+                return null;
+            return prevTxOutputs[txInput.prevTxOutputIndex];
+        }
+
         public bool GoForward(TransactionalBlock<BlockIdHashType, TxidHashType, PubKeyHashType, PubKeyType> txBlock)
         {
             if (txBlock.header.index != currentIndex + 1)
@@ -5144,13 +5157,19 @@ namespace CREA2014
             if (unspentTxOutputs.ContainsKey(txBlock.header.index))
                 throw new InvalidDataException("utxo_already_exist_index");
 
+            if (!txBlock.IsValid)
+                return false;
+
             TransactionOutput<PubKeyHashType>[][] prevTxOutputss = new TransactionOutput<PubKeyHashType>[txBlock.transferTxs.Length][];
             for (int i = 0; i < txBlock.transferTxs.Length; i++)
             {
                 prevTxOutputss[i] = new TransactionOutput<PubKeyHashType>[txBlock.transferTxs[i].inputs.Length];
                 for (int j = 0; j < txBlock.transferTxs[i].inputs.Length; j++)
                 {
-                    //if()
+                    TransactionOutput<PubKeyHashType> prevTxOutput = GetTxOutput(txBlock.transferTxs[i].inputs[j]);
+                    if (prevTxOutput == null)
+                        return false;
+                    prevTxOutputss[i][j] = prevTxOutput;
                 }
             }
 
@@ -5242,6 +5261,8 @@ namespace CREA2014
 
         public virtual bool IsValid { get { return true; } }
     }
+
+    #region 取引
 
     public abstract class Transaction<TxidHashType, PubKeyHashType> : TXBLOCKBASE<TxidHashType>
         where TxidHashType : HASHBASE
@@ -5448,14 +5469,16 @@ namespace CREA2014
     {
         public TransactionInput() : base(null) { }
 
-        public TransactionInput(TxidHashType _prevTxHash, int _prevTxOutputIndex, PubKeyType _senderPubKey)
+        public TransactionInput(ulong _prevTxBlockIndex, TxidHashType _prevTxHash, int _prevTxOutputIndex, PubKeyType _senderPubKey)
             : base(null)
         {
+            prevTxBlockIndex = _prevTxBlockIndex;
             prevTxHash = _prevTxHash;
             prevTxOutputIndex = _prevTxOutputIndex;
             senderPubKey = _senderPubKey;
         }
 
+        public ulong prevTxBlockIndex { get; private set; }
         public TxidHashType prevTxHash { get; private set; }
         public int prevTxOutputIndex { get; private set; }
         public byte[] senderSig { get; private set; }
@@ -5466,6 +5489,7 @@ namespace CREA2014
             get
             {
                 return (msrw) => new MainDataInfomation[]{
+                    new MainDataInfomation(typeof(ulong), () => prevTxBlockIndex, (o) => prevTxBlockIndex = (ulong)o),
                     new MainDataInfomation(typeof(TxidHashType), null, () => prevTxHash, (o) => prevTxHash = (TxidHashType)o),
                     new MainDataInfomation(typeof(int), () => prevTxOutputIndex, (o) => prevTxOutputIndex = (int)o),
                     new MainDataInfomation(typeof(byte[]), null, () => senderSig, (o) => senderSig = (byte[])o),
@@ -5479,6 +5503,7 @@ namespace CREA2014
             get
             {
                 return (msrw) => new MainDataInfomation[]{
+                    new MainDataInfomation(typeof(ulong), () => prevTxBlockIndex, (o) => { throw new NotSupportedException("tx_in_si_to_sign"); }),
                     new MainDataInfomation(typeof(TxidHashType), null, () => prevTxHash, (o) => { throw new NotSupportedException("tx_in_si_to_sign"); }),
                     new MainDataInfomation(typeof(int), () => prevTxOutputIndex, (o) => { throw new NotSupportedException("tx_in_si_to_sign"); }),
                 };
@@ -5534,6 +5559,10 @@ namespace CREA2014
             }
         }
     }
+
+    #endregion
+
+    #region ブロック
 
     public abstract class Block<BlockidHashType> : TXBLOCKBASE<BlockidHashType>
         where BlockidHashType : HASHBASE
@@ -5847,6 +5876,244 @@ namespace CREA2014
         }
 
         public override bool IsVersioned { get { return true; } }
+    }
+
+    #endregion
+
+    public class BlockChain<BlockidHashType, TxidHashType, PubKeyHashType, PubKeyType>
+        where BlockidHashType : HASHBASE
+        where TxidHashType : HASHBASE
+        where PubKeyHashType : HASHBASE
+        where PubKeyType : DSAPUBKEYBASE
+    {
+        public BlockChain()
+        {
+
+        }
+
+        public ulong tail { get; private set; }
+
+        public void AddBlock(TransactionalBlock<BlockidHashType, TxidHashType, PubKeyHashType, PubKeyType> txBlock)
+        {
+
+        }
+    }
+
+    public class BlockNode : SHAREDDATA
+    {
+        public BlockNode() : this(0, 0, 0, 0, false) { }
+
+        public BlockNode(long _parentPosition1, long _parentPosition2, long _position1, long _position2, bool _isMain)
+        {
+            parentPosition1 = _parentPosition1;
+            parentPosition2 = _parentPosition2;
+            position1 = _position1;
+            position2 = _position2;
+            isMain = _isMain;
+
+            childrenPositions1 = new long[] { };
+            childrenPositions2 = new long[] { };
+        }
+
+        public long[] childrenPositions1 { get; private set; }
+        public long[] childrenPositions2 { get; private set; }
+        public long parentPosition1 { get; private set; }
+        public long parentPosition2 { get; private set; }
+        public long position1 { get; private set; }
+        public long position2 { get; private set; }
+        public bool isMain { get; private set; }
+
+        protected override Func<ReaderWriter, IEnumerable<MainDataInfomation>> StreamInfo { get { return (msrw) => StreamInfoInner(msrw); } }
+        private IEnumerable<MainDataInfomation> StreamInfoInner(ReaderWriter msrw)
+        {
+            yield return new MainDataInfomation(typeof(long[]), null, () => childrenPositions1, (o) => childrenPositions1 = (long[])o);
+            yield return new MainDataInfomation(typeof(long[]), null, () => childrenPositions2, (o) => childrenPositions2 = (long[])o);
+
+            if (childrenPositions1.Length != childrenPositions2.Length)
+                throw new InvalidDataException("blknd_children_positions");
+
+            yield return new MainDataInfomation(typeof(long), () => parentPosition1, (o) => parentPosition1 = (long)o);
+            yield return new MainDataInfomation(typeof(long), () => parentPosition2, (o) => parentPosition2 = (long)o);
+            yield return new MainDataInfomation(typeof(long), () => position1, (o) => position1 = (long)o);
+            yield return new MainDataInfomation(typeof(long), () => position2, (o) => position2 = (long)o);
+            yield return new MainDataInfomation(typeof(bool), () => isMain, (o) => isMain = (bool)o);
+        }
+
+        public void AddChildPositions(long childPosition1, long childPosition2)
+        {
+            long[] newChildrenPositions1 = new long[childrenPositions1.Length + 1];
+            long[] newChildrenPositions2 = new long[childrenPositions2.Length + 1];
+
+            Array.Copy(childrenPositions1, 0, newChildrenPositions1, 0, childrenPositions1.Length);
+            Array.Copy(childrenPositions2, 0, newChildrenPositions2, 0, childrenPositions2.Length);
+
+            newChildrenPositions1[newChildrenPositions1.Length - 1] = childPosition1;
+            newChildrenPositions2[newChildrenPositions2.Length - 1] = childPosition2;
+
+            childrenPositions1 = newChildrenPositions1;
+            childrenPositions2 = newChildrenPositions2;
+        }
+    }
+
+    public class BlockNodes : SHAREDDATA
+    {
+        public BlockNodes() : this(new BlockNode[] { }) { }
+
+        public BlockNodes(BlockNode[] _nodes) { nodes = _nodes; }
+
+        public BlockNode[] nodes { get; private set; }
+
+        protected override Func<ReaderWriter, IEnumerable<MainDataInfomation>> StreamInfo
+        {
+            get
+            {
+                return (msrw) => new MainDataInfomation[]{
+                    new MainDataInfomation(typeof(BlockNode[]), null, null, () => nodes, (o) => nodes = (BlockNode[])o),
+                };
+            }
+        }
+    }
+
+    public class BlockNodesGroup : SHAREDDATA
+    {
+        public BlockNodesGroup() : this(new BlockNodes[] { }) { }
+
+        public BlockNodesGroup(BlockNodes[] _nodess)
+        {
+            if (_nodess.Length > div)
+                throw new ArgumentException("blknds_group_too_many_nodes");
+
+            nodess = new BlockNodes[div];
+            position = _nodess.Length;
+
+            Array.Copy(_nodess, 0, nodess, 0, _nodess.Length);
+        }
+
+        //57byte * 10000 = 570Kbyte
+        public static readonly int div = 10000;
+
+        public BlockNodes[] nodess { get; private set; }
+        public int position { get; private set; }
+
+        protected override Func<ReaderWriter, IEnumerable<MainDataInfomation>> StreamInfo
+        {
+            get
+            {
+                return (msrw) => new MainDataInfomation[]{
+                    new MainDataInfomation(typeof(BlockNodes[]), null, null, () => 
+                    {
+                        BlockNodes[] saveBlockNodess = new BlockNodes[position];
+                        Array.Copy(nodess, 0, saveBlockNodess, 0, position);
+                        return saveBlockNodess;
+                    }, (o) => 
+                    {
+                        BlockNodes[] loadBlockNodess = (BlockNodes[])o;
+
+                        if (loadBlockNodess.Length > div)
+                            throw new ArgumentException("blknds_group_too_many_nodes");
+
+                        position = loadBlockNodess.Length;
+                        Array.Copy(loadBlockNodess, 0, nodess, 0, loadBlockNodess.Length);
+                    }),
+                };
+            }
+        }
+
+        public void AddBlockNodes(BlockNodes blockNodes)
+        {
+            if (position >= div)
+                throw new InvalidOperationException("blknds_group_full");
+
+            nodess[position] = blockNodes;
+
+            position++;
+        }
+    }
+
+    public class BlockNodesDatabase
+    {
+        public BlockNodesDatabase(string _pathBase)
+        {
+            pathBase = _pathBase;
+
+            if (!Directory.Exists(pathBase))
+                Directory.CreateDirectory(pathBase);
+        }
+
+        public static readonly string filenameBase = "blknds";
+
+        public readonly string pathBase;
+
+        public byte[] GetBlockNodesBlockData(ulong bngIndex)
+        {
+            using (FileStream fs = new FileStream(GetPath(bngIndex), FileMode.OpenOrCreate, FileAccess.Read))
+            {
+                byte[] data = new byte[fs.Length];
+                fs.Read(data, 0, data.Length);
+                return data;
+            }
+        }
+
+        public void UpdateBlockNodesBlockData(byte[] data, ulong bngIndex)
+        {
+            using (FileStream fs = new FileStream(GetPath(bngIndex), FileMode.Create, FileAccess.Write))
+                fs.Write(data, 0, data.Length);
+        }
+
+        private string GetPath(ulong bngIndex)
+        {
+            return Path.Combine(pathBase, filenameBase + bngIndex.ToString());
+        }
+    }
+
+    public class BlockGroupDatabase
+    {
+        public BlockGroupDatabase(string _pathBase)
+        {
+            pathBase = _pathBase;
+
+            if (!Directory.Exists(pathBase))
+                Directory.CreateDirectory(pathBase);
+        }
+
+        public static readonly string filenameBase = "blks";
+        public static readonly ulong div = 1000; //1000ブロック群
+
+        public readonly string pathBase;
+
+        public byte[] GetBlockGroupData(ulong bgIndex, long position)
+        {
+            using (FileStream fs = new FileStream(GetPath(bgIndex), FileMode.OpenOrCreate, FileAccess.Read))
+            {
+                fs.Seek(position, SeekOrigin.Begin);
+
+                byte[] lengthBytes = new byte[4];
+                fs.Read(lengthBytes, 0, 4);
+                int length = BitConverter.ToInt32(lengthBytes, 0);
+
+                byte[] data = new byte[length];
+                fs.Read(data, 0, length);
+                return data;
+            }
+        }
+
+        public long AddBlockGroupData(byte[] data, ulong bgIndex)
+        {
+            using (FileStream fs = new FileStream(GetPath(bgIndex), FileMode.Append, FileAccess.Write))
+            {
+                long position = fs.Position;
+
+                fs.Write(BitConverter.GetBytes(data.Length), 0, 4);
+                fs.Write(data, 0, data.Length);
+
+                return position;
+            }
+        }
+
+        private string GetPath(ulong bgIndex)
+        {
+            return Path.Combine(pathBase, filenameBase + (bgIndex / div).ToString());
+        }
     }
 
     #endregion

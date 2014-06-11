@@ -449,6 +449,14 @@ namespace CREA2014
         private static Random random = new Random();
         private static double[] cache = new double[] { };
 
+        //指定された長さの無作為なバイト配列を返す
+        public static byte[] RundomBytes(this int length)
+        {
+            byte[] bytes = new byte[length];
+            random.NextBytes(bytes);
+            return bytes;
+        }
+
         //0からiまでの無作為な整数を返す（拡張：整数型）
         public static int RandomNum(this int i)
         {
@@ -1057,6 +1065,7 @@ namespace CREA2014
 
     public abstract class DATA { }
     public abstract class INTERNALDATA : DATA { }
+    //2014/06/10 配列が上手く読み書きできないバグを修正
     public abstract class STREAMDATA<T> : DATA where T : STREAMDATA<T>.StreamInfomation
     {
         public abstract class STREAMWRITER
@@ -1295,7 +1304,7 @@ namespace CREA2014
                 writer.WriteBytes((byte[])obj, si.Length);
             else if (si.Type.IsArray)
             {
-                object[] objs = obj as object[];
+                Array objs = obj as Array;
                 Type elementType = si.Type.GetElementType();
 
                 if (si.Length == null)
@@ -1340,9 +1349,9 @@ namespace CREA2014
             else if (si.Type.IsArray)
             {
                 Type elementType = si.Type.GetElementType();
-                object[] os = Array.CreateInstance(elementType, si.Length == null ? reader.ReadInt() : (int)si.Length) as object[];
+                Array os = Array.CreateInstance(elementType, si.Length == null ? reader.ReadInt() : (int)si.Length) as Array;
                 for (int i = 0; i < os.Length; i++)
-                    os[i] = _Read(elementType);
+                    os.SetValue(_Read(elementType), i);
 
                 si.Receiver(os);
             }
