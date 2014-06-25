@@ -12,6 +12,7 @@ using System.Linq;
 using System.Management;
 using System.Net;
 using System.Net.Sockets;
+using System.Numerics;
 using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Security.AccessControl;
@@ -278,8 +279,14 @@ namespace CREA2014
             return sb.ToString();
         }
 
+        //多倍長整数から16進文字列に変換する（拡張：多倍長整数型）
+        public static string ToHexstring(this BigInteger bigInt)
+        {
+            return bigInt.ToByteArray().ToHexstring();
+        }
+
         //16進文字列からバイト配列に変換する（拡張：文字列型）
-        public static byte[] FromHexstring(this string str)
+        public static byte[] FromHexstringToBytes(this string str)
         {
             if (str.Length % 2 != 0)
                 throw new ArgumentException("hexstring_length");
@@ -291,6 +298,12 @@ namespace CREA2014
                 bytes[i] = Convert.ToByte(strs[i], 16);
 
             return bytes;
+        }
+
+        //16進文字列から多倍長整数に変換する（拡張：多倍長整数型）
+        public static BigInteger FromHexstringToBigInteger(this string str)
+        {
+            return new BigInteger(str.FromHexstringToBytes());
         }
 
         //文字列を等間隔に分解する（拡張：文字列型）
@@ -3127,7 +3140,14 @@ namespace CREA2014
                 { "keep_conn_completed", (args) => "常時接続が確立しました。".Multilanguage(112)},
                 { "find_table_already_added", (args) => string.Format(string.Join(Environment.NewLine, "DHTの検索リスト項目は既に登録されています。".Multilanguage(116), "距離：{0}".Multilanguage(117), "ノード1：{1}".Multilanguage(118), "ノード2：{2}".Multilanguage(119)), args[0], args[1], args[3])}, 
                 {"find_nodes", (args) => string.Format("{0}個の近接ノードを発見しました。".Multilanguage(120), args[0])},
-                {"my_node_info", (args) => string.Format("自分自身のノード情報です。".Multilanguage(127), args[0])},
+                {"my_node_info", (args) => string.Format("自分自身のノード情報です。".Multilanguage(127))},
+                {"blk_too_old", (args) => string.Format("古過ぎるブロックです。".Multilanguage(128))},
+                {"blk_too_new", (args) => string.Format("新し過ぎるブロックです。".Multilanguage(129))},
+                {"blk_already_existed", (args) => string.Format("既に存在するブロックです。".Multilanguage(130))},
+                {"blk_mismatch_genesis_block_hash", (args) => string.Format("直前のブロックは起源ブロックでなければなりません。".Multilanguage(131))},
+                {"blk_not_connected", (args) => string.Format("接続されていないブロックです。".Multilanguage(132))},
+                {"blk_main_not_connected", (args) => string.Format("接続されていない主ブロックです。".Multilanguage(133))},
+                {"blk_too_deep", (args) => string.Format("深過ぎるブロックです。".Multilanguage(134))},
             };
 
             exceptionMessages = new Dictionary<string, Func<string>>() {
@@ -3366,7 +3386,7 @@ namespace CREA2014
                     _FeatureControl("FEATURE_XMLHTTP", 1);
                 }
 
-                Test test = new Test(logger, _OnException);
+                //Test test = new Test(logger, _OnException);
 
                 core = new Core(basepath);
                 core.StartSystem();

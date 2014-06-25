@@ -3030,7 +3030,7 @@ namespace CREA2014
             protected set
             {
                 byte[] cypherBytes;
-                using (MemoryStream ms = new MemoryStream(value.FromHexstring()))
+                using (MemoryStream ms = new MemoryStream(value.FromHexstringToBytes()))
                 using (DeflateStream ds = new DeflateStream(ms, CompressionMode.Decompress))
                 {
                     byte[] buffer1 = new byte[(4 + 2 + 4) * 4];
@@ -4041,7 +4041,7 @@ namespace CREA2014
             if (SizeBit % 8 != 0)
                 throw new InvalidDataException("invalid_size_bit");
 
-            FromHash(stringHash.FromHexstring());
+            FromHash(stringHash.FromHexstringToBytes());
 
             if (hash.Length != SizeByte)
                 throw new InvalidOperationException("invalid_length_hash");
@@ -4221,9 +4221,18 @@ namespace CREA2014
     {
         public DSAPUBKEYBASE() : base(null) { }
 
-        public DSAPUBKEYBASE(byte[] _pubKey) : base(null) { pubKey = _pubKey; }
+        public DSAPUBKEYBASE(byte[] _pubKey)
+            : base(null)
+        {
+            if (_pubKey.Length != SizeByte)
+                throw new InvalidOperationException("invalid_length_pub_key");
+
+            pubKey = _pubKey;
+        }
 
         public byte[] pubKey { get; private set; }
+
+        public abstract int SizeByte { get; }
 
         public abstract bool Verify(byte[] data, byte[] signature);
 
@@ -4232,20 +4241,28 @@ namespace CREA2014
             get
             {
                 return (msrw) => new MainDataInfomation[]{
-                    new MainDataInfomation(typeof(byte[]), null, () => pubKey, (o) => pubKey = (byte[])o),
+                    new MainDataInfomation(typeof(byte[]), SizeByte, () => pubKey, (o) => pubKey = (byte[])o),
                 };
             }
         }
-        public Func<ReaderWriter, IEnumerable<MainDataInfomation>> PublicStreamInfo { get { return StreamInfo; } }
     }
 
     public abstract class DSAPRIVKEYBASE : SHAREDDATA
     {
         public DSAPRIVKEYBASE() : base(null) { }
 
-        public DSAPRIVKEYBASE(byte[] _privKey) : base(null) { privKey = _privKey; }
+        public DSAPRIVKEYBASE(byte[] _privKey)
+            : base(null)
+        {
+            if (_privKey.Length != SizeByte)
+                throw new InvalidOperationException("invalid_length_priv_key");
+
+            privKey = _privKey;
+        }
 
         public byte[] privKey { get; private set; }
+
+        public abstract int SizeByte { get; }
 
         public abstract byte[] Sign(byte[] data);
 
@@ -4254,11 +4271,10 @@ namespace CREA2014
             get
             {
                 return (msrw) => new MainDataInfomation[]{
-                    new MainDataInfomation(typeof(byte[]), null, () => privKey, (o) => privKey = (byte[])o),
+                    new MainDataInfomation(typeof(byte[]), SizeByte, () => privKey, (o) => privKey = (byte[])o),
                 };
             }
         }
-        public Func<ReaderWriter, IEnumerable<MainDataInfomation>> PublicStreamInfo { get { return StreamInfo; } }
     }
 
     public abstract class DSAKEYPAIRBASE<DsaPubKeyType, DsaPrivKeyType> : SHAREDDATA
@@ -4270,18 +4286,15 @@ namespace CREA2014
         public DsaPubKeyType pubKey { get; protected set; }
         public DsaPrivKeyType privKey { get; protected set; }
 
-        protected override Func<ReaderWriter, IEnumerable<MainDataInfomation>> StreamInfo { get { return (msrw) => StreamInfoInner(msrw); } }
-        private IEnumerable<MainDataInfomation> StreamInfoInner(ReaderWriter msrw)
+        protected override Func<ReaderWriter, IEnumerable<MainDataInfomation>> StreamInfo
         {
-            if (pubKey == null)
-                pubKey = Activator.CreateInstance(typeof(DsaPubKeyType)) as DsaPubKeyType;
-            if (privKey == null)
-                privKey = Activator.CreateInstance(typeof(DsaPrivKeyType)) as DsaPrivKeyType;
-
-            foreach (var mdi in pubKey.PublicStreamInfo(null))
-                yield return mdi;
-            foreach (var mdi in privKey.PublicStreamInfo(null))
-                yield return mdi;
+            get
+            {
+                return (msrw) => new MainDataInfomation[]{
+                    new MainDataInfomation(typeof(DsaPubKeyType), null, () => pubKey, (o) => pubKey = (DsaPubKeyType)o),
+                    new MainDataInfomation(typeof(DsaPrivKeyType), null, () => privKey, (o) => privKey = (DsaPrivKeyType)o),
+                };
+            }
         }
     }
 
@@ -4291,10 +4304,9 @@ namespace CREA2014
 
         public Ecdsa256PubKey(byte[] _pubKey) : base(_pubKey) { }
 
-        public override bool Verify(byte[] data, byte[] signature)
-        {
-            return data.VerifyEcdsa(signature, pubKey);
-        }
+        public override int SizeByte { get { return 72; } }
+
+        public override bool Verify(byte[] data, byte[] signature) { return data.VerifyEcdsa(signature, pubKey); }
     }
 
     public class Ecdsa256PrivKey : DSAPRIVKEYBASE
@@ -4303,10 +4315,9 @@ namespace CREA2014
 
         public Ecdsa256PrivKey(byte[] _privKey) : base(_privKey) { }
 
-        public override byte[] Sign(byte[] data)
-        {
-            return data.SignEcdsaSha256(privKey);
-        }
+        public override int SizeByte { get { return 104; } }
+
+        public override byte[] Sign(byte[] data) { return data.SignEcdsaSha256(privKey); }
     }
 
     public class Ecdsa256KeyPair : DSAKEYPAIRBASE<Ecdsa256PubKey, Ecdsa256PrivKey>
@@ -4328,6 +4339,8 @@ namespace CREA2014
     public class Secp256k1PubKey<HashType> : DSAPUBKEYBASE where HashType : HASHBASE
     {
         public Secp256k1PubKey(byte[] _pubKey) : base(_pubKey) { }
+
+        public override int SizeByte { get { return 65; } }
 
         public override bool Verify(byte[] data, byte[] signature)
         {
@@ -4367,6 +4380,8 @@ namespace CREA2014
     public class Secp256k1PribKey<HashType> : DSAPRIVKEYBASE where HashType : HASHBASE
     {
         public Secp256k1PribKey(byte[] _pribKey) : base(_pribKey) { }
+
+        public override int SizeByte { get { return 32; } }
 
         public override byte[] Sign(byte[] data)
         {
@@ -5130,12 +5145,12 @@ namespace CREA2014
     {
         public Utxo()
         {
-            unspentTxOutputs = new Dictionary<ulong, Dictionary<TxidHashType, TransactionOutput<PubKeyHashType>[]>>();
+            unspentTxOutputs = new Dictionary<long, Dictionary<TxidHashType, TransactionOutput<PubKeyHashType>[]>>();
             currentIndex = 0;
         }
 
-        private Dictionary<ulong, Dictionary<TxidHashType, TransactionOutput<PubKeyHashType>[]>> unspentTxOutputs;
-        private ulong currentIndex;
+        private Dictionary<long, Dictionary<TxidHashType, TransactionOutput<PubKeyHashType>[]>> unspentTxOutputs;
+        private long currentIndex;
 
         public TransactionOutput<PubKeyHashType> GetTxOutput(TransactionInput<TxidHashType, PubKeyType> txInput)
         {
@@ -5241,6 +5256,177 @@ namespace CREA2014
         public override Yumina AmountInYumina { get { return this; } }
     }
 
+    public class Difficulty<BlockidHashType> where BlockidHashType : HASHBASE
+    {
+        public Difficulty(byte[] _compactTarget)
+        {
+            if (_compactTarget.Length != 4)
+                throw new ArgumentException("ill-formed_compact_target");
+
+            compactTarget = _compactTarget;
+        }
+
+        public Difficulty(BlockidHashType _target)
+        {
+            if (_target.SizeByte > 254)
+                throw new ArgumentException("too_long_target");
+
+            target = _target;
+        }
+
+        private byte[] compactTarget;
+        public byte[] CompactTarget
+        {
+            get
+            {
+                if (compactTarget == null)
+                {
+                    byte[] bytes = target.hash;
+
+                    int numOfHead0 = 0;
+                    for (int i = 0; i < bytes.Length && bytes[i] == 0; i++)
+                        numOfHead0++;
+                    if (numOfHead0 != 0)
+                        bytes = bytes.Decompose(numOfHead0);
+
+                    if (bytes.Length == 0)
+                        return new byte[] { 0, 0, 0, 0 };
+
+                    if (bytes[0] > 127)
+                        bytes = new byte[] { 0 }.Combine(bytes);
+                    bytes = new byte[] { (byte)bytes.Length }.Combine(bytes);
+                    if (bytes.Length == 2)
+                        bytes = bytes.Combine(new byte[] { 0, 0 });
+                    else if (bytes.Length == 3)
+                        bytes = bytes.Combine(new byte[] { 0 });
+                    else if (bytes.Length > 4)
+                        bytes = bytes.Decompose(0, 4);
+
+                    compactTarget = bytes;
+                }
+
+                return compactTarget;
+            }
+        }
+
+        private BlockidHashType target;
+        public BlockidHashType Target
+        {
+            get
+            {
+                if (target == null)
+                {
+                    byte[] bytes;
+                    if (compactTarget[0] > 2)
+                        bytes = new byte[] { compactTarget[1], compactTarget[2], compactTarget[3] };
+                    else if (compactTarget[0] == 2)
+                        bytes = new byte[] { compactTarget[1], compactTarget[2] };
+                    else if (compactTarget[0] == 1)
+                        bytes = new byte[] { compactTarget[1] };
+                    else
+                        return target = Activator.CreateInstance(typeof(BlockidHashType)) as BlockidHashType;
+
+                    int numOfTail0 = compactTarget[0] - 3;
+                    if (numOfTail0 > 0)
+                        bytes = bytes.Combine(new byte[numOfTail0]);
+
+                    BlockidHashType newTarget = Activator.CreateInstance(typeof(BlockidHashType)) as BlockidHashType;
+
+                    int numOfHead0 = newTarget.SizeByte - bytes.Length;
+                    if (numOfHead0 > 0)
+                        bytes = new byte[numOfHead0].Combine(bytes);
+
+                    newTarget.FromHash(bytes);
+
+                    target = newTarget;
+                }
+
+                return target;
+            }
+        }
+
+        public double Diff { get { return BDiff; } }
+
+        private double? pDifficulty;
+        public double PDiff
+        {
+            get
+            {
+                if (pDifficulty == null)
+                {
+                    BlockidHashType tag = Target;
+
+                    byte[] difficulty1TargetBytes = new byte[tag.SizeByte];
+                    for (int i = 4; i < difficulty1TargetBytes.Length; i++)
+                        difficulty1TargetBytes[i] = 255;
+
+                    pDifficulty = CalculateDifficulty(difficulty1TargetBytes, tag.hash);
+                }
+
+                return pDifficulty.Value;
+            }
+        }
+
+        private double? bDifficulty;
+        public double BDiff
+        {
+            get
+            {
+                if (bDifficulty == null)
+                {
+                    BlockidHashType tag = Target;
+
+                    byte[] difficulty1TargetBytes = new byte[tag.SizeByte];
+                    if (difficulty1TargetBytes.Length > 4)
+                        difficulty1TargetBytes[4] = 255;
+                    if (difficulty1TargetBytes.Length > 5)
+                        difficulty1TargetBytes[5] = 255;
+
+                    bDifficulty = CalculateDifficulty(difficulty1TargetBytes, tag.hash);
+                }
+
+                return bDifficulty.Value;
+            }
+        }
+
+        private double? averageHash;
+        public double AverageHash
+        {
+            get
+            {
+                if (averageHash == null)
+                {
+                    BlockidHashType tag = Target;
+
+                    byte[] maxBytes = Enumerable.Repeat((byte)255, tag.SizeByte).ToArray();
+
+                    BigInteger maxBigInt = new BigInteger(maxBytes.Reverse().ToArray().Combine(new byte[] { 0 }));
+                    BigInteger targetBigInt = new BigInteger(tag.hash.Reverse().ToArray().Combine(new byte[] { 0 }));
+
+                    BigInteger averageHashBigInt100000000 = (maxBigInt * 100000000) / targetBigInt;
+
+                    averageHash = (double)averageHashBigInt100000000 / 100000000.0;
+                }
+
+                return averageHash.Value;
+            }
+        }
+
+        public double GetAverageHashrate(double averageInterval) { return AverageHash / averageInterval; }
+
+        public double GetAverageTime(double averageHashrate) { return AverageHash / averageHashrate; }
+
+        private double CalculateDifficulty(byte[] difficulty1TargetBytes, byte[] targetBytes)
+        {
+            BigInteger difficulty1TargetBigInt = new BigInteger(difficulty1TargetBytes.Reverse().ToArray().Combine(new byte[] { 0 }));
+            BigInteger targetBigInt = new BigInteger(targetBytes.Reverse().ToArray().Combine(new byte[] { 0 }));
+
+            BigInteger difficultyBigInt100000000 = (difficulty1TargetBigInt * 100000000) / targetBigInt;
+
+            return (double)difficultyBigInt100000000 / 100000000.0;
+        }
+    }
+
     public abstract class TXBLOCKBASE<TxidBlockidHashType> : SHAREDDATA
         where TxidBlockidHashType : HASHBASE
     {
@@ -5254,7 +5440,10 @@ namespace CREA2014
             get
             {
                 if (isModified || idCache == null)
+                {
                     idCache = Activator.CreateInstance(typeof(TxidBlockidHashType), ToBinary()) as TxidBlockidHashType;
+                    isModified = false;
+                }
                 return idCache;
             }
         }
@@ -5402,6 +5591,9 @@ namespace CREA2014
 
             for (int i = 0; i < inputs.Length; i++)
                 inputs[i].SetSenderSig(privKeys[i].Sign(bytesToSign));
+
+            //取引入力の内容が変更された
+            isModified = true;
         }
 
         public bool VerifySignature(TransactionOutput<PubKeyHashType>[] prevTxOutputs)
@@ -5469,7 +5661,7 @@ namespace CREA2014
     {
         public TransactionInput() : base(null) { }
 
-        public TransactionInput(ulong _prevTxBlockIndex, TxidHashType _prevTxHash, int _prevTxOutputIndex, PubKeyType _senderPubKey)
+        public TransactionInput(long _prevTxBlockIndex, TxidHashType _prevTxHash, int _prevTxOutputIndex, PubKeyType _senderPubKey)
             : base(null)
         {
             prevTxBlockIndex = _prevTxBlockIndex;
@@ -5478,7 +5670,9 @@ namespace CREA2014
             senderPubKey = _senderPubKey;
         }
 
-        public ulong prevTxBlockIndex { get; private set; }
+        public static readonly int senderSigLength = 64;
+
+        public long prevTxBlockIndex { get; private set; }
         public TxidHashType prevTxHash { get; private set; }
         public int prevTxOutputIndex { get; private set; }
         public byte[] senderSig { get; private set; }
@@ -5489,10 +5683,10 @@ namespace CREA2014
             get
             {
                 return (msrw) => new MainDataInfomation[]{
-                    new MainDataInfomation(typeof(ulong), () => prevTxBlockIndex, (o) => prevTxBlockIndex = (ulong)o),
+                    new MainDataInfomation(typeof(long), () => prevTxBlockIndex, (o) => prevTxBlockIndex = (long)o),
                     new MainDataInfomation(typeof(TxidHashType), null, () => prevTxHash, (o) => prevTxHash = (TxidHashType)o),
                     new MainDataInfomation(typeof(int), () => prevTxOutputIndex, (o) => prevTxOutputIndex = (int)o),
-                    new MainDataInfomation(typeof(byte[]), null, () => senderSig, (o) => senderSig = (byte[])o),
+                    new MainDataInfomation(typeof(byte[]), senderSigLength, () => senderSig, (o) => senderSig = (byte[])o),
                     new MainDataInfomation(typeof(PubKeyType), null, () => senderPubKey, (o) => senderPubKey = (PubKeyType)o),
                 };
             }
@@ -5503,14 +5697,20 @@ namespace CREA2014
             get
             {
                 return (msrw) => new MainDataInfomation[]{
-                    new MainDataInfomation(typeof(ulong), () => prevTxBlockIndex, (o) => { throw new NotSupportedException("tx_in_si_to_sign"); }),
+                    new MainDataInfomation(typeof(long), () => prevTxBlockIndex, (o) => { throw new NotSupportedException("tx_in_si_to_sign"); }),
                     new MainDataInfomation(typeof(TxidHashType), null, () => prevTxHash, (o) => { throw new NotSupportedException("tx_in_si_to_sign"); }),
                     new MainDataInfomation(typeof(int), () => prevTxOutputIndex, (o) => { throw new NotSupportedException("tx_in_si_to_sign"); }),
                 };
             }
         }
 
-        public void SetSenderSig(byte[] sig) { senderSig = sig; }
+        public void SetSenderSig(byte[] sig)
+        {
+            if (sig.Length != senderSigLength)
+                throw new ArgumentException("tx_in_sender_sig_length");
+
+            senderSig = sig;
+        }
     }
 
     public class TransactionOutput<PubKeyHashType> : SHAREDDATA where PubKeyHashType : HASHBASE
@@ -5575,7 +5775,7 @@ namespace CREA2014
     {
         public GenesisBlock() : base(null) { }
 
-        public readonly string genesisWord = "Bitstamp 2014/05/25 BTC/USD High 586.34";
+        public readonly string genesisWord = "Bitstamp 2014/05/25 BTC/USD High 586.34 BTC to the moooooooon!!";
 
         protected override Func<ReaderWriter, IEnumerable<MainDataInfomation>> StreamInfo
         {
@@ -5596,11 +5796,13 @@ namespace CREA2014
     {
         static TransactionalBlock()
         {
-            rewards = new decimal[numberOfCycles];
-            rewards[0] = 1.0m;
+            rewards = new CurrencyUnit[numberOfCycles];
+            rewards[0] = initialReward;
             for (int i = 1; i < numberOfCycles; i++)
-                rewards[i] = rewards[i - 1] * 0.8m;
+                rewards[i] = new Creacoin(rewards[i - 1].Amount * rewardReductionRate);
         }
+
+        public TransactionalBlock(int? _version) : base(_version) { }
 
         public TransactionalBlock(int? _version, BlockHeader<BlockidHashType, TxidHashType> _header, CoinbaseTransaction<TxidHashType, PubKeyHashType> _coinbaseTxToMiner, TransferTransaction<TxidHashType, PubKeyHashType, PubKeyType>[] _transferTxs)
             : base(_version)
@@ -5610,13 +5812,21 @@ namespace CREA2014
             transferTxs = _transferTxs;
         }
 
-        public static ulong blockGenerationInterval = 1; //[sec]
-        public static ulong cycle = 60 * 60 * 24 * 365; //[sec]
-        public static int numberOfCycles = 8;
-        public static ulong rewardlessStart = cycle * (ulong)numberOfCycles; //[sec]
-        public static decimal[] rewards; //[CREA]
-        public static decimal foundationShare = 0.1m;
-        public static ulong foundationInterval = 60 * 60 * 24; //[block]
+        public static readonly long blockGenerationInterval = 5; //[sec]
+        public static readonly long cycle = 60 * 60 * 24 * 365; //[sec]
+        public static readonly int numberOfCycles = 8;
+        public static readonly long rewardlessStart = cycle * numberOfCycles; //[sec]
+        public static readonly decimal rewardReductionRate = 0.8m;
+        public static readonly CurrencyUnit initialReward = new Creacoin(1.0m); //[CREA/sec]
+        public static readonly CurrencyUnit[] rewards; //[CREA/sec]
+        public static readonly decimal foundationShare = 0.1m;
+        public static readonly long foundationInterval = 60 * 60 * 24; //[block]
+
+        public static readonly long numberOfTimestamps = 11;
+        public static readonly long targetTimespan = blockGenerationInterval * 1; //[sec]
+
+        //Diff = 0.00390625
+        public static readonly Difficulty<BlockidHashType> minDifficulty = new Difficulty<BlockidHashType>(HASHBASE.FromHash<BlockidHashType>(new byte[] { 0, 0, 0, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255 }));
 
         public BlockHeader<BlockidHashType, TxidHashType> header { get; private set; }
         public CoinbaseTransaction<TxidHashType, PubKeyHashType> coinbaseTxToMiner { get; private set; }
@@ -5632,6 +5842,9 @@ namespace CREA2014
             }
         }
 
+        protected bool isTransactionsModified;
+
+        protected MerkleTree<TxidHashType> merkleTreeCache;
         public override bool IsValid
         {
             get
@@ -5641,8 +5854,6 @@ namespace CREA2014
 
                 if (Version == 0)
                 {
-                    //<未実装>ブロックの頭部の（index以外の）妥当性検証
-
                     if (header.index % foundationInterval == 0)
                     {
                         if (!(this is FoundationalBlock<BlockidHashType, TxidHashType, PubKeyHashType, PubKeyType>))
@@ -5651,7 +5862,21 @@ namespace CREA2014
                     else if (!(this is NormalBlock<BlockidHashType, TxidHashType, PubKeyHashType, PubKeyType>))
                         return false;
 
-                    return Transactions.All((e) => e.IsValid);
+                    if (!Transactions.All((e) => e.IsValid))
+                        return false;
+
+                    if (isTransactionsModified || merkleTreeCache == null)
+                    {
+                        merkleTreeCache = new MerkleTree<TxidHashType>(Transactions.Select((e) => e.Id).ToArray());
+                        isTransactionsModified = false;
+                    }
+                    if (!header.merkleRootHash.Equals(merkleTreeCache.Root))
+                        return false;
+
+                    if (Id.CompareTo(header.difficulty.Target) > 0)
+                        return false;
+
+                    return true;
                 }
                 else
                     throw new NotSupportedException("tx_block_is_valid_not_supported");
@@ -5689,14 +5914,31 @@ namespace CREA2014
             return GetActualRewardToMinerAndTxFee().rawAmount == GetValidRewardToMinerAndTxFee(prevTxOutputss).rawAmount;
         }
 
-        public virtual bool VerifyAll(TransactionOutput<PubKeyHashType>[][] prevTxOutputss)
+        public bool VerifyTimestamp(Func<long, TransactionalBlock<BlockidHashType, TxidHashType, PubKeyHashType, PubKeyType>> indexToTxBlock)
+        {
+            List<DateTime> timestamps = new List<DateTime>();
+            for (long i = 1; i < numberOfTimestamps + 1 && header.index - i > 0; i++)
+                timestamps.Add(indexToTxBlock(header.index - i).header.timestamp);
+            timestamps.Sort();
+
+            if (timestamps.Count == 0)
+                return true;
+
+            return (timestamps.Count / 2).Operate((index) => header.timestamp > (timestamps.Count % 2 == 0 ? timestamps[index - 1] + new TimeSpan((timestamps[index] - timestamps[index - 1]).Ticks / 2) : timestamps[index]));
+        }
+
+        public bool VerifyDifficulty(Func<long, TransactionalBlock<BlockidHashType, TxidHashType, PubKeyHashType, PubKeyType>> indexToTxBlock)
+        {
+            return header.difficulty.Diff == GetWorkRequired(header.index, indexToTxBlock, 0).Diff;
+        }
+
+        public virtual bool VerifyAll(TransactionOutput<PubKeyHashType>[][] prevTxOutputss, Func<long, TransactionalBlock<BlockidHashType, TxidHashType, PubKeyHashType, PubKeyType>> indexToTxBlock)
         {
             if (prevTxOutputss.Length != transferTxs.Length)
                 throw new ArgumentException("transfet_txs_and_prev_outputs");
 
             if (Version == 0)
-                //<未実装>ブロックの頭部の（index以外の）妥当性検証
-                return VerifyTransferTransaction(prevTxOutputss) && VerifyRewardAndTxFee(prevTxOutputss);
+                return VerifyTransferTransaction(prevTxOutputss) && VerifyRewardAndTxFee(prevTxOutputss) & VerifyTimestamp(indexToTxBlock) && VerifyDifficulty(indexToTxBlock);
             else
                 throw new NotSupportedException("tx_block_not_supported");
         }
@@ -5730,25 +5972,25 @@ namespace CREA2014
             return new CurrencyUnit(rawTxFee);
         }
 
-        public static CurrencyUnit GetRewardToAll(ulong index, int version)
+        public static CurrencyUnit GetRewardToAll(long index, int version)
         {
             if (version == 0)
             {
-                ulong sec = index * blockGenerationInterval;
+                long sec = index * blockGenerationInterval;
 
                 if (sec < 0)
                     throw new ArgumentException("block_index_out_of_range");
 
                 for (int i = 0; i < numberOfCycles; i++)
-                    if (sec < cycle * (ulong)(i + 1))
-                        return new Creacoin(rewards[i] * blockGenerationInterval);
+                    if (sec < cycle * (i + 1))
+                        return new Creacoin(rewards[i].rawAmount * (long)blockGenerationInterval);
                 return new Creacoin(0.0m);
             }
             else
                 throw new NotSupportedException("tx_block_not_supported");
         }
 
-        public static CurrencyUnit GetRewardToMiner(ulong index, int version)
+        public static CurrencyUnit GetRewardToMiner(long index, int version)
         {
             if (version == 0)
                 return new Creacoin(GetRewardToAll(index, version).AmountInCreacoin.Amount * (1.0m - foundationShare));
@@ -5756,7 +5998,7 @@ namespace CREA2014
                 throw new NotSupportedException("tx_block_not_supported");
         }
 
-        public static CurrencyUnit GetRewardToFoundation(ulong index, int version)
+        public static CurrencyUnit GetRewardToFoundation(long index, int version)
         {
             if (version == 0)
                 return new Creacoin(GetRewardToAll(index, version).AmountInCreacoin.Amount * foundationShare);
@@ -5764,10 +6006,47 @@ namespace CREA2014
                 throw new NotSupportedException("tx_block_not_supported");
         }
 
-        public static CurrencyUnit GetRewardToFoundationInterval(ulong index, int version)
+        public static CurrencyUnit GetRewardToFoundationInterval(long index, int version)
         {
             if (version == 0)
                 return new Creacoin(GetRewardToFoundation(index, version).AmountInCreacoin.Amount * foundationInterval);
+            else
+                throw new NotSupportedException("tx_block_not_supported");
+        }
+
+        public static Difficulty<BlockidHashType> GetWorkRequired(long index, Func<long, TransactionalBlock<BlockidHashType, TxidHashType, PubKeyHashType, PubKeyType>> indexToTxBlock, int version)
+        {
+            if (version == 0)
+            {
+                if (index == 1)
+                    return minDifficulty;
+
+                long retargetInterval = targetTimespan / blockGenerationInterval;
+                long lastIndex = index - 1;
+
+                if (index % retargetInterval != 0)
+                    return indexToTxBlock(lastIndex).header.difficulty;
+                else
+                {
+                    long blocksToGoBack = index != retargetInterval ? retargetInterval : retargetInterval - 1;
+                    long firstIndex = lastIndex - blocksToGoBack > 0 ? lastIndex - blocksToGoBack : 1;
+
+                    TimeSpan actualTimespan = indexToTxBlock(lastIndex).header.timestamp - indexToTxBlock(firstIndex).header.timestamp;
+
+                    if (actualTimespan.TotalSeconds < targetTimespan - (targetTimespan / 4))
+                        actualTimespan = TimeSpan.FromSeconds(targetTimespan - (targetTimespan / 4));
+                    else if (actualTimespan.TotalSeconds > targetTimespan + (targetTimespan / 2))
+                        actualTimespan = TimeSpan.FromSeconds(targetTimespan - (targetTimespan / 2));
+
+                    BigInteger bi = new BigInteger(indexToTxBlock(lastIndex).header.difficulty.Target.hash.Reverse().ToArray().Combine(new byte[] { 0 }));
+                    bi *= (long)actualTimespan.TotalSeconds;
+                    bi /= targetTimespan;
+
+                    Difficulty<BlockidHashType> difficulty = new Difficulty<BlockidHashType>(HASHBASE.FromHash<BlockidHashType>(bi.ToByteArray().Reverse().ToArray().Decompose(1)));
+
+                    return difficulty.Diff < minDifficulty.Diff ? minDifficulty : difficulty;
+                }
+            }
             else
                 throw new NotSupportedException("tx_block_not_supported");
         }
@@ -5779,6 +6058,8 @@ namespace CREA2014
         where PubKeyHashType : HASHBASE
         where PubKeyType : DSAPUBKEYBASE
     {
+        public NormalBlock() : base(0) { }
+
         public NormalBlock(BlockHeader<BlockidHashType, TxidHashType> _header, CoinbaseTransaction<TxidHashType, PubKeyHashType> _coinbaseTxToMiner, TransferTransaction<TxidHashType, PubKeyHashType, PubKeyType>[] _transferTransactions) : base(0, _header, _coinbaseTxToMiner, _transferTransactions) { }
 
         protected override Func<ReaderWriter, IEnumerable<MainDataInfomation>> StreamInfo
@@ -5793,6 +6074,8 @@ namespace CREA2014
         }
 
         public override bool IsVersioned { get { return true; } }
+
+        public override bool IsCorruptionChecked { get { return true; } }
     }
 
     public class FoundationalBlock<BlockidHashType, TxidHashType, PubKeyHashType, PubKeyType> : TransactionalBlock<BlockidHashType, TxidHashType, PubKeyHashType, PubKeyType>
@@ -5801,6 +6084,8 @@ namespace CREA2014
         where PubKeyHashType : HASHBASE
         where PubKeyType : DSAPUBKEYBASE
     {
+        public FoundationalBlock() : base(0) { }
+
         public FoundationalBlock(BlockHeader<BlockidHashType, TxidHashType> _header, CoinbaseTransaction<TxidHashType, PubKeyHashType> _coinbaseTxToMiner, CoinbaseTransaction<TxidHashType, PubKeyHashType> _coinbaseTxToFoundation, TransferTransaction<TxidHashType, PubKeyHashType, PubKeyType>[] _transferTransactions)
             : base(0, _header, _coinbaseTxToMiner, _transferTransactions)
         {
@@ -5834,6 +6119,8 @@ namespace CREA2014
 
         public override bool IsVersioned { get { return true; } }
 
+        public override bool IsCorruptionChecked { get { return true; } }
+
         public override bool VerifyRewardAndTxFee(TransactionOutput<PubKeyHashType>[][] prevTxOutputss)
         {
             if (!base.VerifyRewardAndTxFee(prevTxOutputss))
@@ -5860,42 +6147,693 @@ namespace CREA2014
         where BlockidHashType : HASHBASE
         where TxidHashType : HASHBASE
     {
-        public BlockHeader() : base(0) { }
+        public BlockHeader() : base(null) { }
 
-        //<要検討>入れるか入れないか
-        public ulong index { get; private set; }
+        public BlockHeader(long _index, BlockidHashType _prevBlockHash, TxidHashType _merkleRootHash, DateTime _timestamp, Difficulty<BlockidHashType> _difficulty, byte[] _nonce)
+            : base(null)
+        {
+            if (_index < 1)
+                throw new ArgumentOutOfRangeException("block_header_index_out");
+            if (_nonce.Length > maxNonceLength)
+                throw new ArgumentOutOfRangeException("block_header_nonce_out");
+
+            index = _index;
+            prevBlockHash = _prevBlockHash;
+            merkleRootHash = _merkleRootHash;
+            timestamp = _timestamp;
+            difficulty = _difficulty;
+            nonce = _nonce;
+        }
+
+        public static readonly int maxNonceLength = 10;
+
+        public long index { get; private set; }
         public BlockidHashType prevBlockHash { get; private set; }
         public TxidHashType merkleRootHash { get; private set; }
         public DateTime timestamp { get; private set; }
-        public uint difficulty { get; private set; }
+        public Difficulty<BlockidHashType> difficulty { get; private set; }
         public byte[] nonce { get; private set; }
 
         protected override Func<ReaderWriter, IEnumerable<MainDataInfomation>> StreamInfo
         {
-            get { throw new NotImplementedException(); }
+            get
+            {
+                return (msrw) => new MainDataInfomation[]{
+                    new MainDataInfomation(typeof(long), () => index, (o) => index = (long)o),
+                    new MainDataInfomation(typeof(BlockidHashType), null, () => prevBlockHash, (o) => prevBlockHash = (BlockidHashType)o),
+                    new MainDataInfomation(typeof(TxidHashType), null, () => merkleRootHash, (o) => merkleRootHash = (TxidHashType)o),
+                    new MainDataInfomation(typeof(DateTime), () => timestamp, (o) => timestamp = (DateTime)o),
+                    new MainDataInfomation(typeof(byte[]), 4, () => difficulty.CompactTarget, (o) => difficulty = new Difficulty<BlockidHashType>((byte[])o)),
+                    new MainDataInfomation(typeof(byte[]), null, () => nonce, (o) => nonce = (byte[])o),
+                };
+            }
         }
-
-        public override bool IsVersioned { get { return true; } }
     }
 
     #endregion
 
-    public class BlockChain<BlockidHashType, TxidHashType, PubKeyHashType, PubKeyType>
+    public class ProofOfWork
+    {
+
+    }
+
+    public class BlockChain<BlockidHashType, TxidHashType, PubKeyHashType, PubKeyType> : SHAREDDATA
         where BlockidHashType : HASHBASE
         where TxidHashType : HASHBASE
         where PubKeyHashType : HASHBASE
         where PubKeyType : DSAPUBKEYBASE
     {
-        public BlockChain()
+        public BlockChain(BlockNodesGroupDatabase _bngDatabase, BlockGroupDatabase _bgDatabase)
         {
+            bngDatabase = _bngDatabase;
+            bgDatabase = _bgDatabase;
 
+            Initialize();
         }
 
-        public ulong tail { get; private set; }
+        public BlockChain(byte[] data, BlockNodesGroupDatabase _bngDatabase, BlockGroupDatabase _bgDatabase)
+        {
+            FromBinary(data);
+
+            bngDatabase = _bngDatabase;
+            bgDatabase = _bgDatabase;
+
+            Initialize();
+        }
+
+        private void Initialize()
+        {
+            blockGroups = new SortedDictionary<long, List<TransactionalBlock<BlockidHashType, TxidHashType, PubKeyHashType, PubKeyType>>>();
+            mainBlocks = new SortedDictionary<long, TransactionalBlock<BlockidHashType, TxidHashType, PubKeyHashType, PubKeyType>>();
+            isVerifieds = new Dictionary<BlockidHashType, bool>();
+            numOfMainBlocksWhenSaveNext = numOfMainBlocksWhenSave;
+
+            currentBngIndex = head / blockNodesGroupDiv;
+            currentBng = new BlockNodesGroup(blockNodesGroupDiv);
+            if (head == 0)
+                currentBng.AddBlockNodes(new BlockNodes());
+            else
+            {
+                byte[] currentBngBytes = bngDatabase.GetBlockNodesGroupData(currentBngIndex);
+                if (currentBngBytes.Length != 0)
+                    currentBng.FromBinary(currentBngBytes);
+            }
+        }
+
+        private static readonly long blockGroupDiv = 100000;
+        private static readonly long blockNodesGroupDiv = 10000;
+
+        //未保存のブロックの集まり
+        //保存したら削除しなければならない
+        //鍵：bIndex（ブロックの高さ）
+        private SortedDictionary<long, List<TransactionalBlock<BlockidHashType, TxidHashType, PubKeyHashType, PubKeyType>>> blockGroups;
+        //未保存の主ブロックの集まり
+        //保存したら削除しなければならない
+        //鍵：bIndex（ブロックの高さ）
+        private SortedDictionary<long, TransactionalBlock<BlockidHashType, TxidHashType, PubKeyHashType, PubKeyType>> mainBlocks;
+        //検証したら結果を格納する
+        //<未実装>保存したら（或いは、参照される可能性が低くなったら）削除しなければならない
+        private Dictionary<BlockidHashType, bool> isVerifieds;
+        //更新された主ブロックがこれ以上溜まると1度保存が試行される
+        private int numOfMainBlocksWhenSaveNext;
+
+        private long cacheBgIndex;
+        //bgPosition1（ブロック群のファイル上の位置）
+        //bgPosition2（ブロック群の何番目のブロックか）
+        private long cacheBgPosition1;
+        //性能向上のためのブロック群の一時的な保持
+        //必要なものだけ逆直列化する
+        private byte[][] cacheBgBytes;
+        private TransactionalBlock<BlockidHashType, TxidHashType, PubKeyHashType, PubKeyType>[] cacheBg;
+
+        public enum TransactionType { normal, foundational }
+
+        //bngIndex（ブロック節群の番号） = bIndex / blockNodesGroupDiv
+        //保存されているブロック節群の中で最新のもの
+        private long currentBngIndex;
+        private BlockNodesGroup currentBng;
+        //性能向上のためのブロック節群の一時的な保持
+        private long cacheBngIndex;
+        private BlockNodesGroup cacheBng;
+
+        private BlockNodesGroupDatabase bngDatabase;
+        private BlockGroupDatabase bgDatabase;
+
+        private GenesisBlock<BlockidHashType> genesisBlock = new GenesisBlock<BlockidHashType>();
+
+        //古過ぎるか、新し過ぎるブロックは無条件に拒否
+        public static readonly long rejectedBIndexDif = 100;
+
+        public static readonly int maxBrunchDeep = 100;
+        //更新された主ブロックがこれ以上溜まると1度保存が試行される
+        public static readonly int numOfMainBlocksWhenSave = 200;
+        //更新された主ブロックが↑の数以上溜まっている状態で更にこれ以上増えると1度保存が試行される
+        public static readonly int numOfMainBlocksWhenSaveDifference = 50;
+        public static readonly int numOfNewMainBlocksInGroupWhenSave = 150;
+        public static readonly int blockGroupCapacity = 100;
+        public static readonly long discardOldBlock = 200;
+
+        public long head { get; private set; }
+
+        protected override Func<ReaderWriter, IEnumerable<MainDataInfomation>> StreamInfo
+        {
+            get
+            {
+                return (msrw) => new MainDataInfomation[]{
+                    new MainDataInfomation(typeof(long), () => head, (o) => head = (long)o),
+                };
+            }
+        }
+
+        private TransactionalBlock<BlockidHashType, TxidHashType, PubKeyHashType, PubKeyType> GetSavedOrCachedBlock(long bgIndex, long bgPosition1, long bgPosition2)
+        {
+            Func<TransactionalBlock<BlockidHashType, TxidHashType, PubKeyHashType, PubKeyType>> _GetBlockFromCache = () =>
+            {
+                byte[] txBlockTypeBytes = new byte[4];
+                byte[] txBlockBytes = new byte[cacheBgBytes[bgPosition2].Length - 4];
+
+                Array.Copy(cacheBgBytes[bgPosition2], 0, txBlockTypeBytes, 0, txBlockTypeBytes.Length);
+                Array.Copy(cacheBgBytes[bgPosition2], 4, txBlockBytes, 0, txBlockBytes.Length);
+
+                TransactionType txType = (TransactionType)BitConverter.ToInt32(txBlockTypeBytes, 0);
+
+                TransactionalBlock<BlockidHashType, TxidHashType, PubKeyHashType, PubKeyType> txBlock;
+                if (txType == TransactionType.normal)
+                    txBlock = new NormalBlock<BlockidHashType, TxidHashType, PubKeyHashType, PubKeyType>();
+                else if (txType == TransactionType.foundational)
+                    txBlock = new FoundationalBlock<BlockidHashType, TxidHashType, PubKeyHashType, PubKeyType>();
+                else
+                    throw new NotSupportedException("not_supported_tx_block_type");
+
+                txBlock.FromBinary(txBlockBytes);
+
+                return cacheBg[bgPosition2] = txBlock;
+            };
+
+            if (cacheBgIndex == bgIndex && cacheBgPosition1 == bgPosition1 && cacheBgBytes != null)
+                if (cacheBg != null && cacheBg[bgPosition2] != null)
+                    return cacheBg[bgPosition2];
+                else
+                    return _GetBlockFromCache();
+            else
+            {
+                using (MemoryStream ms = new MemoryStream(bgDatabase.GetBlockGroupData(bgIndex, (long)bgPosition1)))
+                {
+                    byte[] bgLengthBytes = new byte[4];
+                    ms.Read(bgLengthBytes, 0, 4);
+                    int bgLength = BitConverter.ToInt32(bgLengthBytes, 0);
+
+                    byte[][] bgDatasBytes = new byte[bgLength][];
+                    for (int i = 0; i < bgLength; i++)
+                    {
+                        byte[] bLengthBytes = new byte[4];
+                        ms.Read(bLengthBytes, 0, 4);
+                        int bLength = BitConverter.ToInt32(bLengthBytes, 0);
+
+                        bgDatasBytes[i] = new byte[bLength];
+                        ms.Read(bgDatasBytes[i], 0, bLength);
+                    }
+
+                    cacheBgBytes = bgDatasBytes;
+                    cacheBg = new TransactionalBlock<BlockidHashType, TxidHashType, PubKeyHashType, PubKeyType>[cacheBgBytes.Length];
+                    cacheBgIndex = bgIndex;
+                    cacheBgPosition1 = bgPosition1;
+                }
+
+                return _GetBlockFromCache();
+            }
+        }
+
+        private long SaveBlockGroup(long bgIndex, byte[][] bgDataBytes)
+        {
+            using (MemoryStream ms = new MemoryStream())
+            {
+                byte[] bgLengthBytes = BitConverter.GetBytes(bgDataBytes.Length);
+                ms.Write(bgLengthBytes, 0, 4);
+
+                for (int i = 0; i < bgDataBytes.Length; i++)
+                {
+                    byte[] bLengthBytes = BitConverter.GetBytes(bgDataBytes[i].Length);
+                    ms.Write(bLengthBytes, 0, 4);
+
+                    ms.Write(bgDataBytes[i], 0, bgDataBytes[i].Length);
+                }
+
+                return bgDatabase.AddBlockGroupData(ms.ToArray(), bgIndex);
+            }
+        }
+
+        private void LoadCacheBng(long bngIndex)
+        {
+            cacheBngIndex = bngIndex;
+            cacheBng = new BlockNodesGroup(blockGroupDiv);
+            byte[] cacheBngBytes = bngDatabase.GetBlockNodesGroupData(bngIndex);
+            if (cacheBngBytes.Length != 0)
+                cacheBng.FromBinary(cacheBngBytes);
+        }
+
+        private TransactionalBlock<BlockidHashType, TxidHashType, PubKeyHashType, PubKeyType>[] GetBlocksAtBIndex(long bIndex)
+        {
+            List<TransactionalBlock<BlockidHashType, TxidHashType, PubKeyHashType, PubKeyType>> blocks = new List<TransactionalBlock<BlockidHashType, TxidHashType, PubKeyHashType, PubKeyType>>();
+
+            if (blockGroups.ContainsKey(bIndex))
+                foreach (var block in blockGroups[bIndex])
+                    blocks.Add(block);
+
+            long bgIndex = bIndex / blockGroupDiv;
+            long bngIndex = bIndex / blockNodesGroupDiv;
+            long bngPosition = bIndex % blockNodesGroupDiv;
+
+            if (currentBngIndex == bngIndex)
+            {
+                //<未改良>position1が同一のブロック取得を纏める（連続させる）
+                if (currentBng.nodess[bngPosition] != null)
+                    foreach (var blockNode in currentBng.nodess[bngPosition].nodes)
+                        blocks.Add(GetSavedOrCachedBlock(bgIndex, blockNode.position1, blockNode.position2));
+            }
+            else
+            {
+                if (cacheBngIndex != bngIndex || cacheBng == null)
+                    LoadCacheBng(bngIndex);
+
+                //<未改良>position1が同一のブロック取得を纏める（連続させる）
+                if (cacheBng.nodess[bngPosition] != null)
+                    foreach (var blockNode in cacheBng.nodess[bngPosition].nodes)
+                        blocks.Add(GetSavedOrCachedBlock(bgIndex, blockNode.position1, blockNode.position2));
+            }
+
+            return blocks.ToArray();
+        }
+
+        private TransactionalBlock<BlockidHashType, TxidHashType, PubKeyHashType, PubKeyType> GetMainBlockAtBIndex(long bIndex)
+        {
+            if (mainBlocks.ContainsKey(bIndex))
+                return mainBlocks[bIndex];
+
+            long bgIndex = bIndex / blockGroupDiv;
+            long bngIndex = bIndex / blockNodesGroupDiv;
+            long bngPosition = bIndex % blockNodesGroupDiv;
+
+            if (currentBngIndex == bngIndex)
+            {
+                if (currentBng.nodess[bngPosition] != null)
+                    foreach (var blockNode in currentBng.nodess[bngPosition].nodes)
+                        if (blockNode.isMain)
+                            return GetSavedOrCachedBlock(bgIndex, blockNode.position1, blockNode.position2);
+            }
+            else
+            {
+                if (cacheBngIndex != bngIndex || cacheBng == null)
+                    LoadCacheBng(bngIndex);
+
+                if (cacheBng.nodess[bngPosition] != null)
+                    foreach (var blockNode in cacheBng.nodess[bngPosition].nodes)
+                        if (blockNode.isMain)
+                            return GetSavedOrCachedBlock(bgIndex, blockNode.position1, blockNode.position2);
+            }
+
+            return null;
+        }
+
+        public TransactionalBlock<BlockidHashType, TxidHashType, PubKeyHashType, PubKeyType>[] GetHeadBlocks()
+        {
+            if (head == 0)
+                throw new ArgumentOutOfRangeException("blk_genesis_bindex");
+
+            return GetBlocksAtBIndex(head);
+        }
+
+        public TransactionalBlock<BlockidHashType, TxidHashType, PubKeyHashType, PubKeyType> GetHeadMainBlock()
+        {
+            if (head == 0)
+                throw new ArgumentOutOfRangeException("blk_genesis_bindex");
+
+            return GetMainBlockAtBIndex(head);
+        }
+
+        public TransactionalBlock<BlockidHashType, TxidHashType, PubKeyHashType, PubKeyType>[] GetBlocks(long bIndex)
+        {
+            if (bIndex == 0)
+                throw new ArgumentOutOfRangeException("blk_genesis_bindex");
+
+            return GetBlocksAtBIndex(bIndex);
+        }
+
+        public TransactionalBlock<BlockidHashType, TxidHashType, PubKeyHashType, PubKeyType> GetMainBlock(long bIndex)
+        {
+            if (bIndex == 0)
+                throw new ArgumentOutOfRangeException("blk_genesis_bindex");
+            if (bIndex > head)
+                throw new ArgumentException("blk_bindex");
+
+            return GetMainBlockAtBIndex(bIndex);
+        }
 
         public void AddBlock(TransactionalBlock<BlockidHashType, TxidHashType, PubKeyHashType, PubKeyType> txBlock)
         {
+            if (txBlock.header.index <= head - rejectedBIndexDif)
+            {
+                this.RaiseError("blk_too_old".GetLogMessage(), 3);
+                return;
+            }
+            if (txBlock.header.index >= head + rejectedBIndexDif)
+            {
+                this.RaiseError("blk_too_new".GetLogMessage(), 3);
+                return;
+            }
 
+            foreach (var block in GetBlocks(txBlock.header.index))
+                if (block.Id.Equals(txBlock.Id))
+                {
+                    this.RaiseWarning("blk_already_existed".GetLogMessage(), 3);
+                    return;
+                }
+
+            if (txBlock.header.index == 1 && !genesisBlock.Id.Equals(txBlock.header.prevBlockHash))
+            {
+                this.RaiseError("blk_mismatch_genesis_block_hash".GetLogMessage(), 3);
+                return;
+            }
+
+            List<TransactionalBlock<BlockidHashType, TxidHashType, PubKeyHashType, PubKeyType>> list;
+            if (blockGroups.ContainsKey(txBlock.header.index))
+                list = blockGroups[txBlock.header.index];
+            else
+                blockGroups.Add(txBlock.header.index, list = new List<TransactionalBlock<BlockidHashType, TxidHashType, PubKeyHashType, PubKeyType>>());
+
+            list.Add(txBlock);
+
+            //<未改良>若干無駄がある
+            TransactionalBlock<BlockidHashType, TxidHashType, PubKeyHashType, PubKeyType> target = txBlock;
+            TransactionalBlock<BlockidHashType, TxidHashType, PubKeyHashType, PubKeyType> main = null;
+            while (true)
+            {
+                //<未改良>連続した番号のブロックを一気に取得する
+                TransactionalBlock<BlockidHashType, TxidHashType, PubKeyHashType, PubKeyType> next = GetBlocks(target.header.index + 1).Where((e) => e.header.prevBlockHash.Equals(target.Id)).FirstOrDefault();
+                if (next != null)
+                    target = next;
+                else
+                    break;
+            }
+
+            double branchCumulativeDifficulty = 0.0;
+            double mainCumulativeDifficulty = 0.0;
+            Stack<TransactionalBlock<BlockidHashType, TxidHashType, PubKeyHashType, PubKeyType>> stack = new Stack<TransactionalBlock<BlockidHashType, TxidHashType, PubKeyHashType, PubKeyType>>();
+            if (target.header.index > head)
+            {
+                while (target.header.index > head)
+                {
+                    branchCumulativeDifficulty += target.header.difficulty.Diff;
+                    stack.Push(target);
+
+                    if (target.header.index == 1)
+                        break;
+
+                    //<未改良>連続した番号のブロックを一気に取得する
+                    TransactionalBlock<BlockidHashType, TxidHashType, PubKeyHashType, PubKeyType> prev = GetBlocks(target.header.index - 1).Where((e) => e.Id.Equals(target.header.prevBlockHash)).FirstOrDefault();
+                    if (prev == null)
+                    {
+                        this.RaiseWarning("blk_not_connected".GetLogMessage(), 3);
+                        return;
+                    }
+                    else
+                        target = prev;
+                }
+
+                if (head == 0 || target.Id.Equals((main = GetHeadMainBlock()).Id))
+                {
+                    foreach (var newBlock in stack)
+                    {
+                        bool isValid;
+                        if (isVerifieds.ContainsKey(newBlock.Id)) //常に偽が返るはず
+                            isValid = isVerifieds[newBlock.Id];
+                        else
+                            isVerifieds.Add(newBlock.Id, isValid = VerifyBlock(newBlock));
+
+                        if (isValid)
+                        {
+                            head++;
+                            if (mainBlocks.ContainsKey(head)) //常に偽が返るはず
+                                mainBlocks[head] = newBlock;
+                            else
+                                mainBlocks.Add(head, newBlock);
+                        }
+                    }
+
+                    main = null;
+                }
+            }
+            else
+            {
+                main = GetHeadMainBlock();
+
+                if (target.header.index < head)
+                    while (target.header.index < main.header.index)
+                    {
+                        mainCumulativeDifficulty += main.header.difficulty.Diff;
+
+                        //<未改良>連続した番号のブロックを一気に取得する
+                        TransactionalBlock<BlockidHashType, TxidHashType, PubKeyHashType, PubKeyType> prev = GetBlocks(main.header.index - 1).Where((e) => e.Id.Equals(main.header.prevBlockHash)).FirstOrDefault();
+                        if (prev == null)
+                        {
+                            this.RaiseError("blk_main_not_connected".GetLogMessage(), 3);
+                            return;
+                        }
+                        else
+                            main = prev;
+                    }
+            }
+
+            if (main != null)
+            {
+                //この時点でtargetとmainは同じ高さの異なるブロックを参照しているはず
+                for (int i = 0; !target.Id.Equals(main.Id); i++)
+                {
+                    if (i >= maxBrunchDeep)
+                    {
+                        this.RaiseWarning("blk_too_deep".GetLogMessage(), 3);
+                        return;
+                    }
+
+                    branchCumulativeDifficulty += target.header.difficulty.Diff;
+                    mainCumulativeDifficulty += main.header.difficulty.Diff;
+
+                    stack.Push(target);
+
+                    if (target.header.index == 1)
+                        break;
+
+                    //<未改良>連続した番号のブロックを一気に取得する
+                    TransactionalBlock<BlockidHashType, TxidHashType, PubKeyHashType, PubKeyType> prev = GetBlocks(target.header.index - 1).Where((e) => e.Id.Equals(target.header.prevBlockHash)).FirstOrDefault();
+                    if (prev == null)
+                    {
+                        this.RaiseWarning("blk_not_connected".GetLogMessage(), 3);
+                        return;
+                    }
+                    else
+                        target = prev;
+
+                    //<未改良>連続した番号のブロックを一気に取得する
+                    prev = GetBlocks(main.header.index - 1).Where((e) => e.Id.Equals(main.header.prevBlockHash)).FirstOrDefault();
+                    if (prev == null)
+                    {
+                        this.RaiseError("blk_main_not_connected".GetLogMessage(), 3);
+                        return;
+                    }
+                    else
+                        main = prev;
+                }
+
+                if (branchCumulativeDifficulty > mainCumulativeDifficulty)
+                {
+                    double cumulativeDifficulty = 0.0;
+                    TransactionalBlock<BlockidHashType, TxidHashType, PubKeyHashType, PubKeyType> validHead = null;
+                    foreach (var newBlock in stack)
+                    {
+                        bool isValid;
+                        if (isVerifieds.ContainsKey(newBlock.Id))
+                            isValid = isVerifieds[newBlock.Id];
+                        else
+                            isVerifieds.Add(newBlock.Id, isValid = VerifyBlock(newBlock));
+
+                        if (!isValid)
+                            break;
+
+                        cumulativeDifficulty += newBlock.header.difficulty.Diff;
+                        validHead = newBlock;
+                    }
+
+                    if (cumulativeDifficulty > mainCumulativeDifficulty)
+                    {
+                        foreach (var newBlock in stack)
+                        {
+                            if (mainBlocks.ContainsKey(newBlock.header.index))
+                                mainBlocks[newBlock.header.index] = newBlock;
+                            else
+                                mainBlocks.Add(newBlock.header.index, newBlock);
+
+                            if (newBlock == validHead)
+                                break;
+                        }
+
+                        for (long i = validHead.header.index + 1; i < head + 1; i++)
+                            if (mainBlocks.ContainsKey(i))
+                                mainBlocks.Remove(i);
+
+                        head = validHead.header.index;
+                    }
+                }
+            }
+
+            if (mainBlocks.Count > numOfMainBlocksWhenSaveNext)
+            {
+                SortedDictionary<long, List<TransactionalBlock<BlockidHashType, TxidHashType, PubKeyHashType, PubKeyType>>> tobeSavedBlockss = GetToBeSavedBlockss();
+
+                long? last = null;
+                foreach (var tobeSavedBlocks in tobeSavedBlockss)
+                    if (tobeSavedBlocks.Value.Count >= numOfNewMainBlocksInGroupWhenSave)
+                        last = tobeSavedBlocks.Value[blockGroupCapacity - 1].header.index;
+
+                if (last == null)
+                {
+                    numOfMainBlocksWhenSaveNext += numOfMainBlocksWhenSaveDifference;
+                    return;
+                }
+
+                SaveBgAndBng(tobeSavedBlockss, last.Value);
+
+                foreach (var mainBlock in mainBlocks)
+                    if (mainBlock.Key <= last.Value && blockGroups.ContainsKey(mainBlock.Key) && blockGroups[mainBlock.Key].Contains(mainBlock.Value))
+                        blockGroups[mainBlock.Key].Remove(mainBlock.Value);
+
+                SortedDictionary<long, List<TransactionalBlock<BlockidHashType, TxidHashType, PubKeyHashType, PubKeyType>>> newBlockGroups = new SortedDictionary<long, List<TransactionalBlock<BlockidHashType, TxidHashType, PubKeyHashType, PubKeyType>>>();
+                foreach (var blockGroup in blockGroups)
+                    if (blockGroup.Key >= head - discardOldBlock)
+                        newBlockGroups.Add(blockGroup.Key, blockGroup.Value);
+                blockGroups = newBlockGroups;
+
+                SortedDictionary<long, TransactionalBlock<BlockidHashType, TxidHashType, PubKeyHashType, PubKeyType>> newMainBlocks = new SortedDictionary<long, TransactionalBlock<BlockidHashType, TxidHashType, PubKeyHashType, PubKeyType>>();
+                foreach (var mainBlock in mainBlocks)
+                    if (mainBlock.Key > last.Value)
+                        newMainBlocks.Add(mainBlock.Key, mainBlock.Value);
+                mainBlocks = newMainBlocks;
+
+                numOfMainBlocksWhenSaveNext = numOfMainBlocksWhenSave;
+            }
+        }
+
+        //終了時にしか呼ばない
+        public void SaveWhenExit() { SaveBgAndBng(GetToBeSavedBlockss(), long.MaxValue); }
+
+        private SortedDictionary<long, List<TransactionalBlock<BlockidHashType, TxidHashType, PubKeyHashType, PubKeyType>>> GetToBeSavedBlockss()
+        {
+            SortedDictionary<long, List<TransactionalBlock<BlockidHashType, TxidHashType, PubKeyHashType, PubKeyType>>> tobeSavedBlockss = new SortedDictionary<long, List<TransactionalBlock<BlockidHashType, TxidHashType, PubKeyHashType, PubKeyType>>>();
+
+            foreach (var mainBlock in mainBlocks)
+            {
+                if (blockGroups.ContainsKey(mainBlock.Key) && blockGroups[mainBlock.Key].Contains(mainBlock.Value))
+                {
+                    long bgIndex = mainBlock.Value.header.index / blockGroupDiv;
+
+                    if (tobeSavedBlockss.ContainsKey(bgIndex))
+                        tobeSavedBlockss[bgIndex].Add(mainBlock.Value);
+                    else
+                        tobeSavedBlockss.Add(bgIndex, new List<TransactionalBlock<BlockidHashType, TxidHashType, PubKeyHashType, PubKeyType>>() { mainBlock.Value });
+                }
+            }
+
+            return tobeSavedBlockss;
+        }
+
+        private void SaveBgAndBng(SortedDictionary<long, List<TransactionalBlock<BlockidHashType, TxidHashType, PubKeyHashType, PubKeyType>>> tobeSavedBlockss, long last)
+        {
+            SortedDictionary<long, BlockNode> newBlockNodes = new SortedDictionary<long, BlockNode>();
+            long lastBgIndex = last / blockGroupDiv;
+            foreach (var tobeSavedBlocks in tobeSavedBlockss)
+            {
+                if (tobeSavedBlocks.Key > lastBgIndex)
+                    break;
+
+                List<byte[]> bgDatas = new List<byte[]>();
+                foreach (var tobeSavedBlock in tobeSavedBlocks.Value)
+                {
+                    if (tobeSavedBlock.header.index > last)
+                        break;
+
+                    bgDatas.Add(BitConverter.GetBytes((int)(tobeSavedBlock is NormalBlock<BlockidHashType, TxidHashType, PubKeyHashType, PubKeyType> ? TransactionType.normal : TransactionType.foundational)).Combine(tobeSavedBlock.ToBinary()));
+                }
+
+                long bgPosition1 = SaveBlockGroup(tobeSavedBlocks.Key, bgDatas.ToArray());
+
+                long bgPosition2 = 0;
+                foreach (var tobeSavedBlock in tobeSavedBlocks.Value)
+                {
+                    if (tobeSavedBlock.header.index > last)
+                        break;
+
+                    newBlockNodes.Add(tobeSavedBlock.header.index, new BlockNode(0, 0, bgPosition1, bgPosition2++, true));
+                }
+            }
+
+            foreach (var mainBlock in mainBlocks)
+            {
+                if (mainBlock.Value.header.index > last)
+                    break;
+
+                long bgIndex = mainBlock.Value.header.index / blockGroupDiv;
+                long bngIndex = mainBlock.Value.header.index / blockNodesGroupDiv;
+                long bngPosition = mainBlock.Value.header.index % blockNodesGroupDiv;
+
+                if (currentBngIndex != bngIndex)
+                {
+                    bngDatabase.UpdateBlockNodesGroupData(currentBng.ToBinary(), bngIndex);
+
+                    currentBngIndex = bngIndex;
+                    currentBng = new BlockNodesGroup(blockGroupDiv);
+                    byte[] currentBngBytes = bngDatabase.GetBlockNodesGroupData(bngIndex);
+                    if (currentBngBytes.Length != 0)
+                        currentBng.FromBinary(currentBngBytes);
+                }
+
+                if (blockGroups.ContainsKey(mainBlock.Key) && blockGroups[mainBlock.Key].Contains(mainBlock.Value))
+                {
+                    if (currentBng.nodess[bngPosition] == null)
+                    {
+                        if (currentBng.position != bngPosition)
+                            throw new InvalidOleVariantTypeException("bng_position_mismatch");
+
+                        currentBng.AddBlockNodes(new BlockNodes(new BlockNode[] { newBlockNodes[mainBlock.Key] }));
+                    }
+                    else
+                        currentBng.nodess[bngPosition].AddBlockNode(newBlockNodes[mainBlock.Key]);
+                }
+                else
+                {
+                    if (currentBng.nodess[bngPosition] == null)
+                        throw new InvalidOperationException("bng_null");
+
+                    bool flag = false;
+                    foreach (var blockNode in currentBng.nodess[bngPosition].nodes)
+                    {
+                        TransactionalBlock<BlockidHashType, TxidHashType, PubKeyHashType, PubKeyType> block = GetSavedOrCachedBlock(bgIndex, blockNode.position1, blockNode.position2);
+                        if (block.Id.Equals(mainBlock.Value.Id))
+                            blockNode.isMain = flag = true;
+                        else
+                            blockNode.isMain = false;
+                    }
+
+                    if (!flag)
+                        throw new InvalidOperationException("block_not_found");
+                }
+            }
+
+            bngDatabase.UpdateBlockNodesGroupData(currentBng.ToBinary(), currentBngIndex);
+        }
+
+        public bool VerifyBlock(TransactionalBlock<BlockidHashType, TxidHashType, PubKeyHashType, PubKeyType> txBlock)
+        {
+            return true;
+            throw new NotImplementedException("");
         }
     }
 
@@ -5921,7 +6859,7 @@ namespace CREA2014
         public long parentPosition2 { get; private set; }
         public long position1 { get; private set; }
         public long position2 { get; private set; }
-        public bool isMain { get; private set; }
+        public bool isMain { get; set; }
 
         protected override Func<ReaderWriter, IEnumerable<MainDataInfomation>> StreamInfo { get { return (msrw) => StreamInfoInner(msrw); } }
         private IEnumerable<MainDataInfomation> StreamInfoInner(ReaderWriter msrw)
@@ -5972,16 +6910,25 @@ namespace CREA2014
                 };
             }
         }
+
+        public void AddBlockNode(BlockNode blockNode)
+        {
+            BlockNode[] newNodes = new BlockNode[nodes.Length + 1];
+            Array.Copy(nodes, 0, newNodes, 0, nodes.Length);
+            newNodes[newNodes.Length - 1] = blockNode;
+        }
     }
 
     public class BlockNodesGroup : SHAREDDATA
     {
-        public BlockNodesGroup() : this(new BlockNodes[] { }) { }
+        public BlockNodesGroup(long _div) : this(new BlockNodes[] { }, _div) { }
 
-        public BlockNodesGroup(BlockNodes[] _nodess)
+        public BlockNodesGroup(BlockNodes[] _nodess, long _div)
         {
-            if (_nodess.Length > div)
+            if (_nodess.Length > (int)_div)
                 throw new ArgumentException("blknds_group_too_many_nodes");
+
+            div = _div;
 
             nodess = new BlockNodes[div];
             position = _nodess.Length;
@@ -5989,11 +6936,10 @@ namespace CREA2014
             Array.Copy(_nodess, 0, nodess, 0, _nodess.Length);
         }
 
-        //57byte * 10000 = 570Kbyte
-        public static readonly int div = 10000;
+        public readonly long div;
 
         public BlockNodes[] nodess { get; private set; }
-        public int position { get; private set; }
+        public long position { get; private set; }
 
         protected override Func<ReaderWriter, IEnumerable<MainDataInfomation>> StreamInfo
         {
@@ -6003,13 +6949,13 @@ namespace CREA2014
                     new MainDataInfomation(typeof(BlockNodes[]), null, null, () => 
                     {
                         BlockNodes[] saveBlockNodess = new BlockNodes[position];
-                        Array.Copy(nodess, 0, saveBlockNodess, 0, position);
+                        Array.Copy(nodess, 0, saveBlockNodess, 0, (int)position);
                         return saveBlockNodess;
                     }, (o) => 
                     {
                         BlockNodes[] loadBlockNodess = (BlockNodes[])o;
 
-                        if (loadBlockNodess.Length > div)
+                        if (loadBlockNodess.Length > (int)div)
                             throw new ArgumentException("blknds_group_too_many_nodes");
 
                         position = loadBlockNodess.Length;
@@ -6030,9 +6976,9 @@ namespace CREA2014
         }
     }
 
-    public class BlockNodesDatabase
+    public abstract class DATABASEBASE
     {
-        public BlockNodesDatabase(string _pathBase)
+        public DATABASEBASE(string _pathBase)
         {
             pathBase = _pathBase;
 
@@ -6040,11 +6986,43 @@ namespace CREA2014
                 Directory.CreateDirectory(pathBase);
         }
 
-        public static readonly string filenameBase = "blknds";
-
         public readonly string pathBase;
 
-        public byte[] GetBlockNodesBlockData(ulong bngIndex)
+        protected abstract string filenameBase { get; }
+    }
+
+    public class BlockChainDatabase : DATABASEBASE
+    {
+        public BlockChainDatabase(string _pathBase) : base(_pathBase) { }
+
+        protected override string filenameBase { get { return "blkchn"; } }
+
+        public byte[] GetBlockChainData()
+        {
+            using (FileStream fs = new FileStream(GetPath(), FileMode.OpenOrCreate, FileAccess.Read))
+            {
+                byte[] data = new byte[fs.Length];
+                fs.Read(data, 0, data.Length);
+                return data;
+            }
+        }
+
+        public void UpdateBlockChainData(byte[] data)
+        {
+            using (FileStream fs = new FileStream(GetPath(), FileMode.Create, FileAccess.Write))
+                fs.Write(data, 0, data.Length);
+        }
+
+        private string GetPath() { return Path.Combine(pathBase, filenameBase); }
+    }
+
+    public class BlockNodesGroupDatabase : DATABASEBASE
+    {
+        public BlockNodesGroupDatabase(string _pathBase) : base(_pathBase) { }
+
+        protected override string filenameBase { get { return "blkng"; } }
+
+        public byte[] GetBlockNodesGroupData(long bngIndex)
         {
             using (FileStream fs = new FileStream(GetPath(bngIndex), FileMode.OpenOrCreate, FileAccess.Read))
             {
@@ -6054,37 +7032,28 @@ namespace CREA2014
             }
         }
 
-        public void UpdateBlockNodesBlockData(byte[] data, ulong bngIndex)
+        public void UpdateBlockNodesGroupData(byte[] data, long bngIndex)
         {
             using (FileStream fs = new FileStream(GetPath(bngIndex), FileMode.Create, FileAccess.Write))
                 fs.Write(data, 0, data.Length);
         }
 
-        private string GetPath(ulong bngIndex)
-        {
-            return Path.Combine(pathBase, filenameBase + bngIndex.ToString());
-        }
+        private string GetPath(long bngIndex) { return Path.Combine(pathBase, filenameBase + bngIndex.ToString()); }
     }
 
-    public class BlockGroupDatabase
+    public class BlockGroupDatabase : DATABASEBASE
     {
-        public BlockGroupDatabase(string _pathBase)
-        {
-            pathBase = _pathBase;
+        public BlockGroupDatabase(string _pathBase) : base(_pathBase) { }
 
-            if (!Directory.Exists(pathBase))
-                Directory.CreateDirectory(pathBase);
-        }
+        protected override string filenameBase { get { return "blkg"; } }
 
-        public static readonly string filenameBase = "blks";
-        public static readonly ulong div = 1000; //1000ブロック群
-
-        public readonly string pathBase;
-
-        public byte[] GetBlockGroupData(ulong bgIndex, long position)
+        public byte[] GetBlockGroupData(long bgIndex, long position)
         {
             using (FileStream fs = new FileStream(GetPath(bgIndex), FileMode.OpenOrCreate, FileAccess.Read))
             {
+                if (position >= fs.Length)
+                    return new byte[] { };
+
                 fs.Seek(position, SeekOrigin.Begin);
 
                 byte[] lengthBytes = new byte[4];
@@ -6097,7 +7066,7 @@ namespace CREA2014
             }
         }
 
-        public long AddBlockGroupData(byte[] data, ulong bgIndex)
+        public long AddBlockGroupData(byte[] data, long bgIndex)
         {
             using (FileStream fs = new FileStream(GetPath(bgIndex), FileMode.Append, FileAccess.Write))
             {
@@ -6110,9 +7079,9 @@ namespace CREA2014
             }
         }
 
-        private string GetPath(ulong bgIndex)
+        private string GetPath(long bgIndex)
         {
-            return Path.Combine(pathBase, filenameBase + (bgIndex / div).ToString());
+            return Path.Combine(pathBase, filenameBase + bgIndex.ToString());
         }
     }
 
