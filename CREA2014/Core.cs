@@ -23,15 +23,12 @@ using System.Windows.Media;
 
 namespace CREA2014
 {
-    public class Core
+    public abstract class COREBASE<KeyPairType, DsaPubKeyType, DsaPrivKeyType>
+        where KeyPairType : DSAKEYPAIRBASE<DsaPubKeyType, DsaPrivKeyType>
+        where DsaPubKeyType : DSAPUBKEYBASE
+        where DsaPrivKeyType : DSAPRIVKEYBASE
     {
-        private AccountHolderDatabase accountHolderDatabase;
-        public AccountHolderDatabase AccountHolderDatabase
-        {
-            get { return accountHolderDatabase; }
-        }
-
-        public Core(string _basepath)
+        public COREBASE(string _basePath)
         {
             string ahdFileName = "ahs.dat";
 
@@ -39,9 +36,12 @@ namespace CREA2014
             //2回以上呼ばれた際には例外が発生する
             Instantiate();
 
-            basepath = _basepath;
+            basepath = _basePath;
             accountHolderDatabasePath = Path.Combine(basepath, ahdFileName);
         }
+
+        public AccountHolders<KeyPairType, DsaPubKeyType, DsaPrivKeyType> accountHolderDatabase { get; private set; }
+        public IAccountHolders iAccountHolders { get { return accountHolderDatabase; } }
 
         private static readonly Action Instantiate = OneTime.GetOneTime();
 
@@ -58,7 +58,7 @@ namespace CREA2014
                 if (isSystemStarted)
                     throw new InvalidOperationException("core_started");
 
-                accountHolderDatabase = new AccountHolderDatabase();
+                accountHolderDatabase = new AccountHolders<KeyPairType, DsaPubKeyType, DsaPrivKeyType>();
 
                 if (File.Exists(accountHolderDatabasePath))
                     accountHolderDatabase.FromBinary(File.ReadAllBytes(accountHolderDatabasePath));
@@ -79,6 +79,11 @@ namespace CREA2014
                 isSystemStarted = false;
             }
         }
+    }
+
+    public class Core : COREBASE<Ecdsa256KeyPair, Ecdsa256PubKey, Ecdsa256PrivKey>
+    {
+        public Core(string _basePath) : base(_basePath) { }
     }
 
     #region ソケット通信
@@ -4519,20 +4524,52 @@ namespace CREA2014
         }
     }
 
-    public class Account : SHAREDDATA
+    public interface IAccount
     {
-        public Account() : this(string.Empty, string.Empty, EcdsaKey.EcdsaKeyLength.Ecdsa256) { }
+        string iName { get; }
+        string iDescription { get; }
+        string iAddress { get; }
+    }
 
-        public Account(EcdsaKey.EcdsaKeyLength _keyLength) : this(string.Empty, string.Empty, _keyLength) { }
+    public interface IAccountHolder
+    {
+        IAccount[] iAccounts { get; }
 
-        public Account(string _name, string _description) : this(_name, _description, EcdsaKey.EcdsaKeyLength.Ecdsa256) { }
+        event EventHandler iAccountAdded;
+        event EventHandler iAccountRemoved;
+        event EventHandler iAccountHolderChanged;
+    }
 
-        public Account(string _name, string _description, EcdsaKey.EcdsaKeyLength _keyLength)
+    public interface IAnonymousAccountHolder : IAccountHolder { }
+
+    public interface IPseudonymousAccountHolder : IAccountHolder
+    {
+        string iSign { get; }
+    }
+
+    public interface IAccountHolders
+    {
+        IAccountHolder iAnonymousAccountHolder { get; }
+        IAccountHolder[] iPseudonymousAccountHolders { get; }
+
+        event EventHandler iAccountHolderAdded;
+        event EventHandler iAccountHolderRemoved;
+        event EventHandler iAccountHoldersChanged;
+    }
+
+    public class Account<KeyPairType, DsaPubKeyType, DsaPrivKeyType> : SHAREDDATA, IAccount
+        where KeyPairType : DSAKEYPAIRBASE<DsaPubKeyType, DsaPrivKeyType>
+        where DsaPubKeyType : DSAPUBKEYBASE
+        where DsaPrivKeyType : DSAPRIVKEYBASE
+    {
+        public Account() { }
+
+        public Account(string _name, string _description)
             : base(0)
         {
             name = _name;
             description = _description;
-            key = new EcdsaKey(_keyLength);
+            keyPair = Activator.CreateInstance(typeof(KeyPairType), true) as KeyPairType;
         }
 
         private string name;
@@ -4549,11 +4586,7 @@ namespace CREA2014
             set { this.ExecuteBeforeEvent(() => description = value, AccountChanged); }
         }
 
-        private EcdsaKey key;
-        public EcdsaKey Key
-        {
-            get { return key; }
-        }
+        public DSAKEYPAIRBASE<DsaPubKeyType, DsaPrivKeyType> keyPair { get; private set; }
 
         public class AccountAddress
         {
@@ -4650,17 +4683,14 @@ namespace CREA2014
                     return (msrw) => new MainDataInfomation[]{
                         new MainDataInfomation(typeof(string), () => name, (o) => name = (string)o),
                         new MainDataInfomation(typeof(string), () => description, (o) => description = (string)o),
-                        new MainDataInfomation(typeof(EcdsaKey), 0, () => key, (o) => key = (EcdsaKey)o),
+                        new MainDataInfomation(typeof(KeyPairType), null, () => keyPair, (o) => keyPair = (KeyPairType)o),
                     };
                 else
                     throw new NotSupportedException("account_main_data_info");
             }
         }
 
-        public override bool IsVersioned
-        {
-            get { return true; }
-        }
+        public override bool IsVersioned { get { return true; } }
 
         public override bool IsCorruptionChecked
         {
@@ -4675,41 +4705,46 @@ namespace CREA2014
 
         public event EventHandler AccountChanged = delegate { };
 
-        public AccountAddress Address
-        {
-            get { return new AccountAddress(key.PublicKey); }
-        }
+        public AccountAddress Address { get { return new AccountAddress(keyPair.pubKey.pubKey); } }
 
-        public override string ToString() { return Address.Base58; }
+        public string AddressBase58 { get { return Address.Base58; } }
+
+        public override string ToString() { return AddressBase58; }
+
+        public string iName { get { return Name; } }
+
+        public string iDescription { get { return Description; } }
+
+        public string iAddress { get { return AddressBase58; } }
     }
 
-    public abstract class AccountHolder : SHAREDDATA
+    public abstract class AccountHolder<KeyPairType, DsaPubKeyType, DsaPrivKeyType> : SHAREDDATA, IAccountHolder
+        where KeyPairType : DSAKEYPAIRBASE<DsaPubKeyType, DsaPrivKeyType>
+        where DsaPubKeyType : DSAPUBKEYBASE
+        where DsaPrivKeyType : DSAPRIVKEYBASE
     {
         private readonly object accountsLock = new object();
-        private List<Account> accounts;
-        public Account[] Accounts
-        {
-            get { return accounts.ToArray(); }
-        }
+        private List<Account<KeyPairType, DsaPubKeyType, DsaPrivKeyType>> accounts;
+        public Account<KeyPairType, DsaPubKeyType, DsaPrivKeyType>[] Accounts { get { return accounts.ToArray(); } }
+
+        public AccountHolder() { }
 
         public AccountHolder(int? _version)
             : base(_version)
         {
-            accounts = new List<Account>();
+            accounts = new List<Account<KeyPairType, DsaPubKeyType, DsaPrivKeyType>>();
 
             account_changed = (sender, e) => AccountHolderChanged(this, EventArgs.Empty);
         }
-
-        public AccountHolder() : this(null) { }
 
         protected override Func<ReaderWriter, IEnumerable<MainDataInfomation>> StreamInfo
         {
             get
             {
                 return (msrw) => new MainDataInfomation[]{
-                    new MainDataInfomation(typeof(Account[]), 0, null, () => accounts.ToArray(), (o) =>
+                    new MainDataInfomation(typeof(Account<KeyPairType, DsaPubKeyType, DsaPrivKeyType>[]), 0, null, () => accounts.ToArray(), (o) =>
                     {
-                        accounts = ((Account[])o).ToList();
+                        accounts = ((Account<KeyPairType, DsaPubKeyType, DsaPrivKeyType>[])o).ToList();
                         foreach (var account in accounts)
                             account.AccountChanged += account_changed;
                     }),
@@ -4718,26 +4753,17 @@ namespace CREA2014
         }
 
         public event EventHandler AccountAdded = delegate { };
-        protected EventHandler PAccountAdded
-        {
-            get { return AccountAdded; }
-        }
+        protected EventHandler PAccountAdded { get { return AccountAdded; } }
 
         public event EventHandler AccountRemoved = delegate { };
-        protected EventHandler PAccountRemoved
-        {
-            get { return AccountRemoved; }
-        }
+        protected EventHandler PAccountRemoved { get { return AccountRemoved; } }
 
         public event EventHandler AccountHolderChanged = delegate { };
-        protected EventHandler PAccountHolderChanged
-        {
-            get { return AccountHolderChanged; }
-        }
+        protected EventHandler PAccountHolderChanged { get { return AccountHolderChanged; } }
 
         private EventHandler account_changed;
 
-        public void AddAccount(Account account)
+        public void AddAccount(Account<KeyPairType, DsaPubKeyType, DsaPrivKeyType> account)
         {
             lock (accountsLock)
             {
@@ -4752,7 +4778,7 @@ namespace CREA2014
             }
         }
 
-        public void RemoveAccount(Account account)
+        public void RemoveAccount(Account<KeyPairType, DsaPubKeyType, DsaPrivKeyType> account)
         {
             lock (accountsLock)
             {
@@ -4766,9 +4792,32 @@ namespace CREA2014
                 }, AccountRemoved, AccountHolderChanged);
             }
         }
+
+        public IAccount[] iAccounts { get { return Accounts; } }
+
+        public event EventHandler iAccountAdded
+        {
+            add { AccountAdded += value; }
+            remove { AccountAdded -= value; }
+        }
+
+        public event EventHandler iAccountRemoved
+        {
+            add { AccountRemoved += value; }
+            remove { AccountRemoved -= value; }
+        }
+
+        public event EventHandler iAccountHolderChanged
+        {
+            add { AccountHolderChanged += value; }
+            remove { AccountHolderChanged -= value; }
+        }
     }
 
-    public class AnonymousAccountHolder : AccountHolder
+    public class AnonymousAccountHolder<KeyPairType, DsaPubKeyType, DsaPrivKeyType> : AccountHolder<KeyPairType, DsaPubKeyType, DsaPrivKeyType>, IAnonymousAccountHolder
+        where KeyPairType : DSAKEYPAIRBASE<DsaPubKeyType, DsaPrivKeyType>
+        where DsaPubKeyType : DSAPUBKEYBASE
+        where DsaPrivKeyType : DSAPRIVKEYBASE
     {
         public AnonymousAccountHolder() : base(0) { }
 
@@ -4783,10 +4832,7 @@ namespace CREA2014
             }
         }
 
-        public override bool IsVersioned
-        {
-            get { return true; }
-        }
+        public override bool IsVersioned { get { return true; } }
 
         public override bool IsCorruptionChecked
         {
@@ -4800,8 +4846,20 @@ namespace CREA2014
         }
     }
 
-    public class PseudonymousAccountHolder : AccountHolder
+    public class PseudonymousAccountHolder<KeyPairType, DsaPubKeyType, DsaPrivKeyType> : AccountHolder<KeyPairType, DsaPubKeyType, DsaPrivKeyType>, IPseudonymousAccountHolder
+        where KeyPairType : DSAKEYPAIRBASE<DsaPubKeyType, DsaPrivKeyType>
+        where DsaPubKeyType : DSAPUBKEYBASE
+        where DsaPrivKeyType : DSAPRIVKEYBASE
     {
+        public PseudonymousAccountHolder() { }
+
+        public PseudonymousAccountHolder(string _name)
+            : base(0)
+        {
+            name = _name;
+            keyPair = Activator.CreateInstance(typeof(KeyPairType), true) as KeyPairType;
+        }
+
         private string name;
         public string Name
         {
@@ -4809,24 +4867,7 @@ namespace CREA2014
             set { this.ExecuteBeforeEvent(() => name = value, PAccountAdded); }
         }
 
-        private EcdsaKey key;
-        public EcdsaKey Key
-        {
-            get { return key; }
-        }
-
-        public PseudonymousAccountHolder(string _name, EcdsaKey.EcdsaKeyLength _keyLength)
-            : base(0)
-        {
-            name = _name;
-            key = new EcdsaKey(_keyLength);
-        }
-
-        public PseudonymousAccountHolder(string _name) : this(_name, EcdsaKey.EcdsaKeyLength.Ecdsa256) { }
-
-        public PseudonymousAccountHolder(EcdsaKey.EcdsaKeyLength _keyLength) : this(string.Empty, _keyLength) { }
-
-        public PseudonymousAccountHolder() : this(string.Empty, EcdsaKey.EcdsaKeyLength.Ecdsa256) { }
+        public KeyPairType keyPair { get; private set; }
 
         protected override Func<ReaderWriter, IEnumerable<MainDataInfomation>> StreamInfo
         {
@@ -4835,17 +4876,14 @@ namespace CREA2014
                 if (Version == 0)
                     return (msrw) => base.StreamInfo(msrw).Concat(new MainDataInfomation[]{
                         new MainDataInfomation(typeof(string), () => name, (o) => name = (string)o),
-                        new MainDataInfomation(typeof(EcdsaKey), 0, () => key, (o) => key = (EcdsaKey)o),
+                        new MainDataInfomation(typeof(KeyPairType), 0, () => keyPair, (o) => keyPair = (KeyPairType)o),
                     });
                 else
                     throw new NotSupportedException("pah_main_data_info");
             }
         }
 
-        public override bool IsVersioned
-        {
-            get { return true; }
-        }
+        public override bool IsVersioned { get { return true; } }
 
         public override bool IsCorruptionChecked
         {
@@ -4858,49 +4896,44 @@ namespace CREA2014
             }
         }
 
-        public string Trip
-        {
-            get { return Convert.ToBase64String(key.PublicKey).Operate((s) => s.Substring(s.Length - 12, 12)); }
-        }
+        public string Trip { get { return "◆" + Convert.ToBase64String(keyPair.pubKey.pubKey).Operate((s) => s.Substring(s.Length - 12, 12)); } }
 
-        public string Sign
-        {
-            get { return name + "◆" + Trip; }
-        }
+        public string Sign { get { return name + Trip; } }
 
         public override string ToString() { return Sign; }
+
+        public string iSign { get { return Sign; } }
     }
 
-    public class AccountHolderDatabase : SHAREDDATA
+    public class AccountHolders<KeyPairType, DsaPubKeyType, DsaPrivKeyType> : SHAREDDATA, IAccountHolders
+        where KeyPairType : DSAKEYPAIRBASE<DsaPubKeyType, DsaPrivKeyType>
+        where DsaPubKeyType : DSAPUBKEYBASE
+        where DsaPrivKeyType : DSAPRIVKEYBASE
     {
-        private AnonymousAccountHolder anonymousAccountHolder;
-        public AnonymousAccountHolder AnonymousAccountHolder
+        public AccountHolders()
+            : base(0)
         {
-            get { return anonymousAccountHolder; }
+            anonymousAccountHolder = new AnonymousAccountHolder<KeyPairType, DsaPubKeyType, DsaPrivKeyType>();
+            pseudonymousAccountHolders = new List<PseudonymousAccountHolder<KeyPairType, DsaPubKeyType, DsaPrivKeyType>>();
+            candidateAccountHolders = new List<PseudonymousAccountHolder<KeyPairType, DsaPubKeyType, DsaPrivKeyType>>();
+
+            accountHolders_changed = (sender, e) => AccountHoldersChanged(this, EventArgs.Empty);
         }
 
+        public AnonymousAccountHolder<KeyPairType, DsaPubKeyType, DsaPrivKeyType> anonymousAccountHolder { get; private set; }
+
         private readonly object pahsLock = new object();
-        private List<PseudonymousAccountHolder> pseudonymousAccountHolders;
-        public PseudonymousAccountHolder[] PseudonymousAccountHolders
+        private List<PseudonymousAccountHolder<KeyPairType, DsaPubKeyType, DsaPrivKeyType>> pseudonymousAccountHolders;
+        public PseudonymousAccountHolder<KeyPairType, DsaPubKeyType, DsaPrivKeyType>[] PseudonymousAccountHolders
         {
             get { return pseudonymousAccountHolders.ToArray(); }
         }
 
         private readonly object cahsLock = new object();
-        private List<PseudonymousAccountHolder> candidateAccountHolders;
-        public PseudonymousAccountHolder[] CandidateAccountHolders
+        private List<PseudonymousAccountHolder<KeyPairType, DsaPubKeyType, DsaPrivKeyType>> candidateAccountHolders;
+        public PseudonymousAccountHolder<KeyPairType, DsaPubKeyType, DsaPrivKeyType>[] CandidateAccountHolders
         {
             get { return candidateAccountHolders.ToArray(); }
-        }
-
-        public AccountHolderDatabase()
-            : base(0)
-        {
-            anonymousAccountHolder = new AnonymousAccountHolder();
-            pseudonymousAccountHolders = new List<PseudonymousAccountHolder>();
-            candidateAccountHolders = new List<PseudonymousAccountHolder>();
-
-            accountHolders_changed = (sender, e) => AccountHoldersChanged(this, EventArgs.Empty);
         }
 
         protected override Func<ReaderWriter, IEnumerable<MainDataInfomation>> StreamInfo
@@ -4909,28 +4942,25 @@ namespace CREA2014
             {
                 if (Version == 0)
                     return (mswr) => new MainDataInfomation[]{
-                        new MainDataInfomation(typeof(AnonymousAccountHolder), 0, () => anonymousAccountHolder, (o) =>
+                        new MainDataInfomation(typeof(AnonymousAccountHolder<KeyPairType, DsaPubKeyType, DsaPrivKeyType>), 0, () => anonymousAccountHolder, (o) =>
                         {
-                            anonymousAccountHolder = (AnonymousAccountHolder)o;
+                            anonymousAccountHolder = (AnonymousAccountHolder<KeyPairType, DsaPubKeyType, DsaPrivKeyType>)o;
                             anonymousAccountHolder.AccountHolderChanged += accountHolders_changed;
                         }),
-                        new MainDataInfomation(typeof(PseudonymousAccountHolder[]), 0, null, () => pseudonymousAccountHolders.ToArray(), (o) =>
+                        new MainDataInfomation(typeof(PseudonymousAccountHolder<KeyPairType, DsaPubKeyType, DsaPrivKeyType>[]), 0, null, () => pseudonymousAccountHolders.ToArray(), (o) =>
                         {
-                            pseudonymousAccountHolders = ((PseudonymousAccountHolder[])o).ToList();
+                            pseudonymousAccountHolders = ((PseudonymousAccountHolder<KeyPairType, DsaPubKeyType, DsaPrivKeyType>[])o).ToList();
                             foreach (var pah in pseudonymousAccountHolders)
                                 pah.AccountHolderChanged += accountHolders_changed;
                         }),
-                        new MainDataInfomation(typeof(PseudonymousAccountHolder[]), 0, null, () => candidateAccountHolders.ToArray(), (o) => candidateAccountHolders = ((PseudonymousAccountHolder[])o).ToList()),
+                        new MainDataInfomation(typeof(PseudonymousAccountHolder<KeyPairType, DsaPubKeyType, DsaPrivKeyType>[]), 0, null, () => candidateAccountHolders.ToArray(), (o) => candidateAccountHolders = ((PseudonymousAccountHolder<KeyPairType, DsaPubKeyType, DsaPrivKeyType>[])o).ToList()),
                     };
                 else
                     throw new NotSupportedException("account_holder_database_main_data_info");
             }
         }
 
-        public override bool IsVersioned
-        {
-            get { return true; }
-        }
+        public override bool IsVersioned { get { return true; } }
 
         public override bool IsCorruptionChecked
         {
@@ -4949,7 +4979,7 @@ namespace CREA2014
 
         private EventHandler accountHolders_changed;
 
-        public void AddAccountHolder(PseudonymousAccountHolder ah)
+        public void AddAccountHolder(PseudonymousAccountHolder<KeyPairType, DsaPubKeyType, DsaPrivKeyType> ah)
         {
             lock (pahsLock)
             {
@@ -4965,7 +4995,7 @@ namespace CREA2014
             }
         }
 
-        public void DeleteAccountHolder(PseudonymousAccountHolder ah)
+        public void DeleteAccountHolder(PseudonymousAccountHolder<KeyPairType, DsaPubKeyType, DsaPrivKeyType> ah)
         {
             lock (pahsLock)
             {
@@ -4980,7 +5010,7 @@ namespace CREA2014
             }
         }
 
-        public void AddCandidateAccountHolder(PseudonymousAccountHolder ah)
+        public void AddCandidateAccountHolder(PseudonymousAccountHolder<KeyPairType, DsaPubKeyType, DsaPrivKeyType> ah)
         {
             lock (cahsLock)
             {
@@ -4991,7 +5021,7 @@ namespace CREA2014
             }
         }
 
-        public void DeleteCandidateAccountHolder(PseudonymousAccountHolder ah)
+        public void DeleteCandidateAccountHolder(PseudonymousAccountHolder<KeyPairType, DsaPubKeyType, DsaPrivKeyType> ah)
         {
             lock (cahsLock)
             {
@@ -5006,6 +5036,28 @@ namespace CREA2014
         {
             lock (cahsLock)
                 candidateAccountHolders.Clear();
+        }
+
+        public IAccountHolder iAnonymousAccountHolder { get { return anonymousAccountHolder; } }
+
+        public IAccountHolder[] iPseudonymousAccountHolders { get { return PseudonymousAccountHolders; } }
+
+        public event EventHandler iAccountHolderAdded
+        {
+            add { AccountHolderAdded += value; }
+            remove { AccountHolderAdded -= value; }
+        }
+
+        public event EventHandler iAccountHolderRemoved
+        {
+            add { AccountHolderRemoved += value; }
+            remove { AccountHolderRemoved -= value; }
+        }
+
+        public event EventHandler iAccountHoldersChanged
+        {
+            add { AccountHoldersChanged += value; }
+            remove { AccountHoldersChanged -= value; }
         }
     }
 
