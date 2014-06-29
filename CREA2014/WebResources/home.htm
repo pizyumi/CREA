@@ -36,6 +36,9 @@
                 else if (e.data.indexOf("acc_hols", 0) == 0) {
                     $("#acc_hols_container").html(e.data.substring(9));
                 }
+                else if (e.data.indexOf("log", 0) == 0) {
+                    $("#logs_container").prepend(e.data.substring(4));
+                }
                 else
                     throw "wss_command_html";
             };
@@ -150,6 +153,16 @@
                         display: block;
                     }
 
+                    #tab1_tabcontent3 {
+                        background-color: rgba(0,0,255,0.7);
+                        height: 100%;
+                    }
+
+                    #logs_container {
+                        height: 100%;
+                        overflow-y: scroll;
+                    }
+
                     #zandaka_label {
                         font-size: 32px;
                         font-weight: bold;
@@ -159,7 +172,11 @@
                     #zandaka {
                         font-size: 16px;
                         font-weight: bold;
-                        margin: 15px 0px 0px 30px;
+                        margin: 15px 0px 0px 45px;
+                    }
+
+                    .log_item {
+                        color: yellow;
                     }
                 </style>
                 <script type="text/javascript">
@@ -210,7 +227,7 @@
                 <div id="tab1items">
                     <div id="tab1_tabitem1" class="tab1_tabitem">残高</div>
                     <div id="tab1_tabitem2" class="tab1_tabitem">受け取り口座</div>
-                    <div id="tab1_tabitem3" class="tab1_tabitem">記録</div>
+                    <div id="tab1_tabitem3" class="tab1_tabitem">運用記録</div>
                 </div>
                 <div id="tab1contents">
                     <div id="tab1_tabcontent1" class="tab1_tabcontent">
@@ -223,7 +240,7 @@
                         <div id="acc_hols_container"></div>
                     </div>
                     <div id="tab1_tabcontent3" class="tab1_tabcontent">
-                        未実装
+                        <div id="logs_container"></div>
                     </div>
                 </div>
             </div>

@@ -14,7 +14,6 @@
                 <RowDefinition Height="Auto"></RowDefinition>
                 <RowDefinition Height="Auto"></RowDefinition>
                 <RowDefinition Height="Auto"></RowDefinition>
-                <RowDefinition Height="Auto"></RowDefinition>
                 <RowDefinition Height="15"></RowDefinition>
                 <RowDefinition Height="Auto"></RowDefinition>
             </Grid.RowDefinitions>
@@ -33,15 +32,13 @@
 
             <TextBlock x:Name="tblDeveloper" Grid.Column="0" Grid.Row="1" TextWrapping="Wrap" Margin="20,5,10,5"></TextBlock>
             <TextBlock x:Name="tbDeveloper" Grid.Column="1" Grid.Row="1" TextWrapping="Wrap" Margin="10,5,5,5"></TextBlock>
-            <TextBlock x:Name="tblCopyright" Grid.Column="0" Grid.Row="2" TextWrapping="Wrap" Margin="20,5,10,5"></TextBlock>
-            <TextBlock x:Name="tbCopyright" Grid.Column="1" Grid.Row="2" TextWrapping="Wrap" Margin="10,5,5,5"></TextBlock>
-            <TextBlock x:Name="tblIconCreater" Grid.Column="0" Grid.Row="3" TextWrapping="Wrap" Margin="20,5,10,5"></TextBlock>
-            <TextBlock x:Name="tbIconCreater" Grid.Column="1" Grid.Row="3" TextWrapping="Wrap" Margin="10,5,5,5"></TextBlock>
-            <TextBlock x:Name="tblCreatanCreater" Grid.Column="0" Grid.Row="4" TextWrapping="Wrap" Margin="20,5,10,5"></TextBlock>
-            <TextBlock x:Name="tbCreatanCreater" Grid.Column="1" Grid.Row="4" TextWrapping="Wrap" Margin="10,5,5,5"></TextBlock>
-            <TextBlock x:Name="tblSpecialThanks" Grid.Column="0" Grid.Row="5" TextWrapping="Wrap" Margin="20,5,10,5"></TextBlock>
-            <TextBlock x:Name="tbSpecialThanks" Grid.Column="1" Grid.Row="5" TextWrapping="Wrap" Margin="10,5,5,5"></TextBlock>
-            <TextBlock x:Name="tbDescription" Grid.Column="0" Grid.Row="7" Grid.ColumnSpan="2" Margin="40,5" HorizontalAlignment="Center" TextWrapping="WrapWithOverflow"></TextBlock>
+            <TextBlock x:Name="tblIconCreater" Grid.Column="0" Grid.Row="2" TextWrapping="Wrap" Margin="20,5,10,5"></TextBlock>
+            <TextBlock x:Name="tbIconCreater" Grid.Column="1" Grid.Row="2" TextWrapping="Wrap" Margin="10,5,5,5"></TextBlock>
+            <TextBlock x:Name="tblCreatanCreater" Grid.Column="0" Grid.Row="3" TextWrapping="Wrap" Margin="20,5,10,5"></TextBlock>
+            <TextBlock x:Name="tbCreatanCreater" Grid.Column="1" Grid.Row="3" TextWrapping="Wrap" Margin="10,5,5,5"></TextBlock>
+            <TextBlock x:Name="tblSpecialThanks" Grid.Column="0" Grid.Row="4" TextWrapping="Wrap" Margin="20,5,10,5"></TextBlock>
+            <TextBlock x:Name="tbSpecialThanks" Grid.Column="1" Grid.Row="4" TextWrapping="Wrap" Margin="10,5,5,5"></TextBlock>
+            <TextBlock x:Name="tbDescription" Grid.Column="0" Grid.Row="6" Grid.ColumnSpan="2" Margin="40,5" HorizontalAlignment="Center" TextWrapping="WrapWithOverflow"></TextBlock>
         </Grid>
         <DockPanel DockPanel.Dock="Bottom">
             <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">

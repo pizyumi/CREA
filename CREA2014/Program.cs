@@ -844,19 +844,21 @@ namespace CREA2014
         public class LogInfomation : INTERNALDATA
         {
             public readonly Type Type;
+            public readonly string RawMessage;
             public readonly string Message;
             public readonly int Level;
             public readonly string[] Arguments;
 
-            public LogInfomation(Type _type, string _message, int _level, string[] _arguments)
+            public LogInfomation(Type _type, string _rawMessage, string _message, int _level, string[] _arguments)
             {
                 Type = _type;
+                RawMessage = _rawMessage;
                 Message = _message;
                 Level = _level;
                 Arguments = _arguments;
             }
 
-            public LogInfomation(Type _type, string _message, int _level) : this(_type, _message, _level, null) { }
+            public LogInfomation(Type _type, string _rawMessage, string _message, int _level) : this(_type, _rawMessage, _message, _level, null) { }
         }
 
         //ログイベントはProgram静的クラスのログ機能を介してより具体的なイベントに変換して、具体的なイベントをUIで処理する
@@ -1035,9 +1037,9 @@ namespace CREA2014
         }
 
         //ログが発生した領域を取得する（拡張：型型）
-        public static Program.LogData.LogGround GetLogGround(this Type type)
+        public static Program.LogData.LogGround GetLogGround(this string rawMessage)
         {
-            return Program.GetLogGround(type);
+            return Program.GetLogGround(rawMessage);
         }
 
         //ログの文章を取得する（拡張：文字列型）
@@ -2332,7 +2334,7 @@ namespace CREA2014
             }
 
             public enum LogKind { test, notification, result, warning, error }
-            public enum LogGround { foundation, core, common, networkBase, creaNetworkBase, cremlia, creaNetwork, signData, ui, other }
+            public enum LogGround { foundation, core, common, networkBase, creaNetworkBase, cremlia, creaNetwork, data, ui, other }
 
             public LogGround Ground
             {
@@ -2374,8 +2376,8 @@ namespace CREA2014
                         return "Cremlia".Multilanguage(84);
                     else if (Ground == LogGround.creaNetwork)
                         return "CREAネットワーク".Multilanguage(85);
-                    else if (Ground == LogGround.signData)
-                        return "署名データ".Multilanguage(86);
+                    else if (Ground == LogGround.data)
+                        return "データ".Multilanguage(86);
                     else if (Ground == LogGround.ui)
                         return "UI".Multilanguage(87);
                     else
@@ -3019,7 +3021,7 @@ namespace CREA2014
         private static string[] langResource;
         private static Dictionary<string, Func<string>> taskNames;
         private static Dictionary<string, Func<string>> taskDescriptions;
-        private static Dictionary<Type, LogData.LogGround> logGrounds;
+        private static Dictionary<string, LogData.LogGround> logGrounds;
         private static Dictionary<string, Func<string[], string>> logMessages;
         private static Dictionary<string, Func<string>> exceptionMessages;
 
@@ -3039,9 +3041,9 @@ namespace CREA2014
             return taskDescriptions.GetValue(rawDescription, () => rawDescription)();
         }
 
-        public static LogData.LogGround GetLogGround(Type type)
+        public static LogData.LogGround GetLogGround(string rawMessage)
         {
-            return logGrounds.GetValue(type, LogData.LogGround.other);
+            return logGrounds.GetValue(rawMessage, LogData.LogGround.other);
         }
 
         public static string GetLogMessage(string rawMessage, string[] arguments)
@@ -3100,12 +3102,47 @@ namespace CREA2014
 
             taskDescriptions = new Dictionary<string, Func<string>>() { };
 
-            logGrounds = new Dictionary<Type, LogData.LogGround>(){
-                { typeof(AccountHolderDatabase), LogData.LogGround.signData},
-                { typeof(InboundChannelsBase), LogData.LogGround.networkBase},
-                { typeof(OutboundChannelBase), LogData.LogGround.networkBase},
-                { typeof(SocketChannel), LogData.LogGround.networkBase},
-                { typeof(Cremlia), LogData.LogGround.cremlia},
+            logGrounds = new Dictionary<string, LogData.LogGround>()
+            {
+                //{"exist_same_name_account_holder", LogData.LogGround.signData},
+                {"outbound_chennel", LogData.LogGround.networkBase},
+                {"inbound_channel", LogData.LogGround.networkBase},
+                {"inbound_channels", LogData.LogGround.networkBase},
+                {"socket_channel_write", LogData.LogGround.networkBase},
+                {"socket_channel_read", LogData.LogGround.networkBase},
+                {"ric", LogData.LogGround.networkBase},
+                {"roc", LogData.LogGround.networkBase},
+                {"inbound_session", LogData.LogGround.networkBase},
+                {"outbound_session", LogData.LogGround.networkBase},
+                {"diffuse", LogData.LogGround.creaNetworkBase},
+                {"keep_conn", LogData.LogGround.creaNetworkBase},
+                {"task", LogData.LogGround.foundation},
+                {"task_aborted", LogData.LogGround.foundation},
+                {"all_tasks_aborted", LogData.LogGround.foundation},
+                {"upnp_not_found", LogData.LogGround.creaNetworkBase},
+                {"port0", LogData.LogGround.creaNetworkBase},
+                {"rsa_key_cant_create", LogData.LogGround.creaNetworkBase},
+                {"rsa_key_create", LogData.LogGround.creaNetworkBase},
+                {"upnp_ipaddress", LogData.LogGround.creaNetworkBase},
+                {"server_started", LogData.LogGround.creaNetworkBase},
+                {"server_ended", LogData.LogGround.creaNetworkBase},
+                {"server_restart", LogData.LogGround.creaNetworkBase},
+                {"aite_wrong_node_info", LogData.LogGround.creaNetwork},
+                {"aite_wrong_network", LogData.LogGround.creaNetwork},
+                {"aite_already_connected", LogData.LogGround.creaNetwork},
+                {"wrong_network", LogData.LogGround.creaNetwork},
+                {"already_connected", LogData.LogGround.creaNetwork}, 
+                {"keep_conn_completed", LogData.LogGround.creaNetwork},
+                {"find_table_already_added", LogData.LogGround.cremlia}, 
+                {"find_nodes", LogData.LogGround.cremlia},
+                {"my_node_info", LogData.LogGround.cremlia},
+                {"blk_too_old", LogData.LogGround.data},
+                {"blk_too_new", LogData.LogGround.data},
+                {"blk_already_existed", LogData.LogGround.data},
+                {"blk_mismatch_genesis_block_hash", LogData.LogGround.data},
+                {"blk_not_connected", LogData.LogGround.data},
+                {"blk_main_not_connected", LogData.LogGround.data},
+                {"blk_too_deep", LogData.LogGround.data},
             };
 
             logMessages = new Dictionary<string, Func<string[], string>>() {
@@ -3137,8 +3174,8 @@ namespace CREA2014
                 {"aite_already_connected", (args) => string.Format("既に接続しているノードから再び接続が要求されました：{0}:{1}".Multilanguage(109), args[0], args[1])},
                 {"wrong_network", (args) => string.Format("別のネットワークに所属しているノードに接続しました：{0}:{1}".Multilanguage(110), args[0], args[1])},
                 {"already_connected", (args) => string.Format("既に接続しているノードに接続しました：{0}:{1}".Multilanguage(111), args[0], args[1])}, 
-                { "keep_conn_completed", (args) => "常時接続が確立しました。".Multilanguage(112)},
-                { "find_table_already_added", (args) => string.Format(string.Join(Environment.NewLine, "DHTの検索リスト項目は既に登録されています。".Multilanguage(116), "距離：{0}".Multilanguage(117), "ノード1：{1}".Multilanguage(118), "ノード2：{2}".Multilanguage(119)), args[0], args[1], args[3])}, 
+                {"keep_conn_completed", (args) => "常時接続が確立しました。".Multilanguage(112)},
+                {"find_table_already_added", (args) => string.Format(string.Join(Environment.NewLine, "DHTの検索リスト項目は既に登録されています。".Multilanguage(116), "距離：{0}".Multilanguage(117), "ノード1：{1}".Multilanguage(118), "ノード2：{2}".Multilanguage(119)), args[0], args[1], args[3])}, 
                 {"find_nodes", (args) => string.Format("{0}個の近接ノードを発見しました。".Multilanguage(120), args[0])},
                 {"my_node_info", (args) => string.Format("自分自身のノード情報です。".Multilanguage(127))},
                 {"blk_too_old", (args) => string.Format("古過ぎるブロックです。".Multilanguage(128))},
@@ -3398,7 +3435,7 @@ namespace CREA2014
                 };
                 app.Startup += (sender, e) =>
                 {
-                    MainWindow mw = new MainWindow(core, psettings, pstatus, appname, version, appnameWithVersion, lisenceTextFilename, assembly, basepath, _OnException);
+                    MainWindow mw = new MainWindow(core, logger, psettings, pstatus, appname, version, appnameWithVersion, lisenceTextFilename, assembly, basepath, _OnException);
                     mw.Show();
                 };
                 app.InitializeComponent();

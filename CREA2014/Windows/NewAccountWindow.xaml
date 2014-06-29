@@ -18,11 +18,6 @@
                 <RowDefinition Height="10"></RowDefinition>
                 <RowDefinition Height="*"></RowDefinition>
                 <RowDefinition Height="*"></RowDefinition>
-                <RowDefinition Height="10"></RowDefinition>
-                <RowDefinition Height="*"></RowDefinition>
-                <RowDefinition Height="*"></RowDefinition>
-                <RowDefinition Height="*"></RowDefinition>
-                <RowDefinition Height="*"></RowDefinition>
             </Grid.RowDefinitions>
 
             <TextBlock x:Name="tbAccountHolder" Grid.Column="0" Grid.Row="0">口座名義：</TextBlock>
@@ -38,11 +33,6 @@
 
             <TextBlock Grid.Column="0" Grid.Row="8"><AccessText x:Name="atDescription">説明(_D)：</AccessText></TextBlock>
             <TextBox x:Name="tbDescription" Grid.Column="0" Grid.Row="9"></TextBox>
-
-            <TextBlock x:Name="tbKeyLength" Grid.Column="0" Grid.Row="11">鍵長：</TextBlock>
-            <RadioButton x:Name="rb256bit" Grid.Column="0" Grid.Row="12" GroupName="KeyLength">256ビット(_2)</RadioButton>
-            <RadioButton x:Name="rb384bit" Grid.Column="0" Grid.Row="13" GroupName="KeyLength">384ビット(_3)</RadioButton>
-            <RadioButton x:Name="rb521bit" Grid.Column="0" Grid.Row="14" GroupName="KeyLength">521ビット(_5)</RadioButton>
         </Grid>
 
         <DockPanel DockPanel.Dock="Bottom">

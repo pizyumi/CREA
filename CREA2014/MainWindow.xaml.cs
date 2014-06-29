@@ -294,7 +294,10 @@ namespace CREA2014
         private WebSocketServer wss;
         private MainWindowSettings mws;
 
+        private bool isMining;
+
         private Core core;
+        private Program.Logger logger;
         private Program.ProgramSettings psettings;
         private Program.ProgramStatus pstatus;
         private string appname;
@@ -305,9 +308,10 @@ namespace CREA2014
 
         private Action<Exception, Program.ExceptionKind> OnException;
 
-        public MainWindow(Core _core, Program.ProgramSettings _psettings, Program.ProgramStatus _pstatus, string _appname, string _version, string _appnameWithVersion, string _lisenceTextFilename, Assembly _assembly, string _basepath, Action<Exception, Program.ExceptionKind> _OnException)
+        public MainWindow(Core _core, Program.Logger _logger, Program.ProgramSettings _psettings, Program.ProgramStatus _pstatus, string _appname, string _version, string _appnameWithVersion, string _lisenceTextFilename, Assembly _assembly, string _basepath, Action<Exception, Program.ExceptionKind> _OnException)
         {
             core = _core;
+            logger = _logger;
             psettings = _psettings;
             pstatus = _pstatus;
             appname = _appname;
@@ -324,6 +328,7 @@ namespace CREA2014
             miClose.Header = "終了".Multilanguage(20) + "(_X)";
             miTool.Header = "ツール".Multilanguage(48) + "(_T)";
             miSettings.Header = "設定".Multilanguage(49) + "(_S)...";
+            miMining.Header = "採掘開始".Multilanguage(135) + "(_M)";
             miHelp.Header = "ヘルプ".Multilanguage(21) + "(_H)";
             miAbout.Header = "CREAについて".Multilanguage(22) + "(_A)...";
         }
@@ -379,13 +384,23 @@ namespace CREA2014
 
             Func<int, string> _GetWssAddress = (wssPort) => "ws://localhost:" + wssPort.ToString() + "/";
 
+            Dictionary<string, string> webResourceCache = new Dictionary<string, string>();
             Func<string, string> _GetWebResource = (filename) =>
             {
                 using (Stream stream = assembly.GetManifestResourceStream(filename))
                 {
-                    byte[] data = new byte[stream.Length];
-                    stream.Read(data, 0, data.Length);
-                    return Encoding.UTF8.GetString(data);
+                    string webResource = null;
+
+                    if (webResourceCache.Keys.Contains(filename))
+                        webResource = webResourceCache[filename];
+                    else
+                    {
+                        byte[] data = new byte[stream.Length];
+                        stream.Read(data, 0, data.Length);
+                        webResourceCache.Add(filename, webResource = Encoding.UTF8.GetString(data));
+                    }
+
+                    return webResource;
                 }
             };
 
@@ -475,7 +490,7 @@ namespace CREA2014
                             NewAccountHolderWindow nahw = new NewAccountHolderWindow();
                             nahw.Owner = window;
                             if (nahw.ShowDialog() == true)
-                                core.AccountHolderDatabase.AddAccountHolder(new PseudonymousAccountHolder(nahw.tbAccountHolder.Text, nahw.rb256bit.IsChecked == true ? EcdsaKey.EcdsaKeyLength.Ecdsa256 : nahw.rb384bit.IsChecked == true ? EcdsaKey.EcdsaKeyLength.Ecdsa384 : EcdsaKey.EcdsaKeyLength.Ecdsa521));
+                                core.iAccountHolders.iAddAccountHolder(core.iAccountHoldersFactory.CreatePseudonymousAccountHolder(nahw.tbAccountHolder.Text));
                         };
 
                         if (message == "new_account_holder")
@@ -488,31 +503,31 @@ namespace CREA2014
                             Action _Clear = () => naw.cbAccountHolder.Items.Clear();
                             Action _Add = () =>
                             {
-                                foreach (var ah in core.AccountHolderDatabase.PseudonymousAccountHolders)
+                                foreach (var ah in core.iAccountHolders.iPseudonymousAccountHolders)
                                     naw.cbAccountHolder.Items.Add(ah);
                             };
 
                             EventHandler accountHolderAdded = (sender2, e2) => _Clear.AndThen(_Add).ExecuteInUIThread();
 
-                            core.AccountHolderDatabase.AccountHolderAdded += accountHolderAdded;
+                            core.iAccountHolders.iAccountHolderAdded += accountHolderAdded;
 
                             _Add();
 
                             if (naw.ShowDialog() == true)
                             {
-                                AccountHolder ahTarget = null;
+                                IAccountHolder ahTarget = null;
                                 if (naw.rbAnonymous.IsChecked == true)
-                                    ahTarget = core.AccountHolderDatabase.AnonymousAccountHolder;
+                                    ahTarget = core.iAccountHolders.iAnonymousAccountHolder;
                                 else
-                                    foreach (var ah in core.AccountHolderDatabase.PseudonymousAccountHolders)
+                                    foreach (var ah in core.iAccountHolders.iPseudonymousAccountHolders)
                                         if (ah == naw.cbAccountHolder.SelectedItem)
                                             ahTarget = ah;
 
                                 if (ahTarget != null)
-                                    ahTarget.AddAccount(new Account(naw.tbName.Text, naw.tbDescription.Text, naw.rb256bit.IsChecked == true ? EcdsaKey.EcdsaKeyLength.Ecdsa256 : naw.rb384bit.IsChecked == true ? EcdsaKey.EcdsaKeyLength.Ecdsa384 : EcdsaKey.EcdsaKeyLength.Ecdsa521));
+                                    ahTarget.iAddAccount(core.iAccountHoldersFactory.CreateAccount(naw.tbName.Text, naw.tbDescription.Text));
                             }
 
-                            core.AccountHolderDatabase.AccountHolderAdded -= accountHolderAdded;
+                            core.iAccountHolders.iAccountHolderAdded -= accountHolderAdded;
                         }
                         else
                             throw new NotSupportedException("wss_command");
@@ -530,20 +545,34 @@ namespace CREA2014
                 string accHolHtml = _GetWebResource("CREA2014.WebResources.acc_hol.htm");
                 string accHtml = _GetWebResource("CREA2014.WebResources.acc.htm");
 
-                string accs = string.Concat(from i in core.AccountHolderDatabase.AnonymousAccountHolder.Accounts
-                                            select accHtml.Replace("%%name%%", i.Name).Replace("%%description%%", i.Description).Replace("%%address%%", i.Address.Base58));
+                string accs = string.Concat(from i in core.iAccountHolders.iAnonymousAccountHolder.iAccounts
+                                            select accHtml.Replace("%%name%%", i.iName).Replace("%%description%%", i.iDescription).Replace("%%address%%", i.iAddress));
 
-                string psu_acc_hols = string.Concat(from i in core.AccountHolderDatabase.PseudonymousAccountHolders
-                                                    select accHolHtml.Replace("%%title%%", i.Sign).Replace("%%accs%%",
-                                      string.Concat(from j in i.Accounts
-                                                    select accHtml.Replace("%%name%%", j.Name).Replace("%%description%%", j.Description).Replace("%%address%%", j.Address.Base58))));
+                string psu_acc_hols = string.Concat(from i in core.iAccountHolders.iPseudonymousAccountHolders
+                                                    select accHolHtml.Replace("%%title%%", i.iSign).Replace("%%accs%%",
+                                      string.Concat(from j in i.iAccounts
+                                                    select accHtml.Replace("%%name%%", j.iName).Replace("%%description%%", j.iDescription).Replace("%%address%%", j.iAddress))));
 
                 return accHolsHtml.Replace("%%accs%%", accs).Replace("%%psu_acc_hols%%", psu_acc_hols);
             };
 
+            Func<Program.LogData, string> _GetLogHtml = (logData) =>
+            {
+                if (logData.Kind == Program.LogData.LogKind.error)
+                    return _GetWebResource("CREA2014.WebResources.error_log.htm").Replace("%%log%%", logData.ToString());
+                else
+                    return _GetWebResource("CREA2014.WebResources.log.htm").Replace("%%log%%", logData.ToString());
+            };
+
             WebSocketServer oldWss;
             wss = new WebSocketServer();
-            wss.NewSessionConnected += (session) => session.Send("acc_hols " + _GetAccountHolderHtml());
+            wss.NewSessionConnected += (session) =>
+            {
+                session.Send("acc_hols " + _GetAccountHolderHtml());
+
+                foreach (var log in logger.Logs.Reverse())
+                    session.Send("log " + _GetLogHtml(log));
+            };
             wss.NewMessageReceived += newMessageReceived;
             wss.Setup(mws.PortWebSocket);
             wss.Start();
@@ -595,13 +624,16 @@ namespace CREA2014
                 }
             };
 
-            Action _SendAccountHolderHtmlToAllSessions = () =>
+            core.iAccountHolders.iAccountHoldersChanged += (sender2, e2) =>
             {
                 foreach (var wssession in wss.GetAllSessions())
                     wssession.Send("acc_hols " + _GetAccountHolderHtml());
             };
-
-            core.AccountHolderDatabase.AccountHoldersChanged += (sender2, e2) => _SendAccountHolderHtmlToAllSessions();
+            logger.LogAdded += (sender2, e2) =>
+            {
+                foreach (var wssession in wss.GetAllSessions())
+                    wssession.Send("log " + _GetLogHtml(e2));
+            };
         }
 
         private void Window_Closing(object sender, System.ComponentModel.CancelEventArgs e)
@@ -647,6 +679,24 @@ namespace CREA2014
                     setter.WallpaperOpacity = float.Parse(sw.tbWallpaperOpacity.Text);
                     setter.IsConfirmAtExit = (bool)sw.cbConfirmAtExit.IsChecked;
                 });
+        }
+
+        private void miMining_Click(object sender, RoutedEventArgs e)
+        {
+            if (isMining)
+            {
+                core.EndMining();
+
+                miMining.Header = "採掘開始".Multilanguage(135) + "(_M)";
+            }
+            else
+            {
+                core.StartMining();
+
+                miMining.Header = "採掘停止".Multilanguage(136) + "(_M)";
+            }
+
+            isMining = !isMining;
         }
 
         private void miAbout_Click(object sender, RoutedEventArgs e)

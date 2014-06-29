@@ -10,6 +10,7 @@
             </MenuItem>
             <MenuItem x:Name="miTool">
                 <MenuItem x:Name="miSettings" Click="miSettings_Click"></MenuItem>
+                <MenuItem x:Name="miMining" Click="miMining_Click"></MenuItem>
             </MenuItem>
             <MenuItem x:Name="miHelp">
                 <MenuItem x:Name="miAbout" Click="miAbout_Click"></MenuItem>

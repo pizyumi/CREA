@@ -15,8 +15,6 @@ namespace CREA2014.Windows
             tbVersion.Text = _version;
             tblDeveloper.Text = "制作者".Multilanguage(24);
             tbDeveloper.Text = "Piz&Yumina／OSDS開発部".Multilanguage(25);
-            tblCopyright.Text = "著作権の所在".Multilanguage(26);
-            tbCopyright.Text = "Piz&Yumina（ただし、下記に示すものを除く）".Multilanguage(27);
             tblIconCreater.Text = "CREAアイコン".Multilanguage(28);
             tbIconCreater.Text = "386氏".Multilanguage(29);
             tblCreatanCreater.Text = "CREAたんイラスト".Multilanguage(30);

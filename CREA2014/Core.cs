@@ -23,65 +23,104 @@ using System.Windows.Media;
 
 namespace CREA2014
 {
-    public abstract class COREBASE<KeyPairType, DsaPubKeyType, DsaPrivKeyType>
+    public abstract class COREBASE<KeyPairType, DsaPubKeyType, DsaPrivKeyType, BlockidHashType, TxidHashType, PubKeyHashType>
         where KeyPairType : DSAKEYPAIRBASE<DsaPubKeyType, DsaPrivKeyType>
         where DsaPubKeyType : DSAPUBKEYBASE
         where DsaPrivKeyType : DSAPRIVKEYBASE
+        where BlockidHashType : HASHBASE
+        where TxidHashType : HASHBASE
+        where PubKeyHashType : HASHBASE
     {
         public COREBASE(string _basePath)
         {
-            string ahdFileName = "ahs.dat";
-
             //Coreが2回以上実体化されないことを保証する
             //2回以上呼ばれた際には例外が発生する
             Instantiate();
 
             basepath = _basePath;
-            accountHolderDatabasePath = Path.Combine(basepath, ahdFileName);
+            databaseBasepath = Path.Combine(basepath, databaseDirectory);
         }
-
-        public AccountHolders<KeyPairType, DsaPubKeyType, DsaPrivKeyType> accountHolderDatabase { get; private set; }
-        public IAccountHolders iAccountHolders { get { return accountHolderDatabase; } }
 
         private static readonly Action Instantiate = OneTime.GetOneTime();
 
-        private readonly object coreLock = new object();
+        private static readonly string databaseDirectory = "database";
+
+        public AccountHolders<KeyPairType, DsaPubKeyType, DsaPrivKeyType> accountHolders { get; private set; }
+        public IAccountHolders iAccountHolders { get { return accountHolders; } }
+
+        private AccountHoldersFactory<KeyPairType, DsaPubKeyType, DsaPrivKeyType> accountHoldersFactory;
+        public IAccountHoldersFactory iAccountHoldersFactory { get { return accountHoldersFactory; } }
+
+        private Mining<BlockidHashType, TxidHashType, PubKeyHashType, DsaPubKeyType> mining;
+
+        private AccountHoldersDatabase ahDatabase;
+        private BlockChainDatabase bhDatabase;
+        private BlockNodesGroupDatabase bngDatabase;
+        private BlockGroupDatabase bgDatabase;
 
         private string basepath;
-        private string accountHolderDatabasePath;
+        private string databaseBasepath;
         private bool isSystemStarted;
 
         public void StartSystem()
         {
-            lock (coreLock)
-            {
-                if (isSystemStarted)
-                    throw new InvalidOperationException("core_started");
+            if (isSystemStarted)
+                throw new InvalidOperationException("core_started");
 
-                accountHolderDatabase = new AccountHolders<KeyPairType, DsaPubKeyType, DsaPrivKeyType>();
+            ahDatabase = new AccountHoldersDatabase(databaseBasepath);
+            bhDatabase = new BlockChainDatabase(databaseBasepath);
+            bngDatabase = new BlockNodesGroupDatabase(databaseBasepath);
+            bgDatabase = new BlockGroupDatabase(databaseBasepath);
 
-                if (File.Exists(accountHolderDatabasePath))
-                    accountHolderDatabase.FromBinary(File.ReadAllBytes(accountHolderDatabasePath));
+            accountHolders = new AccountHolders<KeyPairType, DsaPubKeyType, DsaPrivKeyType>();
+            accountHoldersFactory = new AccountHoldersFactory<KeyPairType, DsaPubKeyType, DsaPrivKeyType>();
 
-                isSystemStarted = true;
-            }
+            mining = new Mining<BlockidHashType, TxidHashType, PubKeyHashType, DsaPubKeyType>();
+
+            byte[] ahDataBytes = ahDatabase.GetData();
+            if (ahDataBytes.Length != 0)
+                accountHolders.FromBinary(ahDataBytes);
+
+            isSystemStarted = true;
         }
 
         public void EndSystem()
         {
-            lock (coreLock)
+            if (!isSystemStarted)
+                throw new InvalidOperationException("core_not_started");
+
+            ahDatabase.UpdateData(accountHolders.ToBinary());
+
+            isSystemStarted = false;
+        }
+
+        public void StartMining()
+        {
+            Ecdsa256KeyPair pair1 = new Ecdsa256KeyPair(true);
+
+            TransactionOutput<PubKeyHashType> output = new TransactionOutput<PubKeyHashType>(Activator.CreateInstance(typeof(PubKeyHashType), pair1.pubKey.pubKey) as PubKeyHashType, new Creacoin(50.0m));
+
+            CoinbaseTransaction<TxidHashType, PubKeyHashType> coinbase = new CoinbaseTransaction<TxidHashType, PubKeyHashType>(new TransactionOutput<PubKeyHashType>[] { output });
+
+            BlockHeader<BlockidHashType, TxidHashType> header = new BlockHeader<BlockidHashType, TxidHashType>(1, new GenesisBlock<BlockidHashType>().Id, Activator.CreateInstance(typeof(TxidHashType)) as TxidHashType, DateTime.Now, TransactionalBlock<BlockidHashType, TxidHashType, PubKeyHashType, DsaPubKeyType>.minDifficulty, new byte[] { });
+
+            TransactionalBlock<BlockidHashType, TxidHashType, PubKeyHashType, DsaPubKeyType> txBlock = new NormalBlock<BlockidHashType, TxidHashType, PubKeyHashType, DsaPubKeyType>(header, coinbase, new TransferTransaction<TxidHashType, PubKeyHashType, DsaPubKeyType>[] { });
+
+            mining.FoundNonce += (sender, e) =>
             {
-                if (!isSystemStarted)
-                    throw new InvalidOperationException("core_not_started");
+                MessageBox.Show(string.Join(",", e.header.nonce[0].ToString(), e.header.nonce[1].ToString(), e.header.nonce[2].ToString(), e.header.nonce[3].ToString()));
+            };
+            mining.Start();
+            mining.NewMiningBlock(txBlock);
+        }
 
-                File.WriteAllBytes(accountHolderDatabasePath, accountHolderDatabase.ToBinary());
-
-                isSystemStarted = false;
-            }
+        public void EndMining()
+        {
+            mining.End();
         }
     }
 
-    public class Core : COREBASE<Ecdsa256KeyPair, Ecdsa256PubKey, Ecdsa256PrivKey>
+    public class Core : COREBASE<Ecdsa256KeyPair, Ecdsa256PubKey, Ecdsa256PrivKey, X15Hash, Sha256Sha256Hash, Sha256Ripemd160Hash>
     {
         public Core(string _basePath) : base(_basePath) { }
     }
@@ -4444,85 +4483,7 @@ namespace CREA2014
 
     #endregion
 
-    public class EcdsaKey : SHAREDDATA
-    {
-        private EcdsaKeyLength keyLength;
-        public EcdsaKeyLength KeyLength
-        {
-            get { return keyLength; }
-        }
-
-        private byte[] publicKey;
-        public byte[] PublicKey
-        {
-            get { return publicKey; }
-        }
-
-        private byte[] privateKey;
-        public byte[] PrivateKey
-        {
-            get { return privateKey; }
-        }
-
-        public enum EcdsaKeyLength { Ecdsa256, Ecdsa384, Ecdsa521 }
-
-        public EcdsaKey(EcdsaKeyLength _keyLength)
-            : base(0)
-        {
-            keyLength = _keyLength;
-
-            CngAlgorithm ca;
-            if (keyLength == EcdsaKeyLength.Ecdsa256)
-                ca = CngAlgorithm.ECDsaP256;
-            else if (keyLength == EcdsaKeyLength.Ecdsa384)
-                ca = CngAlgorithm.ECDsaP384;
-            else if (keyLength == EcdsaKeyLength.Ecdsa521)
-                ca = CngAlgorithm.ECDsaP521;
-            else
-                throw new NotSupportedException("ecdsa_key_length_not_suppoeted");
-
-            CngKey ck = CngKey.Create(ca, null, new CngKeyCreationParameters { ExportPolicy = CngExportPolicies.AllowPlaintextExport });
-
-            publicKey = ck.Export(CngKeyBlobFormat.EccPublicBlob);
-            privateKey = ck.Export(CngKeyBlobFormat.EccPrivateBlob);
-        }
-
-        public EcdsaKey() : this(EcdsaKeyLength.Ecdsa256) { }
-
-        protected override Func<ReaderWriter, IEnumerable<MainDataInfomation>> StreamInfo
-        {
-            get
-            {
-                if (Version == 0)
-                {
-                    return (msrw) => new MainDataInfomation[]{
-                        new MainDataInfomation(typeof(int), () => (int)keyLength, (o) => keyLength = (EcdsaKeyLength)o),
-                        new MainDataInfomation(typeof(byte[]), null, () => publicKey, (o) => publicKey = (byte[])o),
-                        new MainDataInfomation(typeof(byte[]), null, () => privateKey, (o) => privateKey = (byte[])o),
-                    };
-                }
-                else
-                    throw new NotSupportedException("ecdsa_key_main_data_info");
-
-            }
-        }
-
-        public override bool IsVersioned
-        {
-            get { return true; }
-        }
-
-        public override bool IsCorruptionChecked
-        {
-            get
-            {
-                if (Version <= 0)
-                    return true;
-                else
-                    throw new NotSupportedException("ecdsa_key_check");
-            }
-        }
-    }
+    #region 口座
 
     public interface IAccount
     {
@@ -4538,6 +4499,9 @@ namespace CREA2014
         event EventHandler iAccountAdded;
         event EventHandler iAccountRemoved;
         event EventHandler iAccountHolderChanged;
+
+        void iAddAccount(IAccount iAccount);
+        void iRemoveAccount(IAccount iAccount);
     }
 
     public interface IAnonymousAccountHolder : IAccountHolder { }
@@ -4549,12 +4513,21 @@ namespace CREA2014
 
     public interface IAccountHolders
     {
-        IAccountHolder iAnonymousAccountHolder { get; }
-        IAccountHolder[] iPseudonymousAccountHolders { get; }
+        IAnonymousAccountHolder iAnonymousAccountHolder { get; }
+        IPseudonymousAccountHolder[] iPseudonymousAccountHolders { get; }
 
         event EventHandler iAccountHolderAdded;
         event EventHandler iAccountHolderRemoved;
         event EventHandler iAccountHoldersChanged;
+
+        void iAddAccountHolder(IPseudonymousAccountHolder iPseudonymousAccountHolder);
+        void iDeleteAccountHolder(IPseudonymousAccountHolder iPseudonymousAccountHolder);
+    }
+
+    public interface IAccountHoldersFactory
+    {
+        IAccount CreateAccount(string name, string description);
+        IPseudonymousAccountHolder CreatePseudonymousAccountHolder(string name);
     }
 
     public class Account<KeyPairType, DsaPubKeyType, DsaPrivKeyType> : SHAREDDATA, IAccount
@@ -4562,14 +4535,14 @@ namespace CREA2014
         where DsaPubKeyType : DSAPUBKEYBASE
         where DsaPrivKeyType : DSAPRIVKEYBASE
     {
-        public Account() { }
+        public Account() : base(0) { }
 
         public Account(string _name, string _description)
             : base(0)
         {
             name = _name;
             description = _description;
-            keyPair = Activator.CreateInstance(typeof(KeyPairType), true) as KeyPairType;
+            keyPair = Activator.CreateInstance(typeof(KeyPairType), new object[] { true }) as KeyPairType;
         }
 
         private string name;
@@ -4744,6 +4717,8 @@ namespace CREA2014
                 return (msrw) => new MainDataInfomation[]{
                     new MainDataInfomation(typeof(Account<KeyPairType, DsaPubKeyType, DsaPrivKeyType>[]), 0, null, () => accounts.ToArray(), (o) =>
                     {
+                        foreach (var account in accounts)
+                            account.AccountChanged -= account_changed;
                         accounts = ((Account<KeyPairType, DsaPubKeyType, DsaPrivKeyType>[])o).ToList();
                         foreach (var account in accounts)
                             account.AccountChanged += account_changed;
@@ -4812,6 +4787,22 @@ namespace CREA2014
             add { AccountHolderChanged += value; }
             remove { AccountHolderChanged -= value; }
         }
+
+        public void iAddAccount(IAccount iAccount)
+        {
+            if (!(iAccount is Account<KeyPairType, DsaPubKeyType, DsaPrivKeyType>))
+                throw new ArgumentException("type_mismatch");
+
+            AddAccount(iAccount as Account<KeyPairType, DsaPubKeyType, DsaPrivKeyType>);
+        }
+
+        public void iRemoveAccount(IAccount iAccount)
+        {
+            if (!(iAccount is Account<KeyPairType, DsaPubKeyType, DsaPrivKeyType>))
+                throw new ArgumentException("type_mismatch");
+
+            RemoveAccount(iAccount as Account<KeyPairType, DsaPubKeyType, DsaPrivKeyType>);
+        }
     }
 
     public class AnonymousAccountHolder<KeyPairType, DsaPubKeyType, DsaPrivKeyType> : AccountHolder<KeyPairType, DsaPubKeyType, DsaPrivKeyType>, IAnonymousAccountHolder
@@ -4851,13 +4842,13 @@ namespace CREA2014
         where DsaPubKeyType : DSAPUBKEYBASE
         where DsaPrivKeyType : DSAPRIVKEYBASE
     {
-        public PseudonymousAccountHolder() { }
+        public PseudonymousAccountHolder() : base(0) { }
 
         public PseudonymousAccountHolder(string _name)
             : base(0)
         {
             name = _name;
-            keyPair = Activator.CreateInstance(typeof(KeyPairType), true) as KeyPairType;
+            keyPair = Activator.CreateInstance(typeof(KeyPairType), new object[] { true }) as KeyPairType;
         }
 
         private string name;
@@ -4876,7 +4867,7 @@ namespace CREA2014
                 if (Version == 0)
                     return (msrw) => base.StreamInfo(msrw).Concat(new MainDataInfomation[]{
                         new MainDataInfomation(typeof(string), () => name, (o) => name = (string)o),
-                        new MainDataInfomation(typeof(KeyPairType), 0, () => keyPair, (o) => keyPair = (KeyPairType)o),
+                        new MainDataInfomation(typeof(KeyPairType), null, () => keyPair, (o) => keyPair = (KeyPairType)o),
                     });
                 else
                     throw new NotSupportedException("pah_main_data_info");
@@ -4913,11 +4904,13 @@ namespace CREA2014
         public AccountHolders()
             : base(0)
         {
+            accountHolders_changed = (sender, e) => AccountHoldersChanged(this, EventArgs.Empty);
+
             anonymousAccountHolder = new AnonymousAccountHolder<KeyPairType, DsaPubKeyType, DsaPrivKeyType>();
+            anonymousAccountHolder.AccountHolderChanged += accountHolders_changed;
+
             pseudonymousAccountHolders = new List<PseudonymousAccountHolder<KeyPairType, DsaPubKeyType, DsaPrivKeyType>>();
             candidateAccountHolders = new List<PseudonymousAccountHolder<KeyPairType, DsaPubKeyType, DsaPrivKeyType>>();
-
-            accountHolders_changed = (sender, e) => AccountHoldersChanged(this, EventArgs.Empty);
         }
 
         public AnonymousAccountHolder<KeyPairType, DsaPubKeyType, DsaPrivKeyType> anonymousAccountHolder { get; private set; }
@@ -4944,11 +4937,14 @@ namespace CREA2014
                     return (mswr) => new MainDataInfomation[]{
                         new MainDataInfomation(typeof(AnonymousAccountHolder<KeyPairType, DsaPubKeyType, DsaPrivKeyType>), 0, () => anonymousAccountHolder, (o) =>
                         {
+                            anonymousAccountHolder.AccountHolderChanged -= accountHolders_changed;
                             anonymousAccountHolder = (AnonymousAccountHolder<KeyPairType, DsaPubKeyType, DsaPrivKeyType>)o;
                             anonymousAccountHolder.AccountHolderChanged += accountHolders_changed;
                         }),
                         new MainDataInfomation(typeof(PseudonymousAccountHolder<KeyPairType, DsaPubKeyType, DsaPrivKeyType>[]), 0, null, () => pseudonymousAccountHolders.ToArray(), (o) =>
                         {
+                            foreach (var pah in pseudonymousAccountHolders)
+                                pah.AccountHolderChanged -= accountHolders_changed;
                             pseudonymousAccountHolders = ((PseudonymousAccountHolder<KeyPairType, DsaPubKeyType, DsaPrivKeyType>[])o).ToList();
                             foreach (var pah in pseudonymousAccountHolders)
                                 pah.AccountHolderChanged += accountHolders_changed;
@@ -5038,9 +5034,9 @@ namespace CREA2014
                 candidateAccountHolders.Clear();
         }
 
-        public IAccountHolder iAnonymousAccountHolder { get { return anonymousAccountHolder; } }
+        public IAnonymousAccountHolder iAnonymousAccountHolder { get { return anonymousAccountHolder; } }
 
-        public IAccountHolder[] iPseudonymousAccountHolders { get { return PseudonymousAccountHolders; } }
+        public IPseudonymousAccountHolder[] iPseudonymousAccountHolders { get { return PseudonymousAccountHolders; } }
 
         public event EventHandler iAccountHolderAdded
         {
@@ -5059,7 +5055,43 @@ namespace CREA2014
             add { AccountHoldersChanged += value; }
             remove { AccountHoldersChanged -= value; }
         }
+
+        public void iAddAccountHolder(IPseudonymousAccountHolder iPseudonymousAccountHolder)
+        {
+            if (!(iPseudonymousAccountHolder is PseudonymousAccountHolder<KeyPairType, DsaPubKeyType, DsaPrivKeyType>))
+                throw new ArgumentException("type_mismatch");
+
+            AddAccountHolder(iPseudonymousAccountHolder as PseudonymousAccountHolder<KeyPairType, DsaPubKeyType, DsaPrivKeyType>);
+        }
+
+        public void iDeleteAccountHolder(IPseudonymousAccountHolder iPseudonymousAccountHolder)
+        {
+            if (!(iPseudonymousAccountHolder is PseudonymousAccountHolder<KeyPairType, DsaPubKeyType, DsaPrivKeyType>))
+                throw new ArgumentException("type_mismatch");
+
+            DeleteAccountHolder(iPseudonymousAccountHolder as PseudonymousAccountHolder<KeyPairType, DsaPubKeyType, DsaPrivKeyType>);
+        }
     }
+
+    public class AccountHoldersFactory<KeyPairType, DsaPubKeyType, DsaPrivKeyType> : IAccountHoldersFactory
+        where KeyPairType : DSAKEYPAIRBASE<DsaPubKeyType, DsaPrivKeyType>
+        where DsaPubKeyType : DSAPUBKEYBASE
+        where DsaPrivKeyType : DSAPRIVKEYBASE
+    {
+        public AccountHoldersFactory() { }
+
+        public IAccount CreateAccount(string name, string description)
+        {
+            return new Account<KeyPairType, DsaPubKeyType, DsaPrivKeyType>(name, description);
+        }
+
+        public IPseudonymousAccountHolder CreatePseudonymousAccountHolder(string name)
+        {
+            return new PseudonymousAccountHolder<KeyPairType, DsaPubKeyType, DsaPrivKeyType>(name);
+        }
+    }
+
+    #endregion
 
     public class MerkleTree<U> where U : HASHBASE
     {
@@ -5884,6 +5916,19 @@ namespace CREA2014
         public CoinbaseTransaction<TxidHashType, PubKeyHashType> coinbaseTxToMiner { get; private set; }
         public TransferTransaction<TxidHashType, PubKeyHashType, PubKeyType>[] transferTxs { get; private set; }
 
+        public override BlockidHashType Id
+        {
+            get
+            {
+                if (isModified || idCache == null)
+                {
+                    idCache = Activator.CreateInstance(typeof(BlockidHashType), header.ToBinary()) as BlockidHashType;
+                    isModified = false;
+                }
+                return idCache;
+            }
+        }
+
         public virtual IEnumerable<Transaction<TxidHashType, PubKeyHashType>> Transactions
         {
             get
@@ -5945,6 +5990,20 @@ namespace CREA2014
                     new MainDataInfomation(typeof(TransferTransaction<TxidHashType, PubKeyHashType, PubKeyType>[]), 0, null, () => transferTxs, (o) => transferTxs = (TransferTransaction<TxidHashType, PubKeyHashType, PubKeyType>[])o),
                 };
             }
+        }
+
+        public void UpdateTimestamp(DateTime newTimestamp)
+        {
+            header.UpdateTimestamp(newTimestamp);
+
+            isModified = true;
+        }
+
+        public void UpdateNonce(byte[] newNonce)
+        {
+            header.UpdateNonce(newNonce);
+
+            isModified = true;
         }
 
         public bool VerifyTransferTransaction(TransactionOutput<PubKeyHashType>[][] prevTxOutputss)
@@ -6127,7 +6186,16 @@ namespace CREA2014
 
         public override bool IsVersioned { get { return true; } }
 
-        public override bool IsCorruptionChecked { get { return true; } }
+        public override bool IsCorruptionChecked
+        {
+            get
+            {
+                if (Version <= 0)
+                    return true;
+                else
+                    throw new NotSupportedException("normal_block_check");
+            }
+        }
     }
 
     public class FoundationalBlock<BlockidHashType, TxidHashType, PubKeyHashType, PubKeyType> : TransactionalBlock<BlockidHashType, TxidHashType, PubKeyHashType, PubKeyType>
@@ -6171,7 +6239,16 @@ namespace CREA2014
 
         public override bool IsVersioned { get { return true; } }
 
-        public override bool IsCorruptionChecked { get { return true; } }
+        public override bool IsCorruptionChecked
+        {
+            get
+            {
+                if (Version <= 0)
+                    return true;
+                else
+                    throw new NotSupportedException("normal_block_check");
+            }
+        }
 
         public override bool VerifyRewardAndTxFee(TransactionOutput<PubKeyHashType>[][] prevTxOutputss)
         {
@@ -6240,13 +6317,110 @@ namespace CREA2014
                 };
             }
         }
+
+        public void UpdateTimestamp(DateTime newTimestamp)
+        {
+            timestamp = newTimestamp;
+        }
+
+        public void UpdateNonce(byte[] newNonce)
+        {
+            if (newNonce.Length > maxNonceLength)
+                throw new ArgumentOutOfRangeException("block_header_nonce_out");
+
+            nonce = newNonce;
+        }
     }
 
     #endregion
 
-    public class ProofOfWork
+    public class Mining<BlockidHashType, TxidHashType, PubKeyHashType, PubKeyType>
+        where BlockidHashType : HASHBASE
+        where TxidHashType : HASHBASE
+        where PubKeyHashType : HASHBASE
+        where PubKeyType : DSAPUBKEYBASE
     {
+        public Mining()
+        {
+            are = new AutoResetEvent(false);
 
+            this.StartTask("mining", "mining", () =>
+            {
+                byte[] bytes = new byte[] { 0, 0, 0, 0 };
+
+                while (true)
+                {
+                    TransactionalBlock<BlockidHashType, TxidHashType, PubKeyHashType, PubKeyType> txBlockCopy = txBlock;
+
+                    while (!isStarted || txBlockCopy == null)
+                    {
+                        are.WaitOne(30000);
+
+                        txBlockCopy = txBlock;
+                    }
+
+                    txBlock.UpdateTimestamp(DateTime.Now);
+                    txBlock.UpdateNonce(bytes);
+
+                    if (txBlock.Id.CompareTo(txBlock.header.difficulty.Target) < 0)
+                    {
+                        FoundNonce(this, txBlockCopy);
+
+                        txBlock = null;
+                    }
+
+                    if (bytes[0] != 255)
+                        bytes[0]++;
+                    else if (bytes[1] != 255)
+                    {
+                        bytes[1]++;
+                        bytes[0] = 0;
+                    }
+                    else if (bytes[2] != 255)
+                    {
+                        bytes[2]++;
+                        bytes[0] = bytes[1] = 0;
+                    }
+                    else if (bytes[3] != 255)
+                    {
+                        bytes[3]++;
+                        bytes[0] = bytes[1] = bytes[2] = 0;
+                    }
+                    else
+                        bytes[0] = bytes[1] = bytes[2] = bytes[3] = 0;
+                }
+            });
+        }
+
+        private TransactionalBlock<BlockidHashType, TxidHashType, PubKeyHashType, PubKeyType> txBlock;
+        private AutoResetEvent are;
+
+        public bool isStarted { get; private set; }
+
+        public event EventHandler<TransactionalBlock<BlockidHashType, TxidHashType, PubKeyHashType, PubKeyType>> FoundNonce = delegate { };
+
+        public void Start()
+        {
+            if (isStarted)
+                throw new InvalidOperationException("already_started");
+
+            isStarted = true;
+        }
+
+        public void End()
+        {
+            if (!isStarted)
+                throw new InvalidOperationException("not_yet_started");
+
+            isStarted = false;
+        }
+
+        public void NewMiningBlock(TransactionalBlock<BlockidHashType, TxidHashType, PubKeyHashType, PubKeyType> newTxBlock)
+        {
+            txBlock = newTxBlock;
+
+            are.Set();
+        }
     }
 
     public class BlockChain<BlockidHashType, TxidHashType, PubKeyHashType, PubKeyType> : SHAREDDATA
@@ -7028,6 +7202,10 @@ namespace CREA2014
         }
     }
 
+    #endregion
+
+    #region データベース
+
     public abstract class DATABASEBASE
     {
         public DATABASEBASE(string _pathBase)
@@ -7043,13 +7221,11 @@ namespace CREA2014
         protected abstract string filenameBase { get; }
     }
 
-    public class BlockChainDatabase : DATABASEBASE
+    public abstract class SimpleDatabase : DATABASEBASE
     {
-        public BlockChainDatabase(string _pathBase) : base(_pathBase) { }
+        public SimpleDatabase(string _pathBase) : base(_pathBase) { }
 
-        protected override string filenameBase { get { return "blkchn"; } }
-
-        public byte[] GetBlockChainData()
+        public virtual byte[] GetData()
         {
             using (FileStream fs = new FileStream(GetPath(), FileMode.OpenOrCreate, FileAccess.Read))
             {
@@ -7059,13 +7235,27 @@ namespace CREA2014
             }
         }
 
-        public void UpdateBlockChainData(byte[] data)
+        public virtual void UpdateData(byte[] data)
         {
             using (FileStream fs = new FileStream(GetPath(), FileMode.Create, FileAccess.Write))
                 fs.Write(data, 0, data.Length);
         }
 
         private string GetPath() { return Path.Combine(pathBase, filenameBase); }
+    }
+
+    public class AccountHoldersDatabase : SimpleDatabase
+    {
+        public AccountHoldersDatabase(string _pathBase) : base(_pathBase) { }
+
+        protected override string filenameBase { get { return "acc"; } }
+    }
+
+    public class BlockChainDatabase : SimpleDatabase
+    {
+        public BlockChainDatabase(string _pathBase) : base(_pathBase) { }
+
+        protected override string filenameBase { get { return "blkchn"; } }
     }
 
     public class BlockNodesGroupDatabase : DATABASEBASE
