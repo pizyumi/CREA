@@ -12,8 +12,11 @@
                 <RowDefinition Height="*"></RowDefinition>
             </Grid.RowDefinitions>
 
-            <TextBlock Grid.Column="0" Grid.Row="0"><AccessText x:Name="atAccountHolder">口座名義(_H)：</AccessText></TextBlock>
-            <TextBox x:Name="tbAccountHolder" Grid.Column="0" Grid.Row="1"></TextBox>
+            <StackPanel Grid.Column="0" Grid.Row="0" Orientation="Horizontal">
+                <TextBlock><AccessText x:Name="atAccountHolder">口座名義(_H)：</AccessText></TextBlock>
+                <TextBlock x:Name="tbAccountHolderChk" Foreground="Pink"></TextBlock>
+            </StackPanel>
+            <TextBox x:Name="tbAccountHolder" Grid.Column="0" Grid.Row="1" TextChanged="tbAccountHolder_TextChanged"></TextBox>
         </Grid>
 
         <DockPanel DockPanel.Dock="Bottom">

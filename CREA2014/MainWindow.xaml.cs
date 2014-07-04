@@ -22,13 +22,17 @@ namespace CREA2014
         {
             public class Setter
             {
-                public Setter(Action<int> _portWebSocketSetter, Action<int> _portWebServerSetter, Action<bool> _isWallpaperSetter, Action<string> _wallpaperSetter, Action<float> _wallpaperOpacitySetter, Action<bool> _isConfirmAtExitSetter)
+                public Setter(Action<int> _portWebSocketSetter, Action<int> _portWebServerSetter, Action<bool> _isWallpaperSetter, Action<string> _wallpaperSetter, Action<float> _wallpaperOpacitySetter, Action<bool> _isDefaultUiSetter, Action<string> _uiFilesDirectorySetter, Action<string> _miningAccountHolderSetter, Action<string> _miningAccountSetter, Action<bool> _isConfirmAtExitSetter)
                 {
                     portWebSocketSetter = _portWebSocketSetter;
                     portWebServerSetter = _portWebServerSetter;
                     isWallpaperSetter = _isWallpaperSetter;
                     wallpaperSetter = _wallpaperSetter;
                     wallpaperOpacitySetter = _wallpaperOpacitySetter;
+                    isDefaultUiSetter = _isDefaultUiSetter;
+                    uiFilesDirectorySetter = _uiFilesDirectorySetter;
+                    miningAccountHolderSetter = _miningAccountHolderSetter;
+                    miningAccountSetter = _miningAccountSetter;
                     isConfirmAtExitSetter = _isConfirmAtExitSetter;
                 }
 
@@ -60,6 +64,30 @@ namespace CREA2014
                 public float WallpaperOpacity
                 {
                     set { wallpaperOpacitySetter(value); }
+                }
+
+                private readonly Action<bool> isDefaultUiSetter;
+                public bool IsDefaultUi
+                {
+                    set { isDefaultUiSetter(value); }
+                }
+
+                private readonly Action<string> uiFilesDirectorySetter;
+                public string UiFilesDirectory
+                {
+                    set { uiFilesDirectorySetter(value); }
+                }
+
+                private readonly Action<string> miningAccountHolderSetter;
+                public string MiningAccountHolder
+                {
+                    set { miningAccountHolderSetter(value); }
+                }
+
+                private readonly Action<string> miningAccountSetter;
+                public string MiningAccount
+                {
+                    set { miningAccountSetter(value); }
                 }
 
                 private readonly Action<bool> isConfirmAtExitSetter;
@@ -101,13 +129,25 @@ namespace CREA2014
                     get { return isWallpaperOpacityAltered; }
                 }
 
+                private bool isIsDefaultUiAltered;
+                public bool IsIsDefaultUiAltered
+                {
+                    get { return isIsDefaultUiAltered; }
+                }
+
+                private bool isUiFilesDirectoryAltered;
+                public bool IsUiFilesDirectoryAltered
+                {
+                    get { return isUiFilesDirectoryAltered; }
+                }
+
                 private bool isIsConfirmAtExitAltered;
                 public bool IsIsConfirmAtExitAltered
                 {
                     get { return isIsConfirmAtExitAltered; }
                 }
 
-                public MainWindowSettingsChangedEventArgs(bool _isPortWebSocketAltered, bool _isPortWebServerAltered, bool _isIsWallpaperAltered, bool _isWallpaperAltered, bool _isWallpaperOpacityAltered, bool _isIsConfirmAtExitAltered)
+                public MainWindowSettingsChangedEventArgs(bool _isPortWebSocketAltered, bool _isPortWebServerAltered, bool _isIsWallpaperAltered, bool _isWallpaperAltered, bool _isWallpaperOpacityAltered, bool _isIsDefaultUiAltered, bool _isUiFilesDirectoryAltered, bool _isIsConfirmAtExitAltered)
                     : base()
                 {
                     isPortWebSocketAltered = _isPortWebSocketAltered;
@@ -115,6 +155,8 @@ namespace CREA2014
                     isIsWallpaperAltered = _isIsWallpaperAltered;
                     isWallpaperAltered = _isWallpaperAltered;
                     isWallpaperOpacityAltered = _isWallpaperOpacityAltered;
+                    isIsDefaultUiAltered = _isIsDefaultUiAltered;
+                    isUiFilesDirectoryAltered = _isUiFilesDirectoryAltered;
                     isIsConfirmAtExitAltered = _isIsConfirmAtExitAltered;
                 }
             }
@@ -159,6 +201,34 @@ namespace CREA2014
             }
             public event EventHandler WallpaperOpacityChanged = delegate { };
 
+            private bool isIsDefaultUiAltered;
+            private bool isDefaultUi = true;
+            public bool IsDefaultUi
+            {
+                get { return isDefaultUi; }
+            }
+            public event EventHandler IsDefaultUiChanged = delegate { };
+
+            private bool isUiFilesDirectoryAltered;
+            private string uiFilesDirectory = string.Empty;
+            public string UiFilesDirectory
+            {
+                get { return uiFilesDirectory; }
+            }
+            public event EventHandler UiFilesDirectoryChanged = delegate { };
+
+            private string miningAccountHolder = string.Empty;
+            public string MiningAccountHolder
+            {
+                get { return miningAccountHolder; }
+            }
+
+            private string miningAccount = string.Empty;
+            public string MiningAccount
+            {
+                get { return miningAccount; }
+            }
+
             private bool isIsConfirmAtExitAltered;
             private bool isConfirmAtExit = true;
             public bool IsConfirmAtExit
@@ -168,6 +238,7 @@ namespace CREA2014
             public event EventHandler IsConfirmAtExitChanged = delegate { };
 
             public event EventHandler WallpaperSettingsChanged = delegate { };
+            public event EventHandler UiFilesSettingsChanged = delegate { };
 
             public event EventHandler<MainWindowSettingsChangedEventArgs> SettingsChanged = delegate { };
 
@@ -192,6 +263,10 @@ namespace CREA2014
                         new MainDataInfomation(typeof(bool), "IsWallpaper", () => isWallpaper, (o) => isWallpaper = (bool)o), 
                         new MainDataInfomation(typeof(string), "Wallpaper", () => wallpaper, (o) => wallpaper = (string)o), 
                         new MainDataInfomation(typeof(float), "WallpaperOpecity", () => wallpaperOpacity, (o) => wallpaperOpacity = (float)o), 
+                        new MainDataInfomation(typeof(bool), "IsDefaultUi", () => isDefaultUi, (o) => isDefaultUi = (bool)o), 
+                        new MainDataInfomation(typeof(string), "UiFilesDirectory", () => uiFilesDirectory, (o) => uiFilesDirectory = (string)o), 
+                        new MainDataInfomation(typeof(string), "MiningAccountHolder", () => miningAccountHolder, (o) => miningAccountHolder = (string)o), 
+                        new MainDataInfomation(typeof(string), "MiningAccount", () => miningAccount, (o) => miningAccount = (string)o), 
                         new MainDataInfomation(typeof(bool), "IsConfirmAtExit", () => isConfirmAtExit, (o) => isConfirmAtExit = (bool)o), 
                     };
                 }
@@ -242,6 +317,32 @@ namespace CREA2014
                                 isWallpaperOpacityAltered = true;
                             }
                         },
+                        (_isDefaultUi) =>
+                        {
+                            if (isDefaultUi != _isDefaultUi)
+                            {
+                                isDefaultUi = _isDefaultUi;
+                                isIsDefaultUiAltered = true;
+                            }
+                        },
+                        (_UiFilesDirectory) =>
+                        {
+                            if (uiFilesDirectory != _UiFilesDirectory)
+                            {
+                                uiFilesDirectory = _UiFilesDirectory;
+                                isUiFilesDirectoryAltered = true;
+                            }
+                        },
+                        (_miningAccountHolder) =>
+                        {
+                            if (miningAccountHolder != _miningAccountHolder)
+                                miningAccountHolder = _miningAccountHolder;
+                        },
+                        (_miningAccount) =>
+                        {
+                            if (miningAccount != _miningAccount)
+                                miningAccount = _miningAccount;
+                        },
                         (_isConfirmAtExit) =>
                         {
                             if (isConfirmAtExit != _isConfirmAtExit)
@@ -271,20 +372,29 @@ namespace CREA2014
                         WallpaperChanged(this, EventArgs.Empty);
                     if (isWallpaperOpacityAltered)
                         WallpaperOpacityChanged(this, EventArgs.Empty);
+                    if (isIsDefaultUiAltered)
+                        IsDefaultUiChanged(this, EventArgs.Empty);
+                    if (isUiFilesDirectoryAltered)
+                        UiFilesDirectoryChanged(this, EventArgs.Empty);
                     if (isIsConfirmAtExitAltered)
                         IsConfirmAtExitChanged(this, EventArgs.Empty);
 
                     if (isIsWallpaperAltered || isWallpaperAltered || isWallpaperOpacityAltered)
                         WallpaperSettingsChanged(this, EventArgs.Empty);
 
-                    if (isPortWebSocketAltered || isPortWebServerAltered || isIsWallpaperAltered || isWallpaperAltered || isWallpaperOpacityAltered || isIsConfirmAtExitAltered)
-                        SettingsChanged(this, new MainWindowSettingsChangedEventArgs(isPortWebSocketAltered, isPortWebServerAltered, isIsWallpaperAltered, isWallpaperAltered, isWallpaperOpacityAltered, isIsConfirmAtExitAltered));
+                    if (isIsDefaultUiAltered || isUiFilesDirectoryAltered)
+                        UiFilesSettingsChanged(this, EventArgs.Empty);
+
+                    if (isPortWebSocketAltered || isPortWebServerAltered || isIsWallpaperAltered || isWallpaperAltered || isWallpaperOpacityAltered || isIsDefaultUiAltered || isUiFilesDirectoryAltered || isIsConfirmAtExitAltered)
+                        SettingsChanged(this, new MainWindowSettingsChangedEventArgs(isPortWebSocketAltered, isPortWebServerAltered, isIsWallpaperAltered, isWallpaperAltered, isWallpaperOpacityAltered, isIsDefaultUiAltered, isUiFilesDirectoryAltered, isIsConfirmAtExitAltered));
 
                     isPortWebSocketAltered = false;
                     isPortWebServerAltered = false;
                     isIsWallpaperAltered = false;
                     isWallpaperAltered = false;
                     isWallpaperOpacityAltered = false;
+                    isIsDefaultUiAltered = false;
+                    isUiFilesDirectoryAltered = false;
                     isIsConfirmAtExitAltered = false;
                 }
             }
@@ -307,6 +417,8 @@ namespace CREA2014
         private Assembly assembly;
 
         private Action<Exception, Program.ExceptionKind> OnException;
+
+        private Action<string> _CreateUiFiles;
 
         public MainWindow(Core _core, Program.Logger _logger, Program.ProgramSettings _psettings, Program.ProgramStatus _pstatus, string _appname, string _version, string _appnameWithVersion, string _lisenceTextFilename, Assembly _assembly, string _basepath, Action<Exception, Program.ExceptionKind> _OnException)
         {
@@ -333,6 +445,58 @@ namespace CREA2014
             miAbout.Header = "CREAについて".Multilanguage(22) + "(_A)...";
         }
 
+        private void NewAccountHolder(Window window)
+        {
+            NewAccountHolderWindow nahw = new NewAccountHolderWindow();
+            nahw.Owner = window;
+            if (nahw.ShowDialog() == true)
+                core.iAccountHolders.iAddAccountHolder(core.iAccountHoldersFactory.CreatePseudonymousAccountHolder(nahw.tbAccountHolder.Text));
+        }
+
+        private void NewAccount(Window window, bool? isAnonymous, IAccountHolder iAccountHolder)
+        {
+            NewAccountWindow naw = new NewAccountWindow((window2) => NewAccountHolder(window2));
+            naw.Owner = window;
+
+            Action _Clear = () => naw.cbAccountHolder.Items.Clear();
+            Action _Add = () =>
+            {
+                foreach (var ah in core.iAccountHolders.iPseudonymousAccountHolders)
+                    naw.cbAccountHolder.Items.Add(ah);
+            };
+
+            EventHandler accountHolderAdded = (sender2, e2) => _Clear.AndThen(_Add).ExecuteInUIThread();
+
+            core.iAccountHolders.iAccountHolderAdded += accountHolderAdded;
+
+            _Add();
+
+            if (!isAnonymous.HasValue || isAnonymous.Value)
+                naw.rbAnonymous.IsChecked = true;
+            else
+            {
+                naw.rbPseudonymous.IsChecked = true;
+                if (iAccountHolder != null)
+                    naw.cbAccountHolder.SelectedItem = iAccountHolder;
+            }
+
+            if (naw.ShowDialog() == true)
+            {
+                IAccountHolder ahTarget = null;
+                if (naw.rbAnonymous.IsChecked == true)
+                    ahTarget = core.iAccountHolders.iAnonymousAccountHolder;
+                else
+                    foreach (var ah in core.iAccountHolders.iPseudonymousAccountHolders)
+                        if (ah == naw.cbAccountHolder.SelectedItem)
+                            ahTarget = ah;
+
+                if (ahTarget != null)
+                    ahTarget.iAddAccount(core.iAccountHoldersFactory.CreateAccount(naw.tbName.Text, naw.tbDescription.Text));
+            }
+
+            core.iAccountHolders.iAccountHolderAdded -= accountHolderAdded;
+        }
+
         private void Window_Loaded(object sender, RoutedEventArgs e)
         {
             mws = new MainWindowSettings();
@@ -349,6 +513,8 @@ namespace CREA2014
                     Close();
                     return;
                 }
+
+                pstatus.IsFirst = false;
             }
 
             //<未実装>ぼかし効果に対応
@@ -384,10 +550,29 @@ namespace CREA2014
 
             Func<int, string> _GetWssAddress = (wssPort) => "ws://localhost:" + wssPort.ToString() + "/";
 
+            //2014/07/02
+            //UIファイルが変更された場合には、一旦空にする
+            //<未改良>Streamをif文の中に、処理を纏める
             Dictionary<string, string> webResourceCache = new Dictionary<string, string>();
             Func<string, string> _GetWebResource = (filename) =>
             {
-                using (Stream stream = assembly.GetManifestResourceStream(filename))
+                if (mws.IsDefaultUi)
+                    using (Stream stream = assembly.GetManifestResourceStream(filename))
+                    {
+                        string webResource = null;
+
+                        if (webResourceCache.Keys.Contains(filename))
+                            webResource = webResourceCache[filename];
+                        else
+                        {
+                            byte[] data = new byte[stream.Length];
+                            stream.Read(data, 0, data.Length);
+                            webResourceCache.Add(filename, webResource = Encoding.UTF8.GetString(data));
+                        }
+
+                        return webResource;
+                    }
+                else
                 {
                     string webResource = null;
 
@@ -395,12 +580,47 @@ namespace CREA2014
                         webResource = webResourceCache[filename];
                     else
                     {
-                        byte[] data = new byte[stream.Length];
-                        stream.Read(data, 0, data.Length);
-                        webResourceCache.Add(filename, webResource = Encoding.UTF8.GetString(data));
+                        string path = Path.Combine(mws.UiFilesDirectory, filename);
+                        if (File.Exists(path))
+                            webResourceCache.Add(filename, webResource = File.ReadAllText(path));
+                        else
+                            using (Stream stream = assembly.GetManifestResourceStream(filename))
+                            {
+                                byte[] data = new byte[stream.Length];
+                                stream.Read(data, 0, data.Length);
+                                webResourceCache.Add(filename, webResource = Encoding.UTF8.GetString(data));
+
+                                File.WriteAllText(path, webResource);
+                            }
                     }
 
                     return webResource;
+                }
+            };
+
+            string pathHomeHtm = "CREA2014.WebResources.home.htm";
+            string pathButtonHtm = "CREA2014.WebResources.button.htm";
+            string pathAccHolsHtm = "CREA2014.WebResources.acc_hols.htm";
+            string pathAccHolHtm = "CREA2014.WebResources.acc_hol.htm";
+            string pathAccHtm = "CREA2014.WebResources.acc.htm";
+            string pathErrorLogHtm = "CREA2014.WebResources.error_log.htm";
+            string pathLogHtm = "CREA2014.WebResources.log.htm";
+
+            string[] paths = new string[] { pathHomeHtm, pathButtonHtm, pathAccHolsHtm, pathAccHolHtm, pathAccHtm, pathErrorLogHtm, pathLogHtm };
+
+            _CreateUiFiles = (basePath) =>
+            {
+                foreach (var path in paths)
+                {
+                    string fullPath = Path.Combine(basePath, path);
+                    if (File.Exists(fullPath))
+                        File.Move(fullPath, fullPath + DateTime.Now.Ticks.ToString());
+                    using (Stream stream = assembly.GetManifestResourceStream(path))
+                    {
+                        byte[] data = new byte[stream.Length];
+                        stream.Read(data, 0, data.Length);
+                        File.WriteAllText(fullPath, Encoding.UTF8.GetString(data));
+                    }
                 }
             };
 
@@ -415,7 +635,7 @@ namespace CREA2014
                 {
                     data = data.Replace("%%title%%", appnameWithVersion).Replace("%%address%%", _GetWssAddress(mws.PortWebSocket));
 
-                    string buttonBaseHtml = _GetWebResource("CREA2014.WebResources.button.htm");
+                    string buttonBaseHtml = _GetWebResource(pathButtonHtm);
 
                     foreach (var button in new[] { 
                         new { identifier = "new_account_holder", name = "button1", text = "新しい口座名義".Multilanguage(60) + "(<u>A</u>)...", command = "new_account_holder", key = Key.A }, 
@@ -428,7 +648,7 @@ namespace CREA2014
                 Func<string, string> doNothing = (data) => data;
 
                 foreach (var wsr in new[] {
-                    new {path = "CREA2014.WebResources.home.htm", url = "/", processor = homeHtmProcessor}, 
+                    new {path = pathHomeHtm, url = "/", processor = homeHtmProcessor}, 
                     new {path = "CREA2014.WebResources.jquery-2.0.3.min.js", url = "/jquery-2.0.3.min.js", processor = doNothing}, 
                     new {path = "CREA2014.WebResources.jquery-ui-1.10.4.custom.js", url = "/jquery-ui-1.10.4.custom.js", processor = doNothing}, 
                 })
@@ -483,55 +703,15 @@ namespace CREA2014
             {
                 try
                 {
-                    ((Action)(() =>
+                    this.ExecuteInUIThread(() =>
                     {
-                        Action<Window> _NewAccountHolder = (window) =>
-                        {
-                            NewAccountHolderWindow nahw = new NewAccountHolderWindow();
-                            nahw.Owner = window;
-                            if (nahw.ShowDialog() == true)
-                                core.iAccountHolders.iAddAccountHolder(core.iAccountHoldersFactory.CreatePseudonymousAccountHolder(nahw.tbAccountHolder.Text));
-                        };
-
                         if (message == "new_account_holder")
-                            _NewAccountHolder(this);
+                            NewAccountHolder(this);
                         else if (message == "new_account")
-                        {
-                            NewAccountWindow naw = new NewAccountWindow(_NewAccountHolder);
-                            naw.Owner = this;
-
-                            Action _Clear = () => naw.cbAccountHolder.Items.Clear();
-                            Action _Add = () =>
-                            {
-                                foreach (var ah in core.iAccountHolders.iPseudonymousAccountHolders)
-                                    naw.cbAccountHolder.Items.Add(ah);
-                            };
-
-                            EventHandler accountHolderAdded = (sender2, e2) => _Clear.AndThen(_Add).ExecuteInUIThread();
-
-                            core.iAccountHolders.iAccountHolderAdded += accountHolderAdded;
-
-                            _Add();
-
-                            if (naw.ShowDialog() == true)
-                            {
-                                IAccountHolder ahTarget = null;
-                                if (naw.rbAnonymous.IsChecked == true)
-                                    ahTarget = core.iAccountHolders.iAnonymousAccountHolder;
-                                else
-                                    foreach (var ah in core.iAccountHolders.iPseudonymousAccountHolders)
-                                        if (ah == naw.cbAccountHolder.SelectedItem)
-                                            ahTarget = ah;
-
-                                if (ahTarget != null)
-                                    ahTarget.iAddAccount(core.iAccountHoldersFactory.CreateAccount(naw.tbName.Text, naw.tbDescription.Text));
-                            }
-
-                            core.iAccountHolders.iAccountHolderAdded -= accountHolderAdded;
-                        }
+                            NewAccount(this, null, null);
                         else
                             throw new NotSupportedException("wss_command");
-                    })).ExecuteInUIThread();
+                    });
                 }
                 catch (Exception ex)
                 {
@@ -541,9 +721,9 @@ namespace CREA2014
 
             Func<string> _GetAccountHolderHtml = () =>
             {
-                string accHolsHtml = _GetWebResource("CREA2014.WebResources.acc_hols.htm");
-                string accHolHtml = _GetWebResource("CREA2014.WebResources.acc_hol.htm");
-                string accHtml = _GetWebResource("CREA2014.WebResources.acc.htm");
+                string accHolsHtml = _GetWebResource(pathAccHolsHtm);
+                string accHolHtml = _GetWebResource(pathAccHolHtm);
+                string accHtml = _GetWebResource(pathAccHtm);
 
                 string accs = string.Concat(from i in core.iAccountHolders.iAnonymousAccountHolder.iAccounts
                                             select accHtml.Replace("%%name%%", i.iName).Replace("%%description%%", i.iDescription).Replace("%%address%%", i.iAddress));
@@ -559,9 +739,9 @@ namespace CREA2014
             Func<Program.LogData, string> _GetLogHtml = (logData) =>
             {
                 if (logData.Kind == Program.LogData.LogKind.error)
-                    return _GetWebResource("CREA2014.WebResources.error_log.htm").Replace("%%log%%", logData.ToString());
+                    return _GetWebResource(pathErrorLogHtm).Replace("%%log%%", logData.ToString());
                 else
-                    return _GetWebResource("CREA2014.WebResources.log.htm").Replace("%%log%%", logData.ToString());
+                    return _GetWebResource(pathLogHtm).Replace("%%log%%", logData.ToString());
             };
 
             WebSocketServer oldWss;
@@ -604,6 +784,8 @@ namespace CREA2014
                     }
                     if (e2.IsPortWebSocketAltered)
                     {
+                        //2014/07/02
+                        //<未実装>古いイベントの登録を解除していない
                         oldWss = wss;
                         wss = new WebSocketServer();
                         wss.NewSessionConnected += (session) =>
@@ -620,6 +802,12 @@ namespace CREA2014
 
                         foreach (var wssession in oldWss.GetAllSessions())
                             wssession.Send("wss " + _GetWssAddress(mws.PortWebSocket));
+                    }
+                    if (e2.IsIsDefaultUiAltered || e2.IsUiFilesDirectoryAltered)
+                    {
+                        webResourceCache.Clear();
+
+                        wb.Navigate("http://localhost:" + mws.PortWebServer.ToString() + "/");
                     }
                 }
             };
@@ -659,15 +847,19 @@ namespace CREA2014
 
         private void miSettings_Click(object sender, RoutedEventArgs e)
         {
-            SettingsWindow sw = new SettingsWindow(mws);
+            SettingsWindow sw = new SettingsWindow(appname, (sw2) =>
+            {
+                sw2.tbPortWebSocket.Text = mws.PortWebSocket.ToString();
+                sw2.tbPortWebServer.Text = mws.PortWebServer.ToString();
+                sw2.cbIsWallpaper.IsChecked = mws.IsWallpaper;
+                sw2.tbWallpaper.Text = mws.Wallpaper;
+                sw2.tbWallpaperOpacity.Text = mws.WallpaperOpacity.ToString();
+                sw2.rbDefault.IsChecked = mws.IsDefaultUi;
+                sw2.rbNotDefault.IsChecked = !mws.IsDefaultUi;
+                sw2.tbUiFilesDirectory.Text = mws.UiFilesDirectory;
+                sw2.cbConfirmAtExit.IsChecked = mws.IsConfirmAtExit;
+            }, _CreateUiFiles);
             sw.Owner = this;
-
-            sw.tbPortWebSocket.Text = mws.PortWebSocket.ToString();
-            sw.tbPortWebServer.Text = mws.PortWebServer.ToString();
-            sw.cbIsWallpaper.IsChecked = mws.IsWallpaper;
-            sw.tbWallpaper.Text = mws.Wallpaper;
-            sw.tbWallpaperOpacity.Text = mws.WallpaperOpacity.ToString();
-            sw.cbConfirmAtExit.IsChecked = mws.IsConfirmAtExit;
 
             if (sw.ShowDialog() == true)
                 mws.SetAndSave((setter) =>
@@ -677,6 +869,8 @@ namespace CREA2014
                     setter.IsWallpaper = (bool)sw.cbIsWallpaper.IsChecked;
                     setter.Wallpaper = sw.tbWallpaper.Text;
                     setter.WallpaperOpacity = float.Parse(sw.tbWallpaperOpacity.Text);
+                    setter.IsDefaultUi = sw.rbDefault.IsChecked.Value;
+                    setter.UiFilesDirectory = sw.tbUiFilesDirectory.Text;
                     setter.IsConfirmAtExit = (bool)sw.cbConfirmAtExit.IsChecked;
                 });
         }
@@ -691,9 +885,82 @@ namespace CREA2014
             }
             else
             {
-                core.StartMining();
+                MiningWindow mw = null;
 
-                miMining.Header = "採掘停止".Multilanguage(136) + "(_M)";
+                IAccountHolder iAccountHolder = null;
+
+                Action _ClearAccount = () => mw.cbAccount.Items.Clear();
+                Action _AddAccount = () =>
+                {
+                    foreach (var account in iAccountHolder.iAccounts)
+                        mw.cbAccount.Items.Add(account);
+                };
+
+                EventHandler accountAdded = (sender2, e2) => _ClearAccount.AndThen(_AddAccount).ExecuteInUIThread();
+
+                mw = new MiningWindow((window2) => NewAccountHolder(window2), (window2) => NewAccount(window2, mw.rbAnonymous.IsChecked, iAccountHolder), () =>
+                {
+                    if (iAccountHolder != null)
+                    {
+                        iAccountHolder.iAccountAdded -= accountAdded;
+
+                        _ClearAccount();
+                    }
+
+                    if (mw.rbAnonymous.IsChecked.Value)
+                        iAccountHolder = core.iAccountHolders.iAnonymousAccountHolder;
+                    else
+                        iAccountHolder = mw.cbAccountHolder.SelectedItem as IAccountHolder;
+
+                    if (iAccountHolder != null)
+                    {
+                        iAccountHolder.iAccountAdded += accountAdded;
+
+                        _AddAccount();
+                    }
+                });
+                mw.Owner = this;
+
+                Action _ClearAccountHolder = () => mw.cbAccountHolder.Items.Clear();
+                Action _AddAccountHolder = () =>
+                {
+                    foreach (var ah in core.iAccountHolders.iPseudonymousAccountHolders)
+                        mw.cbAccountHolder.Items.Add(ah);
+                };
+
+                EventHandler accountHolderAdded = (sender2, e2) => _ClearAccountHolder.AndThen(_AddAccountHolder).ExecuteInUIThread();
+
+                core.iAccountHolders.iAccountHolderAdded += accountHolderAdded;
+
+                _AddAccountHolder();
+
+                if (mws.MiningAccountHolder == string.Empty)
+                    mw.rbAnonymous.IsChecked = true;
+                else
+                {
+                    mw.rbPseudonymous.IsChecked = true;
+                    mw.cbAccountHolder.SelectedItem = core.iAccountHolders.iPseudonymousAccountHolders.FirstOrDefault((elem) => elem.iName == mws.MiningAccountHolder);
+                }
+
+                mw.cbAccount.SelectedItem = iAccountHolder.iAccounts.FirstOrDefault((elem) => elem.iName == mws.MiningAccount);
+
+                if (mw.ShowDialog() == true)
+                {
+                    mws.SetAndSave((setter) =>
+                    {
+                        setter.MiningAccountHolder = mw.rbAnonymous.IsChecked.Value ? string.Empty : (mw.cbAccountHolder.SelectedItem as IPseudonymousAccountHolder).iName;
+                        setter.MiningAccount = (mw.cbAccount.SelectedItem as IAccount).iName;
+                    });
+
+                    core.StartMining(mw.cbAccount.SelectedItem as IAccount);
+
+                    miMining.Header = "採掘停止".Multilanguage(136) + "(_M)";
+                }
+
+                core.iAccountHolders.iAccountHolderAdded -= accountHolderAdded;
+
+                if (!mw.DialogResult.Value)
+                    return;
             }
 
             isMining = !isMining;

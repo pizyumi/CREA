@@ -78,6 +78,7 @@
     <Reference Include="System.Drawing" />
     <Reference Include="System.Management" />
     <Reference Include="System.Numerics" />
+    <Reference Include="System.Windows.Forms" />
     <Reference Include="System.Xml" />
     <Reference Include="Microsoft.CSharp" />
     <Reference Include="System.Core" />
@@ -97,6 +98,9 @@
     </Compile>
     <Compile Include="Windows\LisenceWindow.xaml.cs">
       <DependentUpon>LisenceWindow.xaml</DependentUpon>
+    </Compile>
+    <Compile Include="Windows\MiningWindow.xaml.cs">
+      <DependentUpon>MiningWindow.xaml</DependentUpon>
     </Compile>
     <Compile Include="Windows\NewAccountHolderWindow.xaml.cs">
       <DependentUpon>NewAccountHolderWindow.xaml</DependentUpon>
@@ -129,6 +133,10 @@
       <Generator>MSBuild:Compile</Generator>
     </Page>
     <Page Include="Windows\LisenceWindow.xaml">
+      <SubType>Designer</SubType>
+      <Generator>MSBuild:Compile</Generator>
+    </Page>
+    <Page Include="Windows\MiningWindow.xaml">
       <SubType>Designer</SubType>
       <Generator>MSBuild:Compile</Generator>
     </Page>

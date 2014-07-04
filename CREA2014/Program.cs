@@ -135,13 +135,13 @@ namespace CREA2014
     {
         #region 一般
 
-        //操作型を受け取ってそのまま返す（拡張：操作型）
+        //操作型を受け取ってそのまま返す（代用拡張：操作型）
         public static Action Lambda<T>(this T dummy, Action action)
         {
             return action;
         }
 
-        //関数型を受け取ってそのまま返す（拡張：関数型）
+        //関数型を受け取ってそのまま返す（代用拡張：関数型）
         public static Func<U> Lambda<T, U>(this T dummy, Func<U> func)
         {
             return func;
@@ -157,6 +157,12 @@ namespace CREA2014
                     action();
                 else
                     Application.Current.Dispatcher.Invoke(new Action(() => action()));
+        }
+
+        //UIスレッドで処理を同期的に実行する（代用拡張：操作型）
+        public static void ExecuteInUIThread<T>(this T dummy, Action action)
+        {
+            ExecuteInUIThread(action);
         }
 
         //UIスレッドで処理を同期的に実行する（拡張：関数型）
@@ -175,6 +181,12 @@ namespace CREA2014
                 }
         }
 
+        //UIスレッドで処理を同期的に実行する（代用拡張：関数型）
+        public static T ExecuteInUIThread<T, U>(this U dummy, Func<T> action)
+        {
+            return ExecuteInUIThread(action);
+        }
+
         //UIスレッドで処理を非同期的に実行する（拡張：操作型）
         public static void BeginExecuteInUIThread(this Action action)
         {
@@ -185,6 +197,12 @@ namespace CREA2014
                     action();
                 else
                     Application.Current.Dispatcher.BeginInvoke(new Action(() => action()));
+        }
+
+        //UIスレッドで処理を非同期的に実行する（代用拡張：操作型）
+        public static void BeginExecuteInUIThread<T>(this T dummy, Action action)
+        {
+            BeginExecuteInUIThread(action);
         }
 
         //UIスレッドで処理を同期的に実行する（拡張：関数型）
@@ -201,6 +219,12 @@ namespace CREA2014
                     Application.Current.Dispatcher.BeginInvoke(new Action(() => result = action()));
                     return result;
                 }
+        }
+
+        //UIスレッドで処理を同期的に実行する（代用拡張：関数型）
+        public static T BeginExecuteInUIThread<T, U>(this U dummy, Func<T> action)
+        {
+            return BeginExecuteInUIThread(action);
         }
 
         //プライベートIPアドレスか（拡張：IPアドレス型）
@@ -847,18 +871,14 @@ namespace CREA2014
             public readonly string RawMessage;
             public readonly string Message;
             public readonly int Level;
-            public readonly string[] Arguments;
 
-            public LogInfomation(Type _type, string _rawMessage, string _message, int _level, string[] _arguments)
+            public LogInfomation(Type _type, string _rawMessage, string _message, int _level)
             {
                 Type = _type;
                 RawMessage = _rawMessage;
                 Message = _message;
                 Level = _level;
-                Arguments = _arguments;
             }
-
-            public LogInfomation(Type _type, string _rawMessage, string _message, int _level) : this(_type, _rawMessage, _message, _level, null) { }
         }
 
         //ログイベントはProgram静的クラスのログ機能を介してより具体的なイベントに変換して、具体的なイベントをUIで処理する
@@ -869,63 +889,69 @@ namespace CREA2014
         public static event EventHandler<LogInfomation> Errored = delegate { };
 
         //試験ログイベントを発生させる（拡張：型表現型）
-        public static void RaiseTest<T>(this T self, string message, int level)
+        public static void RaiseTest<T>(this T self, string rawMessage, int level)
         {
-            Tested(self.GetType(), new LogInfomation(self.GetType(), message, level));
+            Tested(self.GetType(), new LogInfomation(self.GetType(), rawMessage, GetLogMessage(rawMessage), level));
         }
-        public static void RaiseTest<T>(this T self, string message, int level, string[] arguments)
+
+        public static void RaiseTest<T>(this T self, string rawMessage, int level, params string[] arguments)
         {
-            Tested(self.GetType(), new LogInfomation(self.GetType(), message, level, arguments));
+            Tested(self.GetType(), new LogInfomation(self.GetType(), rawMessage, GetLogMessage(rawMessage, arguments), level));
         }
 
         //通知ログイベントを発生させる（拡張：型表現型）
-        public static void RaiseNotification<T>(this T self, string message, int level)
+        public static void RaiseNotification<T>(this T self, string rawMessage, int level)
         {
-            Notified(self.GetType(), new LogInfomation(self.GetType(), message, level));
+            Notified(self.GetType(), new LogInfomation(self.GetType(), rawMessage, GetLogMessage(rawMessage), level));
         }
-        public static void RaiseNotification<T>(this T self, string message, int level, string[] arguments)
+
+        public static void RaiseNotification<T>(this T self, string rawMessage, int level, params string[] arguments)
         {
-            Notified(self.GetType(), new LogInfomation(self.GetType(), message, level, arguments));
+            Notified(self.GetType(), new LogInfomation(self.GetType(), rawMessage, GetLogMessage(rawMessage, arguments), level));
         }
 
         //結果ログイベントを発生させる（拡張：任意型）
-        public static void RaiseResult<T>(this T self, string message, int level)
+        public static void RaiseResult<T>(this T self, string rawMessage, int level)
         {
-            Resulted(self.GetType(), new LogInfomation(self.GetType(), message, level));
+            Resulted(self.GetType(), new LogInfomation(self.GetType(), rawMessage, GetLogMessage(rawMessage), level));
         }
-        public static void RaiseResult<T>(this T self, string message, int level, string[] arguments)
+
+        public static void RaiseResult<T>(this T self, string rawMessage, int level, params string[] arguments)
         {
-            Resulted(self.GetType(), new LogInfomation(self.GetType(), message, level, arguments));
+            Resulted(self.GetType(), new LogInfomation(self.GetType(), rawMessage, GetLogMessage(rawMessage, arguments), level));
         }
 
         //警告ログイベントを発生させる（拡張：任意型）
-        public static void RaiseWarning<T>(this T self, string message, int level)
+        public static void RaiseWarning<T>(this T self, string rawMessage, int level)
         {
-            Warned(self.GetType(), new LogInfomation(self.GetType(), message, level));
+            Warned(self.GetType(), new LogInfomation(self.GetType(), rawMessage, GetLogMessage(rawMessage), level));
         }
-        public static void RaiseWarning<T>(this T self, string message, int level, string[] arguments)
+
+        public static void RaiseWarning<T>(this T self, string rawMessage, int level, params string[] arguments)
         {
-            Warned(self.GetType(), new LogInfomation(self.GetType(), message, level, arguments));
+            Warned(self.GetType(), new LogInfomation(self.GetType(), rawMessage, GetLogMessage(rawMessage, arguments), level));
         }
 
         //過誤ログイベントを発生させる（拡張：任意型）
-        public static void RaiseError<T>(this T self, string message, int level)
+        public static void RaiseError<T>(this T self, string rawMessage, int level)
         {
-            Errored(self.GetType(), new LogInfomation(self.GetType(), message, level));
+            Errored(self.GetType(), new LogInfomation(self.GetType(), rawMessage, GetLogMessage(rawMessage), level));
         }
-        public static void RaiseError<T>(this T self, string message, int level, string[] arguments)
+
+        public static void RaiseError<T>(this T self, string rawMessage, int level, params string[] arguments)
         {
-            Errored(self.GetType(), new LogInfomation(self.GetType(), message, level, arguments));
+            Errored(self.GetType(), new LogInfomation(self.GetType(), rawMessage, GetLogMessage(rawMessage, arguments), level));
         }
 
         //例外過誤ログイベントを発生させる（拡張：任意型）
-        public static void RaiseError<T>(this T self, string message, int level, Exception ex)
+        public static void RaiseError<T>(this T self, string rawMessage, int level, Exception ex)
         {
-            Errored(self.GetType(), new LogInfomation(self.GetType(), string.Join(Environment.NewLine, message, ex.CreateMessage(0)), level));
+            Errored(self.GetType(), new LogInfomation(self.GetType(), string.Join(Environment.NewLine, rawMessage, ex.CreateMessage(0)), GetLogMessage(rawMessage), level));
         }
-        public static void RaiseError<T>(this T self, string message, int level, Exception ex, string[] arguments)
+
+        public static void RaiseError<T>(this T self, string rawMessage, int level, Exception ex, params string[] arguments)
         {
-            Errored(self.GetType(), new LogInfomation(self.GetType(), string.Join(Environment.NewLine, message, ex.CreateMessage(0)), level, arguments));
+            Errored(self.GetType(), new LogInfomation(self.GetType(), string.Join(Environment.NewLine, rawMessage, ex.CreateMessage(0)), GetLogMessage(rawMessage, arguments), level));
         }
 
         //真偽値が真のときのみ試験ログイベントを発生させ、真偽値をそのまま返す（拡張：真偽型）
@@ -938,10 +964,10 @@ namespace CREA2014
         }
 
         //真偽値が真のときのみ通知ログイベントを発生させ、真偽値をそのまま返す（拡張：真偽型）
-        public static bool RaiseNotification(this bool flag, Type type, string message, int level)
+        public static bool RaiseNotification(this bool flag, Type type, string message, int level, params string[] arguments)
         {
             if (flag)
-                type.RaiseNotification(message, level);
+                type.RaiseNotification(message, level, arguments);
 
             return flag;
         }
@@ -983,10 +1009,10 @@ namespace CREA2014
         }
 
         //真偽値が偽のときのみ通知ログイベントを発生させ、真偽値をそのまま返す（拡張：真偽型）
-        public static bool NotRaiseNotification(this bool flag, Type type, string message, int level)
+        public static bool NotRaiseNotification(this bool flag, Type type, string message, int level, params string[] arguments)
         {
             if (!flag)
-                type.RaiseNotification(message, level);
+                type.RaiseNotification(message, level, arguments);
 
             return flag;
         }
@@ -1047,6 +1073,7 @@ namespace CREA2014
         {
             return Program.GetLogMessage(rawMessage, null);
         }
+
         public static string GetLogMessage(this string rawMessage, params string[] arguments)
         {
             return Program.GetLogMessage(rawMessage, arguments);
@@ -2276,7 +2303,7 @@ namespace CREA2014
                     }
                     catch (Exception ex)
                     {
-                        this.RaiseError("task".GetLogMessage(), 5, ex);
+                        this.RaiseError("task", 5, ex);
                     }
                     finally
                     {
@@ -2305,7 +2332,7 @@ namespace CREA2014
                 }
                 status.Thread.Abort();
 
-                this.RaiseNotification("task_aborted".GetLogMessage(), 5);
+                this.RaiseNotification("task_aborted", 5);
             }
 
             public void AbortAll()
@@ -2317,7 +2344,7 @@ namespace CREA2014
                     tasks.Clear();
                 }
 
-                this.RaiseNotification("all_tasks_aborted".GetLogMessage(), 5);
+                this.RaiseNotification("all_tasks_aborted", 5);
             }
         }
 
@@ -2327,7 +2354,7 @@ namespace CREA2014
             public readonly LogKind Kind;
 
             public LogData(Extension.LogInfomation _logInfo, LogKind _kind)
-                : base(_logInfo.Type, _logInfo.Message, _logInfo.Level)
+                : base(_logInfo.Type, _logInfo.RawMessage, _logInfo.Message, _logInfo.Level)
             {
                 Time = DateTime.Now;
                 Kind = _kind;
@@ -2338,7 +2365,7 @@ namespace CREA2014
 
             public LogGround Ground
             {
-                get { return Type.GetLogGround(); }
+                get { return RawMessage.GetLogGround(); }
             }
 
             public string FriendlyKind
@@ -2681,7 +2708,7 @@ namespace CREA2014
                 get { return isSave; }
             }
 
-            private string savePath = "ErrorLog.log";
+            private string savePath = "Log.log";
             public string SavePath
             {
                 get { return savePath; }
@@ -3001,7 +3028,7 @@ namespace CREA2014
             }
         }
 
-        public class ProgramStatus
+        public class ProgramStatus : SHAREDDATA
         {
             private bool isFirst = true;
             public bool IsFirst
@@ -3015,6 +3042,16 @@ namespace CREA2014
             {
                 get { return isWrong; }
                 set { isWrong = value; }
+            }
+
+            protected override Func<ReaderWriter, IEnumerable<MainDataInfomation>> StreamInfo
+            {
+                get
+                {
+                    return (msrw) => new MainDataInfomation[]{
+                        new MainDataInfomation(typeof(bool), () => isFirst, (o) => isFirst = (bool)o),
+                    };
+                }
             }
         }
 
@@ -3065,11 +3102,17 @@ namespace CREA2014
             int verMMin = 1;
             string verS = "α";
             int verR = 1; //リリース番号（リリース毎に増やす番号）
-            int verC = 21; //コミット番号（コミット毎に増やす番号）
+            int verC = 46; //コミット番号（コミット毎に増やす番号）
             string version = string.Join(".", verMaj.ToString(), verMin.ToString(), verMMin.ToString()) + "(" + verS + ")" + "(" + verR.ToString() + ")" + "(" + verC.ToString() + ")";
             string appnameWithVersion = string.Join(" ", appname, version);
 
+            Assembly assembly = Assembly.GetEntryAssembly();
+            string basepath = new FileInfo(assembly.Location).DirectoryName;
+
             string lisenceTextFilename = "Lisence.txt";
+            string pstatusFilename = "ps";
+
+            string pstatusFilepath = Path.Combine(basepath, pstatusFilename);
 
             ProgramSettings psettings = new ProgramSettings();
             ProgramStatus pstatus = new ProgramStatus();
@@ -3078,12 +3121,12 @@ namespace CREA2014
             Tasker tasker = new Tasker();
             int taskNumber = 0;
 
-            Assembly assembly = Assembly.GetEntryAssembly();
-            string basepath = new FileInfo(assembly.Location).DirectoryName;
-
             Mutex mutex;
 
             Core core = null;
+
+            if (File.Exists(pstatusFilepath))
+                pstatus.FromBinary(File.ReadAllBytes(pstatusFilepath));
 
             if (psettings.Culture == "ja-JP")
                 using (Stream stream = assembly.GetManifestResourceStream(@"CREA2014.Resources.langResouece_ja-JP.txt"))
@@ -3104,7 +3147,7 @@ namespace CREA2014
 
             logGrounds = new Dictionary<string, LogData.LogGround>()
             {
-                //{"exist_same_name_account_holder", LogData.LogGround.signData},
+                {"exist_same_name_account_holder", LogData.LogGround.data},
                 {"outbound_chennel", LogData.LogGround.networkBase},
                 {"inbound_channel", LogData.LogGround.networkBase},
                 {"inbound_channels", LogData.LogGround.networkBase},
@@ -3177,14 +3220,16 @@ namespace CREA2014
                 {"keep_conn_completed", (args) => "常時接続が確立しました。".Multilanguage(112)},
                 {"find_table_already_added", (args) => string.Format(string.Join(Environment.NewLine, "DHTの検索リスト項目は既に登録されています。".Multilanguage(116), "距離：{0}".Multilanguage(117), "ノード1：{1}".Multilanguage(118), "ノード2：{2}".Multilanguage(119)), args[0], args[1], args[3])}, 
                 {"find_nodes", (args) => string.Format("{0}個の近接ノードを発見しました。".Multilanguage(120), args[0])},
-                {"my_node_info", (args) => string.Format("自分自身のノード情報です。".Multilanguage(127))},
-                {"blk_too_old", (args) => string.Format("古過ぎるブロックです。".Multilanguage(128))},
-                {"blk_too_new", (args) => string.Format("新し過ぎるブロックです。".Multilanguage(129))},
-                {"blk_already_existed", (args) => string.Format("既に存在するブロックです。".Multilanguage(130))},
-                {"blk_mismatch_genesis_block_hash", (args) => string.Format("直前のブロックは起源ブロックでなければなりません。".Multilanguage(131))},
-                {"blk_not_connected", (args) => string.Format("接続されていないブロックです。".Multilanguage(132))},
-                {"blk_main_not_connected", (args) => string.Format("接続されていない主ブロックです。".Multilanguage(133))},
-                {"blk_too_deep", (args) => string.Format("深過ぎるブロックです。".Multilanguage(134))},
+                {"my_node_info", (args) => "自分自身のノード情報です。".Multilanguage(127)},
+                {"blk_too_old", (args) => "古過ぎるブロックです。".Multilanguage(128)},
+                {"blk_too_new", (args) => "新し過ぎるブロックです。".Multilanguage(129)},
+                {"blk_already_existed", (args) => "既に存在するブロックです。".Multilanguage(130)},
+                {"blk_mismatch_genesis_block_hash", (args) => "直前のブロックは起源ブロックでなければなりません。".Multilanguage(131)},
+                {"blk_not_connected", (args) => "接続されていないブロックです。".Multilanguage(132)},
+                {"blk_main_not_connected", (args) => "接続されていない主ブロックです。".Multilanguage(133)},
+                {"blk_too_deep", (args) => "深過ぎるブロックです。".Multilanguage(134)},
+                {"hash_rate", (args) => string.Format("要約値計算速度：{0}hash/s".Multilanguage(137), args[0])},
+                {"found_block", (args) => "新しいブロックを発見しました。".Multilanguage(138)},
             };
 
             exceptionMessages = new Dictionary<string, Func<string>>() {
@@ -3336,6 +3381,8 @@ namespace CREA2014
                     core.EndSystem();
                 psettings.Save();
 
+                File.WriteAllBytes(pstatusFilepath, pstatus.ToBinary());
+
                 Environment.Exit(0);
             };
 
@@ -3443,6 +3490,8 @@ namespace CREA2014
 
                 core.EndSystem();
                 psettings.Save();
+
+                File.WriteAllBytes(pstatusFilepath, pstatus.ToBinary());
 
                 mutex.ReleaseMutex();
             }

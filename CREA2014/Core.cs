@@ -1,6 +1,8 @@
 ﻿//がをがを～！
 //作譜者：@pizyumi
 
+#define TEST
+
 using System;
 using System.Collections;
 using System.Collections.Generic;
@@ -94,24 +96,18 @@ namespace CREA2014
             isSystemStarted = false;
         }
 
-        public void StartMining()
+        public void StartMining(IAccount iAccount)
         {
-            Ecdsa256KeyPair pair1 = new Ecdsa256KeyPair(true);
-
-            TransactionOutput<PubKeyHashType> output = new TransactionOutput<PubKeyHashType>(Activator.CreateInstance(typeof(PubKeyHashType), pair1.pubKey.pubKey) as PubKeyHashType, new Creacoin(50.0m));
-
-            CoinbaseTransaction<TxidHashType, PubKeyHashType> coinbase = new CoinbaseTransaction<TxidHashType, PubKeyHashType>(new TransactionOutput<PubKeyHashType>[] { output });
-
-            BlockHeader<BlockidHashType, TxidHashType> header = new BlockHeader<BlockidHashType, TxidHashType>(1, new GenesisBlock<BlockidHashType>().Id, Activator.CreateInstance(typeof(TxidHashType)) as TxidHashType, DateTime.Now, TransactionalBlock<BlockidHashType, TxidHashType, PubKeyHashType, DsaPubKeyType>.minDifficulty, new byte[] { });
-
-            TransactionalBlock<BlockidHashType, TxidHashType, PubKeyHashType, DsaPubKeyType> txBlock = new NormalBlock<BlockidHashType, TxidHashType, PubKeyHashType, DsaPubKeyType>(header, coinbase, new TransferTransaction<TxidHashType, PubKeyHashType, DsaPubKeyType>[] { });
+            Account<KeyPairType, DsaPubKeyType, DsaPrivKeyType> account = iAccount as Account<KeyPairType, DsaPubKeyType, DsaPrivKeyType>;
+            if (account == null)
+                throw new ArgumentException("iaccount_type");
 
             mining.FoundNonce += (sender, e) =>
             {
                 MessageBox.Show(string.Join(",", e.header.nonce[0].ToString(), e.header.nonce[1].ToString(), e.header.nonce[2].ToString(), e.header.nonce[3].ToString()));
             };
             mining.Start();
-            mining.NewMiningBlock(txBlock);
+            mining.NewMiningBlock(TransactionalBlock<BlockidHashType, TxidHashType, PubKeyHashType, DsaPubKeyType>.GetBlockTemplate(1, 0, Activator.CreateInstance(typeof(PubKeyHashType), account.keyPair.pubKey.pubKey) as PubKeyHashType));
         }
 
         public void EndMining()
@@ -234,7 +230,7 @@ namespace CREA2014
                 }
                 catch (Exception ex)
                 {
-                    this.RaiseError("socket_channel_write".GetLogMessage(), 5, ex);
+                    this.RaiseError("socket_channel_write", 5, ex);
 
                     Failed(this, EventArgs.Empty);
 
@@ -351,7 +347,7 @@ namespace CREA2014
                 }
                 catch (Exception ex)
                 {
-                    this.RaiseError("socket_channel_read".GetLogMessage(), 5, ex);
+                    this.RaiseError("socket_channel_read", 5, ex);
 
                     lock (readsLock)
                     {
@@ -998,7 +994,7 @@ namespace CREA2014
                 }
                 catch (Exception ex)
                 {
-                    this.RaiseError("outbound_chennel".GetLogMessage(), 5, ex);
+                    this.RaiseError("outbound_chennel", 5, ex);
 
                     if (isocket.Connected)
                         isocket.Shutdown(SocketShutdown.Both);
@@ -1131,7 +1127,7 @@ namespace CREA2014
                             }
                             catch (Exception ex)
                             {
-                                this.RaiseError("inbound_channel".GetLogMessage(), 5, ex);
+                                this.RaiseError("inbound_channel", 5, ex);
 
                                 if (isocket2.Connected)
                                     isocket2.Shutdown(SocketShutdown.Both);
@@ -1144,7 +1140,7 @@ namespace CREA2014
                 }
                 catch (Exception ex)
                 {
-                    this.RaiseError("inbound_channels".GetLogMessage(), 5, ex);
+                    this.RaiseError("inbound_channels", 5, ex);
 
                     EndAcceptance();
 
@@ -1356,7 +1352,7 @@ namespace CREA2014
             this.StartTask("node_start", "node_start", () =>
             {
                 if (IsPort0)
-                    this.RaiseNotification("port0".GetLogMessage(), 5);
+                    this.RaiseNotification("port0", 5);
                 else
                 {
                     //IPアドレスの取得には時間が掛かる可能性がある
@@ -1390,7 +1386,7 @@ namespace CREA2014
                             }
                             catch (Exception ex)
                             {
-                                this.RaiseError("ric".GetLogMessage(), 5, ex);
+                                this.RaiseError("ric", 5, ex);
 
                                 e.Close();
                             }
@@ -1399,7 +1395,7 @@ namespace CREA2014
                         ric.Failed += (sender, e) => { };
                         ric.RequestAcceptanceStart();
 
-                        this.RaiseNotification("server_started".GetLogMessage(ipAddress.ToString(), portNumber.ToString()), 5);
+                        this.RaiseNotification("server_started", 5, ipAddress.ToString(), portNumber.ToString());
 
                         firstNodeInfo = new FirstNodeInformation(ipAddress, portNumber, Network);
 
@@ -1451,7 +1447,7 @@ namespace CREA2014
                 }
                 catch (Exception ex)
                 {
-                    this.RaiseError("roc".GetLogMessage(), 5, ex);
+                    this.RaiseError("roc", 5, ex);
 
                     e.Close();
                 }
@@ -2274,7 +2270,7 @@ namespace CREA2014
             NodeInformation<T> aiteNodeInfo = null;
             if (!header.nodeInfo.IpAddress.Equals(sc.aiteIpAddress))
             {
-                this.RaiseNotification("aite_wrong_node_info".GetLogMessage(sc.aiteIpAddress.ToString(), header.nodeInfo.PortNumber.ToString()), 5);
+                this.RaiseNotification("aite_wrong_node_info", 5, sc.aiteIpAddress.ToString(), header.nodeInfo.PortNumber.ToString());
 
                 aiteNodeInfo = new NodeInformation<T>(sc.aiteIpAddress, header.nodeInfo.PortNumber, header.nodeInfo.Network, header.nodeInfo.PublicRSAParameters);
             }
@@ -2284,13 +2280,13 @@ namespace CREA2014
             if (aiteNodeInfo == null)
                 aiteNodeInfo = header.nodeInfo;
 
-            if ((!headerResponse.isSameNetwork).RaiseNotification(GetType(), "aite_wrong_network".GetLogMessage(aiteNodeInfo.IpAddress.ToString(), aiteNodeInfo.PortNumber.ToString()), 5))
+            if ((!headerResponse.isSameNetwork).RaiseNotification(GetType(), "aite_wrong_network", 5, aiteNodeInfo.IpAddress.ToString(), aiteNodeInfo.PortNumber.ToString()))
             {
                 sc.Close();
 
                 return;
             }
-            if (headerResponse.isAlreadyConnected.RaiseNotification(GetType(), "aite_already_connected".GetLogMessage(aiteNodeInfo.IpAddress.ToString(), aiteNodeInfo.PortNumber.ToString()), 5))
+            if (headerResponse.isAlreadyConnected.RaiseNotification(GetType(), "aite_already_connected", 5, aiteNodeInfo.IpAddress.ToString(), aiteNodeInfo.PortNumber.ToString()))
             {
                 sc.Close();
 
@@ -2352,13 +2348,13 @@ namespace CREA2014
             sc.WriteBytes(new Header<T>(nodeInfo, creaVersion, protocolVersion, appnameWithVersion, isTemporary).ToBinary());
             HeaderResponse<T> headerResponse = SHAREDDATA.FromBinary<HeaderResponse<T>>(sc.ReadBytes());
 
-            if ((!headerResponse.isSameNetwork).RaiseNotification(GetType(), "wrong_network".GetLogMessage(aiteIpAddress.ToString(), aitePortNumber.ToString()), 5))
+            if ((!headerResponse.isSameNetwork).RaiseNotification(GetType(), "wrong_network", 5, aiteIpAddress.ToString(), aitePortNumber.ToString()))
             {
                 sc.Close();
 
                 return;
             }
-            if (headerResponse.isAlreadyConnected.RaiseNotification(GetType(), "already_connected".GetLogMessage(aiteIpAddress.ToString(), aitePortNumber.ToString()), 5))
+            if (headerResponse.isAlreadyConnected.RaiseNotification(GetType(), "already_connected", 5, aiteIpAddress.ToString(), aitePortNumber.ToString()))
             {
                 sc.Close();
 
@@ -2699,7 +2695,7 @@ namespace CREA2014
                 }
                 catch (Exception ex)
                 {
-                    this.RaiseError("inbound_session".GetLogMessage(), 5, ex);
+                    this.RaiseError("inbound_session", 5, ex);
                 }
                 finally
                 {
@@ -2734,7 +2730,7 @@ namespace CREA2014
                 }
                 catch (Exception ex)
                 {
-                    this.RaiseError("outbound_session".GetLogMessage(), 5, ex);
+                    this.RaiseError("outbound_session", 5, ex);
                 }
                 finally
                 {
@@ -2753,7 +2749,7 @@ namespace CREA2014
                 }
                 catch (Exception ex)
                 {
-                    this.RaiseError("outbound_session".GetLogMessage(), 5, ex);
+                    this.RaiseError("outbound_session", 5, ex);
                 }
         }
 
@@ -2780,7 +2776,7 @@ namespace CREA2014
                 }
                 catch (Exception ex)
                 {
-                    this.RaiseError("diffuse".GetLogMessage(), 5, ex);
+                    this.RaiseError("diffuse", 5, ex);
                 }
                 finally
                 {
@@ -2814,7 +2810,7 @@ namespace CREA2014
                         }
                         catch (Exception ex)
                         {
-                            this.RaiseError("keep_conn".GetLogMessage(), 5, ex);
+                            this.RaiseError("keep_conn", 5, ex);
 
                             are.Set();
                         }
@@ -2822,7 +2818,7 @@ namespace CREA2014
                     are.WaitOne();
                 }
 
-                this.RaiseNotification("keep_conn_completed".GetLogMessage(), 5);
+                this.RaiseNotification("keep_conn_completed", 5);
             }
         }
     }
@@ -3881,7 +3877,7 @@ namespace CREA2014
                 if (!findTable.ContainsKey(xor))
                     findTable.Add(xor, nodeInfo);
                 else
-                    this.RaiseError("find_table_already_added".GetLogMessage(xor.ToString(), findTable[xor].Id.ToString(), nodeInfo.Id.ToString()), 5);
+                    this.RaiseError("find_table_already_added", 5, xor.ToString(), findTable[xor].Id.ToString(), nodeInfo.Id.ToString());
 
                 return findTable.Count >= K;
             };
@@ -3925,7 +3921,7 @@ namespace CREA2014
                 throw new InvalidOperationException("invalid_id_size");
 
             if (nodeInfo.Equals(myNodeInfo))
-                this.RaiseWarning("my_node_info".GetLogMessage(), 5);
+                this.RaiseWarning("my_node_info", 5);
             else
             {
                 int distanceLevel = GetDistanceLevel(nodeInfo.Id);
@@ -3974,7 +3970,7 @@ namespace CREA2014
                 throw new InvalidOperationException("invalid_id_size");
 
             if (nodeInfo.Equals(myNodeInfo))
-                this.RaiseWarning("my_node_info".GetLogMessage(), 5);
+                this.RaiseWarning("my_node_info", 5);
             else
             {
                 int distanceLevel = GetDistanceLevel(nodeInfo.Id);
@@ -4508,6 +4504,7 @@ namespace CREA2014
 
     public interface IPseudonymousAccountHolder : IAccountHolder
     {
+        string iName { get; }
         string iSign { get; }
     }
 
@@ -4682,7 +4679,7 @@ namespace CREA2014
 
         public string AddressBase58 { get { return Address.Base58; } }
 
-        public override string ToString() { return AddressBase58; }
+        public override string ToString() { return string.Join(":", Name, AddressBase58); }
 
         public string iName { get { return Name; } }
 
@@ -4893,6 +4890,8 @@ namespace CREA2014
 
         public override string ToString() { return Sign; }
 
+        public string iName { get { return Name; } }
+
         public string iSign { get { return Sign; } }
     }
 
@@ -4982,7 +4981,7 @@ namespace CREA2014
                 if (pseudonymousAccountHolders.Contains(ah))
                     throw new InvalidOperationException("exist_account_holder");
 
-                if (!pseudonymousAccountHolders.Where((e) => e.Name == ah.Name).FirstOrDefault().IsNotNull().RaiseError(this.GetType(), "exist_same_name_account_holder".GetLogMessage(), 5))
+                if (!pseudonymousAccountHolders.Where((e) => e.Name == ah.Name).FirstOrDefault().IsNotNull().RaiseError(this.GetType(), "exist_same_name_account_holder", 5))
                     this.ExecuteBeforeEvent(() =>
                     {
                         pseudonymousAccountHolders.Add(ah);
@@ -5552,7 +5551,8 @@ namespace CREA2014
             outputs = _outputs;
         }
 
-        public static CurrencyUnit dustTxout = new Yumina(0.1m);
+        private static readonly CurrencyUnit dustTxout = new Yumina(0.1m);
+        private static readonly int maxSize = 65536;
 
         public TransactionOutput<PubKeyHashType>[] outputs { get; private set; }
 
@@ -5564,7 +5564,15 @@ namespace CREA2014
                     return false;
 
                 if (Version == 0)
-                    return outputs.All((e) => e.amount.rawAmount >= dustTxout.rawAmount);
+                {
+                    if (!outputs.All((e) => e.amount.rawAmount >= dustTxout.rawAmount))
+                        return false;
+
+                    if (ToBinary().Length > maxSize)
+                        return false;
+
+                    return true;
+                }
                 else
                     throw new NotSupportedException("tx_is_valid_not_supported");
             }
@@ -5896,21 +5904,27 @@ namespace CREA2014
             transferTxs = _transferTxs;
         }
 
-        public static readonly long blockGenerationInterval = 5; //[sec]
-        public static readonly long cycle = 60 * 60 * 24 * 365; //[sec]
-        public static readonly int numberOfCycles = 8;
-        public static readonly long rewardlessStart = cycle * numberOfCycles; //[sec]
-        public static readonly decimal rewardReductionRate = 0.8m;
-        public static readonly CurrencyUnit initialReward = new Creacoin(1.0m); //[CREA/sec]
-        public static readonly CurrencyUnit[] rewards; //[CREA/sec]
-        public static readonly decimal foundationShare = 0.1m;
-        public static readonly long foundationInterval = 60 * 60 * 24; //[block]
+        private static readonly long blockGenerationInterval = 5; //[sec]
+        private static readonly long cycle = 60 * 60 * 24 * 365; //[sec]
+        private static readonly int numberOfCycles = 8;
+        private static readonly long rewardlessStart = cycle * numberOfCycles; //[sec]
+        private static readonly decimal rewardReductionRate = 0.8m;
+        private static readonly CurrencyUnit initialReward = new Creacoin(1.0m); //[CREA/sec]
+        private static readonly CurrencyUnit[] rewards; //[CREA/sec]
+        private static readonly decimal foundationShare = 0.1m;
+        private static readonly long foundationInterval = 60 * 60 * 24; //[block]
 
-        public static readonly long numberOfTimestamps = 11;
-        public static readonly long targetTimespan = blockGenerationInterval * 1; //[sec]
+        private static readonly long numberOfTimestamps = 11;
+        private static readonly long targetTimespan = blockGenerationInterval * 1; //[sec]
 
-        //Diff = 0.00390625
-        public static readonly Difficulty<BlockidHashType> minDifficulty = new Difficulty<BlockidHashType>(HASHBASE.FromHash<BlockidHashType>(new byte[] { 0, 0, 0, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255 }));
+        private static readonly int maxSize = 1048576;
+
+        //Diff = 0.00001525
+        public static readonly Difficulty<BlockidHashType> minDifficulty = new Difficulty<BlockidHashType>(HASHBASE.FromHash<BlockidHashType>(new byte[] { 0, 0, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255 }));
+
+#if TEST
+        public static readonly PubKeyHashType foundationPubKeyHash = Activator.CreateInstance(typeof(PubKeyHashType), new byte[] { 69, 67, 83, 49, 32, 0, 0, 0, 16, 31, 116, 194, 127, 71, 154, 183, 50, 198, 23, 17, 129, 220, 25, 98, 4, 30, 93, 45, 53, 252, 176, 145, 108, 20, 226, 233, 36, 7, 35, 198, 98, 239, 109, 66, 206, 41, 162, 179, 255, 189, 126, 72, 97, 140, 165, 139, 118, 107, 137, 103, 76, 238, 125, 62, 163, 205, 108, 62, 189, 240, 124, 71 }) as PubKeyHashType;
+#endif
 
         public BlockHeader<BlockidHashType, TxidHashType> header { get; private set; }
         public CoinbaseTransaction<TxidHashType, PubKeyHashType> coinbaseTxToMiner { get; private set; }
@@ -5942,6 +5956,19 @@ namespace CREA2014
         protected bool isTransactionsModified;
 
         protected MerkleTree<TxidHashType> merkleTreeCache;
+        public MerkleTree<TxidHashType> MerkleTree
+        {
+            get
+            {
+                if (isTransactionsModified || merkleTreeCache == null)
+                {
+                    merkleTreeCache = new MerkleTree<TxidHashType>(Transactions.Select((e) => e.Id).ToArray());
+                    isTransactionsModified = false;
+                }
+                return merkleTreeCache;
+            }
+        }
+
         public override bool IsValid
         {
             get
@@ -5951,26 +5978,19 @@ namespace CREA2014
 
                 if (Version == 0)
                 {
-                    if (header.index % foundationInterval == 0)
-                    {
-                        if (!(this is FoundationalBlock<BlockidHashType, TxidHashType, PubKeyHashType, PubKeyType>))
-                            return false;
-                    }
-                    else if (!(this is NormalBlock<BlockidHashType, TxidHashType, PubKeyHashType, PubKeyType>))
+                    if (this.GetType() != GetBlockType(header.index, Version))
                         return false;
 
                     if (!Transactions.All((e) => e.IsValid))
                         return false;
 
-                    if (isTransactionsModified || merkleTreeCache == null)
-                    {
-                        merkleTreeCache = new MerkleTree<TxidHashType>(Transactions.Select((e) => e.Id).ToArray());
-                        isTransactionsModified = false;
-                    }
-                    if (!header.merkleRootHash.Equals(merkleTreeCache.Root))
+                    if (!header.merkleRootHash.Equals(MerkleTree.Root))
                         return false;
 
                     if (Id.CompareTo(header.difficulty.Target) > 0)
+                        return false;
+
+                    if (ToBinary().Length > maxSize)
                         return false;
 
                     return true;
@@ -5990,6 +6010,13 @@ namespace CREA2014
                     new MainDataInfomation(typeof(TransferTransaction<TxidHashType, PubKeyHashType, PubKeyType>[]), 0, null, () => transferTxs, (o) => transferTxs = (TransferTransaction<TxidHashType, PubKeyHashType, PubKeyType>[])o),
                 };
             }
+        }
+
+        public void UpdateMerkleRootHash()
+        {
+            header.UpdateMerkleRootHash(MerkleTree.Root);
+
+            isModified = true;
         }
 
         public void UpdateTimestamp(DateTime newTimestamp)
@@ -6083,15 +6110,27 @@ namespace CREA2014
             return new CurrencyUnit(rawTxFee);
         }
 
+        public static Type GetBlockType(long index, int version)
+        {
+            if (index < 1)
+                throw new ArgumentOutOfRangeException("index_out");
+
+            if (version == 0)
+            {
+                return index % foundationInterval == 0 ? typeof(FoundationalBlock<BlockidHashType, TxidHashType, PubKeyHashType, PubKeyType>) : typeof(NormalBlock<BlockidHashType, TxidHashType, PubKeyHashType, PubKeyType>);
+            }
+            else
+                throw new NotSupportedException("tx_block_not_supported");
+        }
+
         public static CurrencyUnit GetRewardToAll(long index, int version)
         {
+            if (index < 1)
+                throw new ArgumentOutOfRangeException("index_out");
+
             if (version == 0)
             {
                 long sec = index * blockGenerationInterval;
-
-                if (sec < 0)
-                    throw new ArgumentException("block_index_out_of_range");
-
                 for (int i = 0; i < numberOfCycles; i++)
                     if (sec < cycle * (i + 1))
                         return new Creacoin(rewards[i].rawAmount * (long)blockGenerationInterval);
@@ -6103,6 +6142,9 @@ namespace CREA2014
 
         public static CurrencyUnit GetRewardToMiner(long index, int version)
         {
+            if (index < 1)
+                throw new ArgumentOutOfRangeException("index_out");
+
             if (version == 0)
                 return new Creacoin(GetRewardToAll(index, version).AmountInCreacoin.Amount * (1.0m - foundationShare));
             else
@@ -6111,6 +6153,9 @@ namespace CREA2014
 
         public static CurrencyUnit GetRewardToFoundation(long index, int version)
         {
+            if (index < 1)
+                throw new ArgumentOutOfRangeException("index_out");
+
             if (version == 0)
                 return new Creacoin(GetRewardToAll(index, version).AmountInCreacoin.Amount * foundationShare);
             else
@@ -6119,6 +6164,9 @@ namespace CREA2014
 
         public static CurrencyUnit GetRewardToFoundationInterval(long index, int version)
         {
+            if (index < 1)
+                throw new ArgumentOutOfRangeException("index_out");
+
             if (version == 0)
                 return new Creacoin(GetRewardToFoundation(index, version).AmountInCreacoin.Amount * foundationInterval);
             else
@@ -6127,6 +6175,9 @@ namespace CREA2014
 
         public static Difficulty<BlockidHashType> GetWorkRequired(long index, Func<long, TransactionalBlock<BlockidHashType, TxidHashType, PubKeyHashType, PubKeyType>> indexToTxBlock, int version)
         {
+            if (index < 1)
+                throw new ArgumentOutOfRangeException("index_out");
+
             if (version == 0)
             {
                 if (index == 1)
@@ -6157,6 +6208,37 @@ namespace CREA2014
 
                     return difficulty.Diff < minDifficulty.Diff ? minDifficulty : difficulty;
                 }
+            }
+            else
+                throw new NotSupportedException("tx_block_not_supported");
+        }
+
+        public static TransactionalBlock<BlockidHashType, TxidHashType, PubKeyHashType, PubKeyType> GetBlockTemplate(long index, int version, PubKeyHashType minerPubKeyHash)
+        {
+            if (index < 1)
+                throw new ArgumentOutOfRangeException("index_out");
+
+            if (version == 0)
+            {
+                CoinbaseTransaction<TxidHashType, PubKeyHashType> coinbaseTxToMiner = new CoinbaseTransaction<TxidHashType, PubKeyHashType>(new TransactionOutput<PubKeyHashType>[] { new TransactionOutput<PubKeyHashType>(minerPubKeyHash, GetRewardToMiner(index, version)) });
+
+                //<未実装>難易度
+                //<未実装>直前のブロック識別子
+                BlockHeader<BlockidHashType, TxidHashType> header = new BlockHeader<BlockidHashType, TxidHashType>(index, new GenesisBlock<BlockidHashType>().Id, DateTime.Now, TransactionalBlock<BlockidHashType, TxidHashType, PubKeyHashType, PubKeyType>.minDifficulty, new byte[] { });
+
+                TransactionalBlock<BlockidHashType, TxidHashType, PubKeyHashType, PubKeyType> txBlock;
+                if (GetBlockType(index, version) == typeof(NormalBlock<BlockidHashType, TxidHashType, PubKeyHashType, PubKeyType>))
+                    txBlock = new NormalBlock<BlockidHashType, TxidHashType, PubKeyHashType, PubKeyType>(header, coinbaseTxToMiner, new TransferTransaction<TxidHashType, PubKeyHashType, PubKeyType>[] { });
+                else
+                {
+                    CoinbaseTransaction<TxidHashType, PubKeyHashType> coinbaseTxToFoundation = new CoinbaseTransaction<TxidHashType, PubKeyHashType>(new TransactionOutput<PubKeyHashType>[] { new TransactionOutput<PubKeyHashType>(foundationPubKeyHash, GetRewardToFoundationInterval(index, version)) });
+
+                    txBlock = new FoundationalBlock<BlockidHashType, TxidHashType, PubKeyHashType, PubKeyType>(header, coinbaseTxToMiner, coinbaseTxToFoundation, new TransferTransaction<TxidHashType, PubKeyHashType, PubKeyType>[] { });
+                }
+
+                txBlock.UpdateMerkleRootHash();
+
+                return txBlock;
             }
             else
                 throw new NotSupportedException("tx_block_not_supported");
@@ -6224,6 +6306,25 @@ namespace CREA2014
             }
         }
 
+        public override bool IsValid
+        {
+            get
+            {
+                if (!base.IsValid)
+                    return false;
+
+                if (Version == 0)
+                {
+                    if (!coinbaseTxToFoundation.outputs.All((e) => e.receiverPubKeyHash.Equals(foundationPubKeyHash)))
+                        return false;
+
+                    return true;
+                }
+                else
+                    throw new NotSupportedException("foundation_block_is_valid_not_supported");
+            }
+        }
+
         protected override Func<ReaderWriter, IEnumerable<MainDataInfomation>> StreamInfo
         {
             get
@@ -6278,7 +6379,7 @@ namespace CREA2014
     {
         public BlockHeader() : base(null) { }
 
-        public BlockHeader(long _index, BlockidHashType _prevBlockHash, TxidHashType _merkleRootHash, DateTime _timestamp, Difficulty<BlockidHashType> _difficulty, byte[] _nonce)
+        public BlockHeader(long _index, BlockidHashType _prevBlockHash, DateTime _timestamp, Difficulty<BlockidHashType> _difficulty, byte[] _nonce)
             : base(null)
         {
             if (_index < 1)
@@ -6288,7 +6389,6 @@ namespace CREA2014
 
             index = _index;
             prevBlockHash = _prevBlockHash;
-            merkleRootHash = _merkleRootHash;
             timestamp = _timestamp;
             difficulty = _difficulty;
             nonce = _nonce;
@@ -6316,6 +6416,11 @@ namespace CREA2014
                     new MainDataInfomation(typeof(byte[]), null, () => nonce, (o) => nonce = (byte[])o),
                 };
             }
+        }
+
+        public void UpdateMerkleRootHash(TxidHashType newmerkleRootHash)
+        {
+            merkleRootHash = newmerkleRootHash;
         }
 
         public void UpdateTimestamp(DateTime newTimestamp)
@@ -6347,6 +6452,9 @@ namespace CREA2014
             this.StartTask("mining", "mining", () =>
             {
                 byte[] bytes = new byte[] { 0, 0, 0, 0 };
+                int counter = 0;
+                DateTime datetime1 = DateTime.Now;
+                DateTime datetime2 = DateTime.Now;
 
                 while (true)
                 {
@@ -6359,11 +6467,23 @@ namespace CREA2014
                         txBlockCopy = txBlock;
                     }
 
-                    txBlock.UpdateTimestamp(DateTime.Now);
+                    txBlock.UpdateTimestamp(datetime1 = DateTime.Now);
                     txBlock.UpdateNonce(bytes);
+
+                    if (datetime1.Second != datetime2.Second)
+                    {
+                        this.RaiseNotification("hash_rate", 5, counter.ToString());
+
+                        datetime2 = datetime1;
+                        counter = 0;
+                    }
+                    else
+                        counter++;
 
                     if (txBlock.Id.CompareTo(txBlock.header.difficulty.Target) < 0)
                     {
+                        this.RaiseNotification("found_block", 5);
+
                         FoundNonce(this, txBlockCopy);
 
                         txBlock = null;
@@ -6719,25 +6839,25 @@ namespace CREA2014
         {
             if (txBlock.header.index <= head - rejectedBIndexDif)
             {
-                this.RaiseError("blk_too_old".GetLogMessage(), 3);
+                this.RaiseError("blk_too_old", 3);
                 return;
             }
             if (txBlock.header.index >= head + rejectedBIndexDif)
             {
-                this.RaiseError("blk_too_new".GetLogMessage(), 3);
+                this.RaiseError("blk_too_new", 3);
                 return;
             }
 
             foreach (var block in GetBlocks(txBlock.header.index))
                 if (block.Id.Equals(txBlock.Id))
                 {
-                    this.RaiseWarning("blk_already_existed".GetLogMessage(), 3);
+                    this.RaiseWarning("blk_already_existed", 3);
                     return;
                 }
 
             if (txBlock.header.index == 1 && !genesisBlock.Id.Equals(txBlock.header.prevBlockHash))
             {
-                this.RaiseError("blk_mismatch_genesis_block_hash".GetLogMessage(), 3);
+                this.RaiseError("blk_mismatch_genesis_block_hash", 3);
                 return;
             }
 
@@ -6779,7 +6899,7 @@ namespace CREA2014
                     TransactionalBlock<BlockidHashType, TxidHashType, PubKeyHashType, PubKeyType> prev = GetBlocks(target.header.index - 1).Where((e) => e.Id.Equals(target.header.prevBlockHash)).FirstOrDefault();
                     if (prev == null)
                     {
-                        this.RaiseWarning("blk_not_connected".GetLogMessage(), 3);
+                        this.RaiseWarning("blk_not_connected", 3);
                         return;
                     }
                     else
@@ -6822,7 +6942,7 @@ namespace CREA2014
                         TransactionalBlock<BlockidHashType, TxidHashType, PubKeyHashType, PubKeyType> prev = GetBlocks(main.header.index - 1).Where((e) => e.Id.Equals(main.header.prevBlockHash)).FirstOrDefault();
                         if (prev == null)
                         {
-                            this.RaiseError("blk_main_not_connected".GetLogMessage(), 3);
+                            this.RaiseError("blk_main_not_connected", 3);
                             return;
                         }
                         else
@@ -6837,7 +6957,7 @@ namespace CREA2014
                 {
                     if (i >= maxBrunchDeep)
                     {
-                        this.RaiseWarning("blk_too_deep".GetLogMessage(), 3);
+                        this.RaiseWarning("blk_too_deep", 3);
                         return;
                     }
 
@@ -6853,7 +6973,7 @@ namespace CREA2014
                     TransactionalBlock<BlockidHashType, TxidHashType, PubKeyHashType, PubKeyType> prev = GetBlocks(target.header.index - 1).Where((e) => e.Id.Equals(target.header.prevBlockHash)).FirstOrDefault();
                     if (prev == null)
                     {
-                        this.RaiseWarning("blk_not_connected".GetLogMessage(), 3);
+                        this.RaiseWarning("blk_not_connected", 3);
                         return;
                     }
                     else
@@ -6863,7 +6983,7 @@ namespace CREA2014
                     prev = GetBlocks(main.header.index - 1).Where((e) => e.Id.Equals(main.header.prevBlockHash)).FirstOrDefault();
                     if (prev == null)
                     {
-                        this.RaiseError("blk_main_not_connected".GetLogMessage(), 3);
+                        this.RaiseError("blk_main_not_connected", 3);
                         return;
                     }
                     else
@@ -7248,21 +7368,33 @@ namespace CREA2014
     {
         public AccountHoldersDatabase(string _pathBase) : base(_pathBase) { }
 
+#if TEST
+        protected override string filenameBase { get { return "acc_test"; } }
+#else
         protected override string filenameBase { get { return "acc"; } }
+#endif
     }
 
     public class BlockChainDatabase : SimpleDatabase
     {
         public BlockChainDatabase(string _pathBase) : base(_pathBase) { }
 
+#if TEST
+        protected override string filenameBase { get { return "blkchn_test"; } }
+#else
         protected override string filenameBase { get { return "blkchn"; } }
+#endif
     }
 
     public class BlockNodesGroupDatabase : DATABASEBASE
     {
         public BlockNodesGroupDatabase(string _pathBase) : base(_pathBase) { }
 
+#if TEST
+        protected override string filenameBase { get { return "blkng_test"; } }
+#else
         protected override string filenameBase { get { return "blkng"; } }
+#endif
 
         public byte[] GetBlockNodesGroupData(long bngIndex)
         {
@@ -7287,7 +7419,11 @@ namespace CREA2014
     {
         public BlockGroupDatabase(string _pathBase) : base(_pathBase) { }
 
+#if TEST
+        protected override string filenameBase { get { return "blkg_test"; } }
+#else
         protected override string filenameBase { get { return "blkg"; } }
+#endif
 
         public byte[] GetBlockGroupData(long bgIndex, long position)
         {
