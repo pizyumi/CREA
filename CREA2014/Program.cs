@@ -946,12 +946,12 @@ namespace CREA2014
         //例外過誤ログイベントを発生させる（拡張：任意型）
         public static void RaiseError<T>(this T self, string rawMessage, int level, Exception ex)
         {
-            Errored(self.GetType(), new LogInfomation(self.GetType(), string.Join(Environment.NewLine, rawMessage, ex.CreateMessage(0)), GetLogMessage(rawMessage), level));
+            Errored(self.GetType(), new LogInfomation(self.GetType(), rawMessage, string.Join(Environment.NewLine, GetLogMessage(rawMessage), ex.CreateMessage(0)), level));
         }
 
         public static void RaiseError<T>(this T self, string rawMessage, int level, Exception ex, params string[] arguments)
         {
-            Errored(self.GetType(), new LogInfomation(self.GetType(), string.Join(Environment.NewLine, rawMessage, ex.CreateMessage(0)), GetLogMessage(rawMessage, arguments), level));
+            Errored(self.GetType(), new LogInfomation(self.GetType(), rawMessage, string.Join(Environment.NewLine, GetLogMessage(rawMessage), ex.CreateMessage(0)), level));
         }
 
         //真偽値が真のときのみ試験ログイベントを発生させ、真偽値をそのまま返す（拡張：真偽型）
@@ -3230,6 +3230,7 @@ namespace CREA2014
                 {"blk_too_deep", (args) => "深過ぎるブロックです。".Multilanguage(134)},
                 {"hash_rate", (args) => string.Format("要約値計算速度：{0}hash/s".Multilanguage(137), args[0])},
                 {"found_block", (args) => "新しいブロックを発見しました。".Multilanguage(138)},
+                {"difficulty", (args) => string.Format("難易度：{0}".Multilanguage(169), args[0])},
             };
 
             exceptionMessages = new Dictionary<string, Func<string>>() {

@@ -739,9 +739,9 @@ namespace CREA2014
             Func<Program.LogData, string> _GetLogHtml = (logData) =>
             {
                 if (logData.Kind == Program.LogData.LogKind.error)
-                    return _GetWebResource(pathErrorLogHtm).Replace("%%log%%", logData.ToString());
+                    return _GetWebResource(pathErrorLogHtm).Replace("%%log%%", logData.ToString().Replace(Environment.NewLine, "<br/>"));
                 else
-                    return _GetWebResource(pathLogHtm).Replace("%%log%%", logData.ToString());
+                    return _GetWebResource(pathLogHtm).Replace("%%log%%", logData.ToString().Replace(Environment.NewLine, "<br/>"));
             };
 
             WebSocketServer oldWss;
