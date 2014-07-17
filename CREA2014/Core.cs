@@ -3,6 +3,8 @@
 
 #define TEST
 
+using CSharpTest.Net.Collections;
+using CSharpTest.Net.Serialization;
 using System;
 using System.Collections;
 using System.Collections.Generic;
@@ -51,6 +53,9 @@ namespace CREA2014
         private BlockChainDatabase bcDatabase;
         private BlockNodesGroupDatabase bngDatabase;
         private BlockGroupDatabase bgDatabase;
+        private UtxoIndexDatabase utxoIndexDatabase;
+        private UtxoEmptySpacesDatabase utxoEmptySpacesDatabase;
+        private UtxoDatabase<TxidHashType, PubKeyHashType> utxoDatabase;
 
         public AccountHolders<KeyPairType, DsaPubKeyType, DsaPrivKeyType> accountHolders { get; private set; }
         public IAccountHolders iAccountHolders { get { return accountHolders; } }
@@ -75,6 +80,9 @@ namespace CREA2014
             bcDatabase = new BlockChainDatabase(databaseBasepath);
             bngDatabase = new BlockNodesGroupDatabase(databaseBasepath);
             bgDatabase = new BlockGroupDatabase(databaseBasepath);
+            utxoIndexDatabase = new UtxoIndexDatabase(databaseBasepath);
+            utxoEmptySpacesDatabase = new UtxoEmptySpacesDatabase(databaseBasepath);
+            utxoDatabase = new UtxoDatabase<TxidHashType, PubKeyHashType>(databaseBasepath, utxoIndexDatabase, utxoEmptySpacesDatabase);
 
             accountHolders = new AccountHolders<KeyPairType, DsaPubKeyType, DsaPrivKeyType>();
             accountHoldersFactory = new AccountHoldersFactory<KeyPairType, DsaPubKeyType, DsaPrivKeyType>();
@@ -83,7 +91,7 @@ namespace CREA2014
             if (ahDataBytes.Length != 0)
                 accountHolders.FromBinary(ahDataBytes);
 
-            blockChain = new BlockChain<BlockidHashType, TxidHashType, PubKeyHashType, DsaPubKeyType>(bngDatabase, bgDatabase);
+            blockChain = new BlockChain<BlockidHashType, TxidHashType, PubKeyHashType, DsaPubKeyType>(bngDatabase, bgDatabase, utxoDatabase);
 
             byte[] bcDataBytes = bcDatabase.GetData();
             if (bcDataBytes.Length != 0)
@@ -4518,6 +4526,9 @@ namespace CREA2014
         string iName { get; }
         string iDescription { get; }
         string iAddress { get; }
+        CurrencyUnit iUsableAmount { get; }
+        CurrencyUnit iUnusableAmount { get; }
+        CurrencyUnit iAmount { get; }
     }
 
     public interface IAccountHolder
@@ -4586,6 +4597,20 @@ namespace CREA2014
         {
             get { return description; }
             set { this.ExecuteBeforeEvent(() => description = value, AccountChanged); }
+        }
+
+        private CurrencyUnit usableAmount;
+        public CurrencyUnit UsableAmount
+        {
+            get { return usableAmount; }
+            set { this.ExecuteBeforeEvent(() => usableAmount = value, AccountChanged); }
+        }
+
+        private CurrencyUnit unusableAmount;
+        public CurrencyUnit UnusableAmount
+        {
+            get { return unusableAmount; }
+            set { this.ExecuteBeforeEvent(() => unusableAmount = value, AccountChanged); }
         }
 
         public DSAKEYPAIRBASE<DsaPubKeyType, DsaPrivKeyType> keyPair { get; private set; }
@@ -4711,6 +4736,16 @@ namespace CREA2014
 
         public string AddressBase58 { get { return Address.Base58; } }
 
+        public CurrencyUnit Amount { get { return new CurrencyUnit(usableAmount.rawAmount + unusableAmount.rawAmount); } }
+
+        public void ChangeAmount(CurrencyUnit newUsableAmount, CurrencyUnit newUnusableAmount)
+        {
+            usableAmount = newUsableAmount;
+            unusableAmount = newUnusableAmount;
+
+            AccountChanged(this, EventArgs.Empty);
+        }
+
         public override string ToString() { return string.Join(":", Name, AddressBase58); }
 
         public string iName { get { return Name; } }
@@ -4718,6 +4753,12 @@ namespace CREA2014
         public string iDescription { get { return Description; } }
 
         public string iAddress { get { return AddressBase58; } }
+
+        public CurrencyUnit iUsableAmount { get { return UsableAmount; } }
+
+        public CurrencyUnit iUnusableAmount { get { return UnusableAmount; } }
+
+        public CurrencyUnit iAmount { get { return Amount; } }
     }
 
     public abstract class AccountHolder<KeyPairType, DsaPubKeyType, DsaPrivKeyType> : SHAREDDATA, IAccountHolder
@@ -5506,9 +5547,10 @@ namespace CREA2014
 
     #region 取引
 
-    public abstract class Transaction<TxidHashType, PubKeyHashType> : TXBLOCKBASE<TxidHashType>
+    public abstract class Transaction<TxidHashType, PubKeyHashType, PubKeyType> : TXBLOCKBASE<TxidHashType>
         where TxidHashType : HASHBASE
         where PubKeyHashType : HASHBASE
+        where PubKeyType : DSAPUBKEYBASE
     {
         public Transaction(int? _version) : base(_version) { }
 
@@ -5557,11 +5599,16 @@ namespace CREA2014
                 };
             }
         }
+
+        public virtual TransactionInput<TxidHashType, PubKeyType>[] Inputs { get { return new TransactionInput<TxidHashType, PubKeyType>[] { }; } }
+
+        public virtual TransactionOutput<PubKeyHashType>[] Outputs { get { return outputs; } }
     }
 
-    public class CoinbaseTransaction<TxidHashType, PubKeyHashType> : Transaction<TxidHashType, PubKeyHashType>
+    public class CoinbaseTransaction<TxidHashType, PubKeyHashType, PubKeyType> : Transaction<TxidHashType, PubKeyHashType, PubKeyType>
         where TxidHashType : HASHBASE
         where PubKeyHashType : HASHBASE
+        where PubKeyType : DSAPUBKEYBASE
     {
         public CoinbaseTransaction() : base(0) { }
 
@@ -5581,7 +5628,7 @@ namespace CREA2014
         public override bool IsVersioned { get { return true; } }
     }
 
-    public class TransferTransaction<TxidHashType, PubKeyHashType, PubKeyType> : Transaction<TxidHashType, PubKeyHashType>
+    public class TransferTransaction<TxidHashType, PubKeyHashType, PubKeyType> : Transaction<TxidHashType, PubKeyHashType, PubKeyType>
         where TxidHashType : HASHBASE
         where PubKeyHashType : HASHBASE
         where PubKeyType : DSAPUBKEYBASE
@@ -5613,6 +5660,8 @@ namespace CREA2014
         }
 
         public override bool IsVersioned { get { return true; } }
+
+        public override TransactionInput<TxidHashType, PubKeyType>[] Inputs { get { return inputs; } }
 
         private Func<ReaderWriter, IEnumerable<MainDataInfomation>> StreamInfoToSign(TransactionOutput<PubKeyHashType>[] prevTxOutputs) { return (msrw) => StreamInfoToSignInner(prevTxOutputs); }
         private IEnumerable<MainDataInfomation> StreamInfoToSignInner(TransactionOutput<PubKeyHashType>[] prevTxOutputs)
@@ -5723,33 +5772,36 @@ namespace CREA2014
     {
         public TransactionInput() : base(null) { }
 
-        public TransactionInput(long _prevTxBlockIndex, TxidHashType _prevTxHash, int _prevTxOutputIndex, PubKeyType _senderPubKey)
+        public TransactionInput(TxidHashType _prevTxHash, int _prevTxOutputIndex, PubKeyType _senderPubKey, CurrencyUnit _amount)
             : base(null)
         {
-            prevTxBlockIndex = _prevTxBlockIndex;
+            //prevTxBlockIndex = _prevTxBlockIndex;
             prevTxHash = _prevTxHash;
             prevTxOutputIndex = _prevTxOutputIndex;
             senderPubKey = _senderPubKey;
+            amount = _amount;
         }
 
         public static readonly int senderSigLength = 64;
 
-        public long prevTxBlockIndex { get; private set; }
+        //public long prevTxBlockIndex { get; private set; }
         public TxidHashType prevTxHash { get; private set; }
         public int prevTxOutputIndex { get; private set; }
         public byte[] senderSig { get; private set; }
         public PubKeyType senderPubKey { get; private set; }
+        public CurrencyUnit amount { get; private set; }
 
         protected override Func<ReaderWriter, IEnumerable<MainDataInfomation>> StreamInfo
         {
             get
             {
                 return (msrw) => new MainDataInfomation[]{
-                    new MainDataInfomation(typeof(long), () => prevTxBlockIndex, (o) => prevTxBlockIndex = (long)o),
+                    //new MainDataInfomation(typeof(long), () => prevTxBlockIndex, (o) => prevTxBlockIndex = (long)o),
                     new MainDataInfomation(typeof(TxidHashType), null, () => prevTxHash, (o) => prevTxHash = (TxidHashType)o),
                     new MainDataInfomation(typeof(int), () => prevTxOutputIndex, (o) => prevTxOutputIndex = (int)o),
                     new MainDataInfomation(typeof(byte[]), senderSigLength, () => senderSig, (o) => senderSig = (byte[])o),
                     new MainDataInfomation(typeof(PubKeyType), null, () => senderPubKey, (o) => senderPubKey = (PubKeyType)o),
+                    new MainDataInfomation(typeof(long), () => amount.rawAmount, (o) => amount = new CurrencyUnit((long)o)),
                 };
             }
         }
@@ -5759,9 +5811,10 @@ namespace CREA2014
             get
             {
                 return (msrw) => new MainDataInfomation[]{
-                    new MainDataInfomation(typeof(long), () => prevTxBlockIndex, (o) => { throw new NotSupportedException("tx_in_si_to_sign"); }),
+                    //new MainDataInfomation(typeof(long), () => prevTxBlockIndex, (o) => { throw new NotSupportedException("tx_in_si_to_sign"); }),
                     new MainDataInfomation(typeof(TxidHashType), null, () => prevTxHash, (o) => { throw new NotSupportedException("tx_in_si_to_sign"); }),
                     new MainDataInfomation(typeof(int), () => prevTxOutputIndex, (o) => { throw new NotSupportedException("tx_in_si_to_sign"); }),
+                    new MainDataInfomation(typeof(long), () => amount.rawAmount, (o) => { throw new NotSupportedException("tx_out_si_to_sign"); }),
                 };
             }
         }
@@ -5866,7 +5919,7 @@ namespace CREA2014
 
         public TransactionalBlock(int? _version) : base(_version) { }
 
-        public TransactionalBlock(int? _version, BlockHeader<BlockidHashType, TxidHashType> _header, CoinbaseTransaction<TxidHashType, PubKeyHashType> _coinbaseTxToMiner, TransferTransaction<TxidHashType, PubKeyHashType, PubKeyType>[] _transferTxs)
+        public TransactionalBlock(int? _version, BlockHeader<BlockidHashType, TxidHashType> _header, CoinbaseTransaction<TxidHashType, PubKeyHashType, PubKeyType> _coinbaseTxToMiner, TransferTransaction<TxidHashType, PubKeyHashType, PubKeyType>[] _transferTxs)
             : base(_version)
         {
             header = _header;
@@ -5889,7 +5942,6 @@ namespace CREA2014
 
         private static readonly int maxSize = 1048576;
 
-        //Diff = 0.00001525
         public static readonly Difficulty<BlockidHashType> minDifficulty = new Difficulty<BlockidHashType>(HASHBASE.FromHash<BlockidHashType>(new byte[] { 0, 127, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255 }));
 
 #if TEST
@@ -5897,7 +5949,7 @@ namespace CREA2014
 #endif
 
         public BlockHeader<BlockidHashType, TxidHashType> header { get; private set; }
-        public CoinbaseTransaction<TxidHashType, PubKeyHashType> coinbaseTxToMiner { get; private set; }
+        public CoinbaseTransaction<TxidHashType, PubKeyHashType, PubKeyType> coinbaseTxToMiner { get; private set; }
         public TransferTransaction<TxidHashType, PubKeyHashType, PubKeyType>[] transferTxs { get; private set; }
 
         public override BlockidHashType Id
@@ -5913,7 +5965,7 @@ namespace CREA2014
             }
         }
 
-        public virtual IEnumerable<Transaction<TxidHashType, PubKeyHashType>> Transactions
+        public virtual IEnumerable<Transaction<TxidHashType, PubKeyHashType, PubKeyType>> Transactions
         {
             get
             {
@@ -5976,7 +6028,7 @@ namespace CREA2014
             {
                 return (msrw) => new MainDataInfomation[]{
                     new MainDataInfomation(typeof(BlockHeader<BlockidHashType, TxidHashType>), null, () => header, (o) => header = (BlockHeader<BlockidHashType, TxidHashType>)o),
-                    new MainDataInfomation(typeof(CoinbaseTransaction<TxidHashType, PubKeyHashType>), 0, () => coinbaseTxToMiner, (o) => coinbaseTxToMiner = (CoinbaseTransaction<TxidHashType, PubKeyHashType>)o),
+                    new MainDataInfomation(typeof(CoinbaseTransaction<TxidHashType, PubKeyHashType, PubKeyType>), 0, () => coinbaseTxToMiner, (o) => coinbaseTxToMiner = (CoinbaseTransaction<TxidHashType, PubKeyHashType, PubKeyType>)o),
                     new MainDataInfomation(typeof(TransferTransaction<TxidHashType, PubKeyHashType, PubKeyType>[]), 0, null, () => transferTxs, (o) => transferTxs = (TransferTransaction<TxidHashType, PubKeyHashType, PubKeyType>[])o),
                 };
             }
@@ -6229,16 +6281,6 @@ namespace CREA2014
                             targetBytes[pos.Value] = target3Bytes[0];
                     }
 
-                    //BigInteger bi = new BigInteger(indexToTxBlock(lastIndex).header.difficulty.Target.hash.Reverse().ToArray().Combine(new byte[] { 0 }));
-                    //bi *= (long)actualTimespan.TotalSeconds;
-                    //bi /= targetTimespan;
-
-                    //BlockidHashType hash = Activator.CreateInstance(typeof(BlockidHashType)) as BlockidHashType;
-
-                    //byte[] targetBytes = bi.ToByteArray().Reverse().ToArray().Decompose(1);
-                    //if (targetBytes.Length != hash.SizeByte)
-                    //    targetBytes = new byte[hash.SizeByte - targetBytes.Length].Combine(targetBytes);
-
                     hash.FromHash(targetBytes);
 
                     Difficulty<BlockidHashType> difficulty = new Difficulty<BlockidHashType>(hash);
@@ -6257,7 +6299,7 @@ namespace CREA2014
 
             if (version == 0)
             {
-                CoinbaseTransaction<TxidHashType, PubKeyHashType> coinbaseTxToMiner = new CoinbaseTransaction<TxidHashType, PubKeyHashType>(new TransactionOutput<PubKeyHashType>[] { new TransactionOutput<PubKeyHashType>(minerPubKeyHash, GetRewardToMiner(index, version)) });
+                CoinbaseTransaction<TxidHashType, PubKeyHashType, PubKeyType> coinbaseTxToMiner = new CoinbaseTransaction<TxidHashType, PubKeyHashType, PubKeyType>(new TransactionOutput<PubKeyHashType>[] { new TransactionOutput<PubKeyHashType>(minerPubKeyHash, GetRewardToMiner(index, version)) });
 
                 BlockHeader<BlockidHashType, TxidHashType> header = new BlockHeader<BlockidHashType, TxidHashType>(index, index == 1 ? new GenesisBlock<BlockidHashType>().Id : indexToTxBlock(index - 1).Id, DateTime.Now, GetWorkRequired(index, indexToTxBlock, version), new byte[] { });
 
@@ -6266,7 +6308,7 @@ namespace CREA2014
                     txBlock = new NormalBlock<BlockidHashType, TxidHashType, PubKeyHashType, PubKeyType>(header, coinbaseTxToMiner, new TransferTransaction<TxidHashType, PubKeyHashType, PubKeyType>[] { });
                 else
                 {
-                    CoinbaseTransaction<TxidHashType, PubKeyHashType> coinbaseTxToFoundation = new CoinbaseTransaction<TxidHashType, PubKeyHashType>(new TransactionOutput<PubKeyHashType>[] { new TransactionOutput<PubKeyHashType>(foundationPubKeyHash, GetRewardToFoundationInterval(index, version)) });
+                    CoinbaseTransaction<TxidHashType, PubKeyHashType, PubKeyType> coinbaseTxToFoundation = new CoinbaseTransaction<TxidHashType, PubKeyHashType, PubKeyType>(new TransactionOutput<PubKeyHashType>[] { new TransactionOutput<PubKeyHashType>(foundationPubKeyHash, GetRewardToFoundationInterval(index, version)) });
 
                     txBlock = new FoundationalBlock<BlockidHashType, TxidHashType, PubKeyHashType, PubKeyType>(header, coinbaseTxToMiner, coinbaseTxToFoundation, new TransferTransaction<TxidHashType, PubKeyHashType, PubKeyType>[] { });
                 }
@@ -6293,7 +6335,7 @@ namespace CREA2014
     {
         public NormalBlock() : base(0) { }
 
-        public NormalBlock(BlockHeader<BlockidHashType, TxidHashType> _header, CoinbaseTransaction<TxidHashType, PubKeyHashType> _coinbaseTxToMiner, TransferTransaction<TxidHashType, PubKeyHashType, PubKeyType>[] _transferTransactions) : base(0, _header, _coinbaseTxToMiner, _transferTransactions) { }
+        public NormalBlock(BlockHeader<BlockidHashType, TxidHashType> _header, CoinbaseTransaction<TxidHashType, PubKeyHashType, PubKeyType> _coinbaseTxToMiner, TransferTransaction<TxidHashType, PubKeyHashType, PubKeyType>[] _transferTransactions) : base(0, _header, _coinbaseTxToMiner, _transferTransactions) { }
 
         protected override Func<ReaderWriter, IEnumerable<MainDataInfomation>> StreamInfo
         {
@@ -6328,15 +6370,15 @@ namespace CREA2014
     {
         public FoundationalBlock() : base(0) { }
 
-        public FoundationalBlock(BlockHeader<BlockidHashType, TxidHashType> _header, CoinbaseTransaction<TxidHashType, PubKeyHashType> _coinbaseTxToMiner, CoinbaseTransaction<TxidHashType, PubKeyHashType> _coinbaseTxToFoundation, TransferTransaction<TxidHashType, PubKeyHashType, PubKeyType>[] _transferTransactions)
+        public FoundationalBlock(BlockHeader<BlockidHashType, TxidHashType> _header, CoinbaseTransaction<TxidHashType, PubKeyHashType, PubKeyType> _coinbaseTxToMiner, CoinbaseTransaction<TxidHashType, PubKeyHashType, PubKeyType> _coinbaseTxToFoundation, TransferTransaction<TxidHashType, PubKeyHashType, PubKeyType>[] _transferTransactions)
             : base(0, _header, _coinbaseTxToMiner, _transferTransactions)
         {
             coinbaseTxToFoundation = _coinbaseTxToFoundation;
         }
 
-        public CoinbaseTransaction<TxidHashType, PubKeyHashType> coinbaseTxToFoundation { get; private set; }
+        public CoinbaseTransaction<TxidHashType, PubKeyHashType, PubKeyType> coinbaseTxToFoundation { get; private set; }
 
-        public override IEnumerable<Transaction<TxidHashType, PubKeyHashType>> Transactions
+        public override IEnumerable<Transaction<TxidHashType, PubKeyHashType, PubKeyType>> Transactions
         {
             get
             {
@@ -6371,7 +6413,7 @@ namespace CREA2014
             {
                 if (Version == 0)
                     return (msrw) => base.StreamInfo(msrw).Concat(new MainDataInfomation[]{
-                        new MainDataInfomation(typeof(CoinbaseTransaction<TxidHashType, PubKeyHashType>), 0, () => coinbaseTxToFoundation, (o) => coinbaseTxToFoundation = (CoinbaseTransaction<TxidHashType, PubKeyHashType>)o),
+                        new MainDataInfomation(typeof(CoinbaseTransaction<TxidHashType, PubKeyHashType, PubKeyType>), 0, () => coinbaseTxToFoundation, (o) => coinbaseTxToFoundation = (CoinbaseTransaction<TxidHashType, PubKeyHashType, PubKeyType>)o),
                     });
                 else
                     throw new NotSupportedException("foundational_block_main_data_info");
@@ -6589,18 +6631,11 @@ namespace CREA2014
         where PubKeyHashType : HASHBASE
         where PubKeyType : DSAPUBKEYBASE
     {
-        public BlockChain(BlockNodesGroupDatabase _bngDatabase, BlockGroupDatabase _bgDatabase)
+        public BlockChain(BlockNodesGroupDatabase _bngDatabase, BlockGroupDatabase _bgDatabase, UtxoDatabase<TxidHashType, PubKeyHashType> _utxoDatabase)
         {
             bngDatabase = _bngDatabase;
             bgDatabase = _bgDatabase;
-        }
-
-        public BlockChain(byte[] data, BlockNodesGroupDatabase _bngDatabase, BlockGroupDatabase _bgDatabase)
-        {
-            FromBinary(data);
-
-            bngDatabase = _bngDatabase;
-            bgDatabase = _bgDatabase;
+            utxoDatabase = _utxoDatabase;
         }
 
         public void Initialize()
@@ -6621,13 +6656,145 @@ namespace CREA2014
                     currentBng.FromBinary(currentBngBytes);
             }
 
+            addedUtxosInMemory = new List<Dictionary<PubKeyHashType, List<Utxo<TxidHashType>>>>();
+            removedUtxosInMemory = new List<Dictionary<PubKeyHashType, List<Utxo<TxidHashType>>>>();
+
+            Initialized += (sender, e) =>
+            {
+                for (long i = utxoDividedHead == 0 ? 1 : utxoDividedHead * utxosInMemoryDiv; i < head + 1; i++)
+                    GoForwardUtxosInMemoryCurrent(GetMainBlock(i));
+            };
+
             isInitialized = true;
+
+            Initialized(this, EventArgs.Empty);
+        }
+
+        private void GoForwardUtxosInMemoryCurrent(TransactionalBlock<BlockidHashType, TxidHashType, PubKeyHashType, PubKeyType> txBlock)
+        {
+            if (txBlock.header.index == 1 || txBlock.header.index % utxosInMemoryDiv == 0)
+            {
+                if (currentAddedUtxos != null)
+                {
+                    addedUtxosInMemory.Add(currentAddedUtxos);
+                    removedUtxosInMemory.Add(currentRemovedUtxos);
+
+                    while (addedUtxosInMemory.Count > maxUtxosGroup)
+                    {
+                        utxoDatabase.Update(addedUtxosInMemory[0], removedUtxosInMemory[0]);
+
+                        utxoDividedHead++;
+
+                        addedUtxosInMemory.RemoveAt(0);
+                        removedUtxosInMemory.RemoveAt(0);
+                    }
+                }
+
+                currentAddedUtxos = new Dictionary<PubKeyHashType, List<Utxo<TxidHashType>>>();
+                currentRemovedUtxos = new Dictionary<PubKeyHashType, List<Utxo<TxidHashType>>>();
+            }
+
+            GoForwardUtxosInMemory(txBlock, currentAddedUtxos, currentRemovedUtxos);
+        }
+
+        private void GoBackwardUtxosInMemoryCurrent(TransactionalBlock<BlockidHashType, TxidHashType, PubKeyHashType, PubKeyType> txBlock)
+        {
+            GoBackwardUtxosInMemory(txBlock, currentAddedUtxos, currentRemovedUtxos);
+
+            if (txBlock.header.index == 1 || txBlock.header.index % utxosInMemoryDiv == 0)
+            {
+                foreach (var currentAddedUtxo in currentAddedUtxos)
+                    if (currentAddedUtxo.Value.Count != 0)
+                        throw new InvalidOperationException("current_added_utxos_not_empty");
+                foreach (var currentRemovedUtxo in currentRemovedUtxos)
+                    if (currentRemovedUtxo.Value.Count != 0)
+                        throw new InvalidOperationException("current_removed__utxos_not_empty");
+
+                if (txBlock.header.index == 1)
+                {
+                    currentAddedUtxos = null;
+                    currentRemovedUtxos = null;
+                }
+                else
+                {
+                    if (addedUtxosInMemory.Count > 0)
+                    {
+                        currentAddedUtxos = addedUtxosInMemory[addedUtxosInMemory.Count - 1];
+                        currentRemovedUtxos = removedUtxosInMemory[removedUtxosInMemory.Count - 1];
+
+                        addedUtxosInMemory.RemoveAt(addedUtxosInMemory.Count - 1);
+                        removedUtxosInMemory.RemoveAt(removedUtxosInMemory.Count - 1);
+                    }
+                    else
+                    {
+                        Dictionary<PubKeyHashType, List<Utxo<TxidHashType>>> addedUtxos = new Dictionary<PubKeyHashType, List<Utxo<TxidHashType>>>();
+                        Dictionary<PubKeyHashType, List<Utxo<TxidHashType>>> removedUtxos = new Dictionary<PubKeyHashType, List<Utxo<TxidHashType>>>();
+
+                        for (long i = utxoDividedHead * utxosInMemoryDiv - 1; i >= (utxoDividedHead - 1) * utxosInMemoryDiv; i--)
+                            GoBackwardUtxosInMemory(GetMainBlock(i), addedUtxos, removedUtxos);
+
+                        utxoDatabase.Update(addedUtxos, removedUtxos);
+
+                        utxoDividedHead--;
+
+                        currentAddedUtxos = removedUtxos;
+                        currentRemovedUtxos = addedUtxos;
+                    }
+                }
+            }
+        }
+
+        private void UpdateUtxos(Dictionary<PubKeyHashType, List<Utxo<TxidHashType>>> utxos1, Dictionary<PubKeyHashType, List<Utxo<TxidHashType>>> utxos2, PubKeyHashType address, TxidHashType txHash, int txOutputIndex, CurrencyUnit amount)
+        {
+            if (utxos1.ContainsKey(address))
+            {
+                List<Utxo<TxidHashType>> list = utxos1[address];
+                Utxo<TxidHashType> utxo = list.Where((elem) => elem.txid.Equals(txHash) && elem.index == txOutputIndex).FirstOrDefault();
+
+                if (utxo != null)
+                {
+                    list.Remove(utxo);
+                    return;
+                }
+            }
+
+            if (utxos2.ContainsKey(address))
+                utxos2[address].Add(new Utxo<TxidHashType>(txHash, txOutputIndex, amount));
+            else
+                utxos2.Add(address, new List<Utxo<TxidHashType>>() { new Utxo<TxidHashType>(txHash, txOutputIndex, amount) });
+        }
+
+        private void GoForwardUtxosInMemory(TransactionalBlock<BlockidHashType, TxidHashType, PubKeyHashType, PubKeyType> txBlock, Dictionary<PubKeyHashType, List<Utxo<TxidHashType>>> addedUtxos, Dictionary<PubKeyHashType, List<Utxo<TxidHashType>>> removedUtxos)
+        {
+            foreach (var tx in txBlock.Transactions)
+            {
+                for (int i = 0; i < tx.Inputs.Length; i++)
+                    UpdateUtxos(addedUtxos, removedUtxos, Activator.CreateInstance(typeof(PubKeyHashType), tx.Inputs[i].senderPubKey) as PubKeyHashType, tx.Inputs[i].prevTxHash, tx.Inputs[i].prevTxOutputIndex, tx.Inputs[i].amount);
+                for (int i = 0; i < tx.Outputs.Length; i++)
+                    UpdateUtxos(removedUtxos, addedUtxos, tx.Outputs[i].receiverPubKeyHash, tx.Id, i, tx.Outputs[i].amount);
+            }
+        }
+
+        private void GoBackwardUtxosInMemory(TransactionalBlock<BlockidHashType, TxidHashType, PubKeyHashType, PubKeyType> txBlock, Dictionary<PubKeyHashType, List<Utxo<TxidHashType>>> addedUtxos, Dictionary<PubKeyHashType, List<Utxo<TxidHashType>>> removedUtxos)
+        {
+            foreach (var tx in txBlock.Transactions)
+            {
+                for (int i = 0; i < tx.Inputs.Length; i++)
+                    UpdateUtxos(removedUtxos, addedUtxos, Activator.CreateInstance(typeof(PubKeyHashType), tx.Inputs[i].senderPubKey) as PubKeyHashType, tx.Inputs[i].prevTxHash, tx.Inputs[i].prevTxOutputIndex, tx.Inputs[i].amount);
+                for (int i = 0; i < tx.Outputs.Length; i++)
+                    UpdateUtxos(addedUtxos, removedUtxos, tx.Outputs[i].receiverPubKeyHash, tx.Id, i, tx.Outputs[i].amount);
+            }
         }
 
         private static readonly long blockGroupDiv = 100000;
         private static readonly long blockNodesGroupDiv = 10000;
+        //Utxoは100ブロック毎に記録する
+        private static readonly long utxosInMemoryDiv = 100;
 
+        //初期化されていない場合において初期化以外のことを実行しようとすると例外が発生する
         private bool isInitialized = false;
+
+        public event EventHandler Initialized = delegate { };
 
         //未保存のブロックの集まり
         //保存したら削除しなければならない
@@ -6640,8 +6807,6 @@ namespace CREA2014
         //検証したら結果を格納する
         //<未実装>保存したら（或いは、参照される可能性が低くなったら）削除しなければならない
         private Dictionary<BlockidHashType, bool> isVerifieds;
-        //更新された主ブロックがこれ以上溜まると1度保存が試行される
-        private int numOfMainBlocksWhenSaveNext;
 
         private long cacheBgIndex;
         //bgPosition1（ブロック群のファイル上の位置）
@@ -6652,7 +6817,8 @@ namespace CREA2014
         private byte[][] cacheBgBytes;
         private TransactionalBlock<BlockidHashType, TxidHashType, PubKeyHashType, PubKeyType>[] cacheBg;
 
-        public enum TransactionType { normal, foundational }
+        //更新された主ブロックがこれ以上溜まると1度保存が試行される
+        private int numOfMainBlocksWhenSaveNext;
 
         //bngIndex（ブロック節群の番号） = bIndex / blockNodesGroupDiv
         //保存されているブロック節群の中で最新のもの
@@ -6662,24 +6828,48 @@ namespace CREA2014
         private long cacheBngIndex;
         private BlockNodesGroup cacheBng;
 
+        private List<Dictionary<PubKeyHashType, List<Utxo<TxidHashType>>>> addedUtxosInMemory;
+        private List<Dictionary<PubKeyHashType, List<Utxo<TxidHashType>>>> removedUtxosInMemory;
+        private Dictionary<PubKeyHashType, List<Utxo<TxidHashType>>> currentAddedUtxos;
+        private Dictionary<PubKeyHashType, List<Utxo<TxidHashType>>> currentRemovedUtxos;
+
         private BlockNodesGroupDatabase bngDatabase;
         private BlockGroupDatabase bgDatabase;
+        private UtxoDatabase<TxidHashType, PubKeyHashType> utxoDatabase;
 
         private GenesisBlock<BlockidHashType> genesisBlock = new GenesisBlock<BlockidHashType>();
+
+        //2014/07/08
+        //許容されるブロック鎖分岐は最大でも200ブロック（それより長い分岐は拒否される）
+        //但し、ブロック鎖分岐によってブロック鎖の先頭のブロック番号が後退した場合において、
+        //更にブロック鎖分岐によってブロック鎖の先頭のブロック番号が後退することも、
+        //現実的には先ず起こらないだろうが、理論的にはあり得る
 
         //古過ぎるか、新し過ぎるブロックは無条件に拒否
         public static readonly long rejectedBIndexDif = 100;
 
+        //現在の主ブロック鎖と分岐ブロック鎖の先頭の内、何れか前のものから
+        //更にこれより前に分岐点がある場合には、たとえ分岐ブロック鎖の方が難易度的に長くても
+        //主ブロック鎖が切り替わることはない
         public static readonly int maxBrunchDeep = 100;
         //更新された主ブロックがこれ以上溜まると1度保存が試行される
         public static readonly int numOfMainBlocksWhenSave = 200;
         //更新された主ブロックが↑の数以上溜まっている状態で更にこれ以上増えると1度保存が試行される
         public static readonly int numOfMainBlocksWhenSaveDifference = 50;
+        //更新された主ブロックがこれ以上溜まっているブロック群以前のブロック群は保存が実行される
         public static readonly int numOfNewMainBlocksInGroupWhenSave = 150;
+        //最大でもこれ以下のブロックしか1つのブロック群には保存されない
         public static readonly int blockGroupCapacity = 100;
+        //保存が実行されると、現在の主ブロック鎖の先頭ブロックのブロック番号から離れているブロックは破棄される
         public static readonly long discardOldBlock = 200;
 
+        public static readonly int maxUtxosGroup = 2;
+
+        public enum TransactionType { normal, foundational }
+
         public long head { get; private set; }
+        //1から。0は何も保存されていない状態を表す
+        public long utxoDividedHead { get; private set; }
 
         protected override Func<ReaderWriter, IEnumerable<MainDataInfomation>> StreamInfo
         {
@@ -6687,6 +6877,7 @@ namespace CREA2014
             {
                 return (msrw) => new MainDataInfomation[]{
                     new MainDataInfomation(typeof(long), () => head, (o) => head = (long)o),
+                    new MainDataInfomation(typeof(long), () => utxoDividedHead, (o) => utxoDividedHead = (long)o),
                 };
             }
         }
@@ -6888,12 +7079,12 @@ namespace CREA2014
             if (!isInitialized)
                 throw new InvalidOperationException("not_initialized");
 
-            if (txBlock.header.index <= head - rejectedBIndexDif)
+            if (txBlock.header.index < head - rejectedBIndexDif)
             {
                 this.RaiseError("blk_too_old", 3);
                 return;
             }
-            if (txBlock.header.index >= head + rejectedBIndexDif)
+            if (txBlock.header.index > head + rejectedBIndexDif)
             {
                 this.RaiseError("blk_too_new", 3);
                 return;
@@ -6936,6 +7127,8 @@ namespace CREA2014
             double branchCumulativeDifficulty = 0.0;
             double mainCumulativeDifficulty = 0.0;
             Stack<TransactionalBlock<BlockidHashType, TxidHashType, PubKeyHashType, PubKeyType>> stack = new Stack<TransactionalBlock<BlockidHashType, TxidHashType, PubKeyHashType, PubKeyType>>();
+            Dictionary<PubKeyHashType, List<Utxo<TxidHashType>>> addedBranchUtxos = new Dictionary<PubKeyHashType, List<Utxo<TxidHashType>>>();
+            Dictionary<PubKeyHashType, List<Utxo<TxidHashType>>> removedBranchUtxos = new Dictionary<PubKeyHashType, List<Utxo<TxidHashType>>>();
             if (target.header.index > head)
             {
                 while (target.header.index > head)
@@ -6967,14 +7160,17 @@ namespace CREA2014
                         else
                             isVerifieds.Add(newBlock.Id, isValid = VerifyBlock(newBlock));
 
-                        if (isValid)
-                        {
-                            head++;
-                            if (mainBlocks.ContainsKey(head)) //常に偽が返るはず
-                                mainBlocks[head] = newBlock;
-                            else
-                                mainBlocks.Add(head, newBlock);
-                        }
+                        if (!isValid)
+                            break;
+
+                        head++;
+
+                        if (mainBlocks.ContainsKey(head)) //常に偽が返るはず
+                            mainBlocks[head] = newBlock;
+                        else
+                            mainBlocks.Add(head, newBlock);
+
+                        GoForwardUtxosInMemoryCurrent(newBlock);
                     }
 
                     main = null;
@@ -6990,14 +7186,18 @@ namespace CREA2014
                         mainCumulativeDifficulty += main.header.difficulty.Diff;
 
                         //<未改良>連続した番号のブロックを一気に取得する
-                        TransactionalBlock<BlockidHashType, TxidHashType, PubKeyHashType, PubKeyType> prev = GetBlocks(main.header.index - 1).Where((e) => e.Id.Equals(main.header.prevBlockHash)).FirstOrDefault();
+                        TransactionalBlock<BlockidHashType, TxidHashType, PubKeyHashType, PubKeyType> prev = GetMainBlock(main.header.index - 1);
                         if (prev == null)
                         {
                             this.RaiseError("blk_main_not_connected", 3);
                             return;
                         }
                         else
+                        {
+                            GoBackwardUtxosInMemory(main, addedBranchUtxos, removedBranchUtxos);
+
                             main = prev;
+                        }
                     }
             }
 
@@ -7031,14 +7231,18 @@ namespace CREA2014
                         target = prev;
 
                     //<未改良>連続した番号のブロックを一気に取得する
-                    prev = GetBlocks(main.header.index - 1).Where((e) => e.Id.Equals(main.header.prevBlockHash)).FirstOrDefault();
+                    prev = GetMainBlock(main.header.index - 1);
                     if (prev == null)
                     {
                         this.RaiseError("blk_main_not_connected", 3);
                         return;
                     }
                     else
+                    {
+                        GoBackwardUtxosInMemory(main, addedBranchUtxos, removedBranchUtxos);
+
                         main = prev;
+                    }
                 }
 
                 if (branchCumulativeDifficulty > mainCumulativeDifficulty)
@@ -7058,16 +7262,28 @@ namespace CREA2014
 
                         cumulativeDifficulty += newBlock.header.difficulty.Diff;
                         validHead = newBlock;
+
+                        GoForwardUtxosInMemory(newBlock, addedBranchUtxos, removedBranchUtxos);
                     }
 
                     if (cumulativeDifficulty > mainCumulativeDifficulty)
                     {
+                        TransactionalBlock<BlockidHashType, TxidHashType, PubKeyHashType, PubKeyType> fork = GetHeadMainBlock();
+                        while (!fork.Id.Equals(main.Id))
+                        {
+                            GoBackwardUtxosInMemoryCurrent(fork);
+
+                            fork = GetMainBlock(fork.header.index - 1);
+                        }
+
                         foreach (var newBlock in stack)
                         {
                             if (mainBlocks.ContainsKey(newBlock.header.index))
                                 mainBlocks[newBlock.header.index] = newBlock;
                             else
                                 mainBlocks.Add(newBlock.header.index, newBlock);
+
+                            GoForwardUtxosInMemoryCurrent(newBlock);
 
                             if (newBlock == validHead)
                                 break;
@@ -7241,6 +7457,68 @@ namespace CREA2014
             return true;
             throw new NotImplementedException("");
         }
+    }
+
+    public class Utxo<TxidHashType> : SHAREDDATA where TxidHashType : HASHBASE
+    {
+        public Utxo() { }
+
+        public Utxo(TxidHashType _txid, int _index, CurrencyUnit _amount)
+        {
+            txid = _txid;
+            index = _index;
+            amount = _amount;
+        }
+
+        public TxidHashType txid { get; private set; }
+        public int index { get; private set; }
+        public CurrencyUnit amount { get; private set; }
+
+        protected override Func<ReaderWriter, IEnumerable<MainDataInfomation>> StreamInfo
+        {
+            get
+            {
+                return (msrw) => new MainDataInfomation[]{
+                    new MainDataInfomation(typeof(TxidHashType), null, () => txid, (o) => txid = (TxidHashType)o),
+                    new MainDataInfomation(typeof(int), () => index, (o) => index = (int)o),
+                    new MainDataInfomation(typeof(long), () => amount.rawAmount, (o) => amount = new CurrencyUnit((long)o)),
+                };
+            }
+        }
+    }
+
+    public class UtxoGroup<TxidHashType> : SHAREDDATA where TxidHashType : HASHBASE
+    {
+        public UtxoGroup() { }
+
+        public UtxoGroup(bool _isInitialize)
+        {
+            if (_isInitialize)
+            {
+                utxos = new Utxo<TxidHashType>[length];
+                for (int i = 0; i < length; i++)
+                    utxos[i] = new Utxo<TxidHashType>(Activator.CreateInstance(typeof(TxidHashType)) as TxidHashType, 0, new CurrencyUnit(0));
+                nextPosition = -1;
+            }
+        }
+
+        private static readonly int length = 10;
+
+        public Utxo<TxidHashType>[] utxos { get; private set; }
+        public long nextPosition { get; private set; }
+
+        protected override Func<ReaderWriter, IEnumerable<MainDataInfomation>> StreamInfo
+        {
+            get
+            {
+                return (msrw) => new MainDataInfomation[]{
+                    new MainDataInfomation(typeof(Utxo<TxidHashType>[]), null, length, () => utxos, (o) => utxos = (Utxo<TxidHashType>[])o),
+                    new MainDataInfomation(typeof(long), () => nextPosition, (o) => nextPosition = (long)o),
+                };
+            }
+        }
+
+        public void SetNextPosition(long newNextPosition) { nextPosition = newNextPosition; }
     }
 
     public class BlockNode : SHAREDDATA
@@ -7520,6 +7798,131 @@ namespace CREA2014
         private string GetPath(long bgIndex)
         {
             return Path.Combine(pathBase, filenameBase + bgIndex.ToString());
+        }
+    }
+
+    public class UtxoIndexDatabase : DATABASEBASE
+    {
+        public UtxoIndexDatabase(string _pathBase)
+            : base(_pathBase)
+        {
+            options = new BPlusTree<byte[], long>.Options(PrimitiveSerializer.Bytes, PrimitiveSerializer.Int64)
+            {
+                CreateFile = CreatePolicy.IfNeeded,
+                FileName = Path.Combine(pathBase, filenameBase),
+            };
+        }
+
+        private readonly BPlusTree<byte[], long>.Options options;
+
+#if TEST
+        protected override string filenameBase { get { return "utxoidx_test"; } }
+#else
+        protected override string filenameBase { get { return "utxoidx"; } }
+#endif
+
+        public bool ContainsAddress(byte[] addressBytes)
+        {
+            using (BPlusTree<byte[], long> map = new BPlusTree<byte[], long>(options))
+                return map.ContainsKey(addressBytes);
+        }
+
+        public void Add(byte[] addressBytes, long position)
+        {
+            using (BPlusTree<byte[], long> map = new BPlusTree<byte[], long>(options))
+            {
+                if (map.ContainsKey(addressBytes))
+                    throw new InvalidOperationException("address_already_existed");
+
+                map.Add(addressBytes, position);
+            }
+        }
+
+        public long? Get(byte[] addressBytes)
+        {
+            using (BPlusTree<byte[], long> map = new BPlusTree<byte[], long>(options))
+            {
+                if (!map.ContainsKey(addressBytes))
+                    return null;
+                return map[addressBytes];
+            }
+        }
+    }
+
+    public class UtxoEmptySpacesDatabase : SimpleDatabase
+    {
+        public UtxoEmptySpacesDatabase(string _pathBase) : base(_pathBase) { }
+
+#if TEST
+        protected override string filenameBase { get { return "utxoempty_test"; } }
+#else
+        protected override string filenameBase { get { return "utxoempty"; } }
+#endif
+    }
+
+    public class UtxoDatabase<TxidHashType, PubKeyHashType> : DATABASEBASE
+        where TxidHashType : HASHBASE
+        where PubKeyHashType : HASHBASE
+    {
+        public UtxoDatabase(string _pathBase, UtxoIndexDatabase _utxoIndexDatabase, UtxoEmptySpacesDatabase _utxoEmptySpacesDatabase)
+            : base(_pathBase)
+        {
+            utxoIndexDatabase = _utxoIndexDatabase;
+            utxoEmptySpacesDatabase = _utxoEmptySpacesDatabase;
+        }
+
+        private readonly UtxoIndexDatabase utxoIndexDatabase;
+        private readonly UtxoEmptySpacesDatabase utxoEmptySpacesDatabase;
+
+        private List<long> emptySpaces;
+
+#if TEST
+        protected override string filenameBase { get { return "utxo_test"; } }
+#else
+        protected override string filenameBase { get { return "utxo"; } }
+#endif
+
+        public void Open()
+        {
+            emptySpaces = new List<long>();
+
+            byte[] emptySpacesBytes = utxoEmptySpacesDatabase.GetData();
+            int length = BitConverter.ToInt32(emptySpacesBytes, 0);
+            for (int i = 0; i < length; i++)
+                emptySpaces.Add(BitConverter.ToInt64(emptySpacesBytes, 4 + i * 8));
+        }
+
+        public void Close()
+        {
+            byte[] emptySpacesBytes = new byte[4 + emptySpaces.Count * 8];
+            Array.Copy(BitConverter.GetBytes(emptySpaces.Count), 0, emptySpacesBytes, 0, 4);
+            for (int i = 0; i < emptySpaces.Count; i++)
+                Array.Copy(BitConverter.GetBytes(emptySpaces[i]), 0, emptySpacesBytes, 4 + i * 8, 8);
+
+            utxoEmptySpacesDatabase.UpdateData(emptySpacesBytes);
+        }
+
+        public void Update(Dictionary<PubKeyHashType, List<Utxo<TxidHashType>>> addedUtxos, Dictionary<PubKeyHashType, List<Utxo<TxidHashType>>> removedUtxos)
+        {
+            foreach (var addedUtxo in addedUtxos)
+            {
+                long? position = utxoIndexDatabase.Get(addedUtxo.Key.hash);
+
+                if (position == null)
+                {
+
+                }
+            }
+        }
+
+        public bool Exists()
+        {
+            return false;
+        }
+
+        private string GetPath()
+        {
+            return Path.Combine(pathBase, filenameBase);
         }
     }
 
