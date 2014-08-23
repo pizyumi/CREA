@@ -416,11 +416,12 @@ namespace CREA2014
         private string lisenceTextFilePath;
         private Assembly assembly;
 
-        private Action<Exception, Program.ExceptionKind> OnException;
+        private Action<Exception, Program.ExceptionKind> _OnException;
+        private Func<byte[], bool> _UpVersion;
 
         private Action<string> _CreateUiFiles;
 
-        public MainWindow(Core _core, Program.Logger _logger, Program.ProgramSettings _psettings, Program.ProgramStatus _pstatus, string _appname, string _version, string _appnameWithVersion, string _lisenceTextFilename, Assembly _assembly, string _basepath, Action<Exception, Program.ExceptionKind> _OnException)
+        public MainWindow(Core _core, Program.Logger _logger, Program.ProgramSettings _psettings, Program.ProgramStatus _pstatus, string _appname, string _version, string _appnameWithVersion, string _lisenceTextFilename, Assembly _assembly, string _basepath, Action<Exception, Program.ExceptionKind> __OnException, Func<byte[], bool> __UpVersion)
         {
             core = _core;
             logger = _logger;
@@ -431,7 +432,9 @@ namespace CREA2014
             appnameWithVersion = _appnameWithVersion;
             lisenceTextFilePath = Path.Combine(_basepath, _lisenceTextFilename);
             assembly = _assembly;
-            OnException = _OnException;
+
+            _OnException = __OnException;
+            _UpVersion = __UpVersion;
 
             InitializeComponent();
 
@@ -465,7 +468,7 @@ namespace CREA2014
                     naw.cbAccountHolder.Items.Add(ah);
             };
 
-            EventHandler accountHolderAdded = (sender2, e2) => _Clear.AndThen(_Add).ExecuteInUIThread();
+            EventHandler<IAccountHolder> accountHolderAdded = (sender2, e2) => _Clear.AndThen(_Add).ExecuteInUIThread();
 
             core.iAccountHolders.iAccountHolderAdded += accountHolderAdded;
 
@@ -715,7 +718,7 @@ namespace CREA2014
                 }
                 catch (Exception ex)
                 {
-                    OnException(ex, Program.ExceptionKind.unhandled);
+                    _OnException(ex, Program.ExceptionKind.unhandled);
                 }
             };
 
@@ -744,14 +747,23 @@ namespace CREA2014
                     return _GetWebResource(pathLogHtm).Replace("%%log%%", logData.ToString().Replace(Environment.NewLine, "<br/>"));
             };
 
+            Action<WebSocketSession> _SendBalance = (wssession) =>
+            {
+                wssession.Send("balance " + core.Balance.AmountInCreacoin.Amount.ToString() + "CREA");
+                wssession.Send("usable_balance " + core.UsableBalance.AmountInCreacoin.Amount.ToString() + "CREA");
+                wssession.Send("unusable_balance " + core.UnusableBalance.AmountInCreacoin.Amount.ToString() + "CREA");
+            };
+
             WebSocketServer oldWss;
             wss = new WebSocketServer();
-            wss.NewSessionConnected += (session) =>
+            wss.NewSessionConnected += (wssession) =>
             {
-                session.Send("acc_hols " + _GetAccountHolderHtml());
+                wssession.Send("acc_hols " + _GetAccountHolderHtml());
 
                 foreach (var log in logger.Logs.Reverse())
-                    session.Send("log " + _GetLogHtml(log));
+                    wssession.Send("log " + _GetLogHtml(log));
+
+                _SendBalance(wssession);
             };
             wss.NewMessageReceived += newMessageReceived;
             wss.Setup(mws.PortWebSocket);
@@ -821,6 +833,11 @@ namespace CREA2014
             {
                 foreach (var wssession in wss.GetAllSessions())
                     wssession.Send("log " + _GetLogHtml(e2));
+            };
+            core.BalanceUpdated += (sender2, e2) =>
+            {
+                foreach (var wssession in wss.GetAllSessions())
+                    _SendBalance(wssession);
             };
         }
 
@@ -896,7 +913,7 @@ namespace CREA2014
                         mw.cbAccount.Items.Add(account);
                 };
 
-                EventHandler accountAdded = (sender2, e2) => _ClearAccount.AndThen(_AddAccount).ExecuteInUIThread();
+                EventHandler<IAccount> accountAdded = (sender2, e2) => _ClearAccount.AndThen(_AddAccount).ExecuteInUIThread();
 
                 mw = new MiningWindow((window2) => NewAccountHolder(window2), (window2) => NewAccount(window2, mw.rbAnonymous.IsChecked, iAccountHolder), () =>
                 {
@@ -928,7 +945,7 @@ namespace CREA2014
                         mw.cbAccountHolder.Items.Add(ah);
                 };
 
-                EventHandler accountHolderAdded = (sender2, e2) => _ClearAccountHolder.AndThen(_AddAccountHolder).ExecuteInUIThread();
+                EventHandler<IAccountHolder> accountHolderAdded = (sender2, e2) => _ClearAccountHolder.AndThen(_AddAccountHolder).ExecuteInUIThread();
 
                 core.iAccountHolders.iAccountHolderAdded += accountHolderAdded;
 
@@ -959,6 +976,8 @@ namespace CREA2014
 
                 core.iAccountHolders.iAccountHolderAdded -= accountHolderAdded;
 
+                iAccountHolder.iAccountAdded -= accountAdded;
+
                 if (!mw.DialogResult.Value)
                     return;
             }
@@ -983,6 +1002,14 @@ namespace CREA2014
                     wssession.Send("keydown " + ((int)e.SystemKey).ToString());
 
             e.Handled = true;
+        }
+
+        private void miTest_Click(object sender, RoutedEventArgs e)
+        {
+            if (_UpVersion(File.ReadAllBytes(assembly.Location)))
+                Close();
+            else
+                MessageBox.Show("失敗");
         }
     }
 }

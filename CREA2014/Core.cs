@@ -3,8 +3,6 @@
 
 #define TEST
 
-using CSharpTest.Net.Collections;
-using CSharpTest.Net.Serialization;
 using System;
 using System.Collections;
 using System.Collections.Generic;
@@ -53,9 +51,8 @@ namespace CREA2014
         private BlockChainDatabase bcDatabase;
         private BlockNodesGroupDatabase bngDatabase;
         private BlockGroupDatabase bgDatabase;
-        private UtxoIndexDatabase utxoIndexDatabase;
-        private UtxoEmptySpacesDatabase utxoEmptySpacesDatabase;
-        private UtxoDatabase<TxidHashType, PubKeyHashType> utxoDatabase;
+        private UtxoDatabase utxoDatabase;
+        private AddressEventDatabase addressEventDatabase;
 
         public AccountHolders<KeyPairType, DsaPubKeyType, DsaPrivKeyType> accountHolders { get; private set; }
         public IAccountHolders iAccountHolders { get { return accountHolders; } }
@@ -71,6 +68,16 @@ namespace CREA2014
         private string databaseBasepath;
         private bool isSystemStarted;
 
+        private CachedData<CurrencyUnit> usableBalanceCache;
+        public CurrencyUnit UsableBalance { get { return usableBalanceCache.Data; } }
+
+        private CachedData<CurrencyUnit> unusableBalanceCache;
+        public CurrencyUnit UnusableBalance { get { return unusableBalanceCache.Data; } }
+
+        public CurrencyUnit Balance { get { return new CurrencyUnit(UsableBalance.rawAmount + UnusableBalance.rawAmount); } }
+
+        public event EventHandler BalanceUpdated = delegate { };
+
         public void StartSystem()
         {
             if (isSystemStarted)
@@ -80,9 +87,8 @@ namespace CREA2014
             bcDatabase = new BlockChainDatabase(databaseBasepath);
             bngDatabase = new BlockNodesGroupDatabase(databaseBasepath);
             bgDatabase = new BlockGroupDatabase(databaseBasepath);
-            utxoIndexDatabase = new UtxoIndexDatabase(databaseBasepath);
-            utxoEmptySpacesDatabase = new UtxoEmptySpacesDatabase(databaseBasepath);
-            utxoDatabase = new UtxoDatabase<TxidHashType, PubKeyHashType>(databaseBasepath, utxoIndexDatabase, utxoEmptySpacesDatabase);
+            utxoDatabase = new UtxoDatabase(databaseBasepath);
+            addressEventDatabase = new AddressEventDatabase(databaseBasepath);
 
             accountHolders = new AccountHolders<KeyPairType, DsaPubKeyType, DsaPrivKeyType>();
             accountHoldersFactory = new AccountHoldersFactory<KeyPairType, DsaPubKeyType, DsaPrivKeyType>();
@@ -91,13 +97,85 @@ namespace CREA2014
             if (ahDataBytes.Length != 0)
                 accountHolders.FromBinary(ahDataBytes);
 
-            blockChain = new BlockChain<BlockidHashType, TxidHashType, PubKeyHashType, DsaPubKeyType>(bngDatabase, bgDatabase, utxoDatabase);
+            usableBalanceCache = new CachedData<CurrencyUnit>(() =>
+            {
+                CurrencyUnit cu = new CurrencyUnit(0);
+                foreach (var accountHolder in accountHolders.AllAccountHolders)
+                    foreach (var account in accountHolder.Accounts)
+                        cu = new CurrencyUnit(cu.rawAmount + account.usableAmount.rawAmount);
+                return cu;
+            });
+            unusableBalanceCache = new CachedData<CurrencyUnit>(() =>
+            {
+                CurrencyUnit cu = new CurrencyUnit(0);
+                foreach (var accountHolder in accountHolders.AllAccountHolders)
+                    foreach (var account in accountHolder.Accounts)
+                        cu = new CurrencyUnit(cu.rawAmount + account.unusableAmount.rawAmount);
+                return cu;
+            });
 
-            byte[] bcDataBytes = bcDatabase.GetData();
-            if (bcDataBytes.Length != 0)
-                blockChain.FromBinary(bcDataBytes);
-
+            blockChain = new BlockChain<BlockidHashType, TxidHashType, PubKeyHashType, DsaPubKeyType>(bcDatabase, bngDatabase, bgDatabase, utxoDatabase, addressEventDatabase);
             blockChain.Initialize();
+
+            Dictionary<Account<KeyPairType, DsaPubKeyType, DsaPrivKeyType>, EventHandler<Tuple<CurrencyUnit, CurrencyUnit>>> changeAmountDict = new Dictionary<Account<KeyPairType, DsaPubKeyType, DsaPrivKeyType>, EventHandler<Tuple<CurrencyUnit, CurrencyUnit>>>();
+
+            Action _UpdateBalance = () =>
+            {
+                usableBalanceCache.IsModified = true;
+                unusableBalanceCache.IsModified = true;
+
+                BalanceUpdated(this, EventArgs.Empty);
+            };
+
+            Action<Account<KeyPairType, DsaPubKeyType, DsaPrivKeyType>> _AddAddressEvent = (account) =>
+            {
+                EventHandler<Tuple<CurrencyUnit, CurrencyUnit>> eh = (sender, e) => account.ChangeAmount(e.Item1, e.Item2);
+
+                changeAmountDict.Add(account, eh);
+
+                AddressEvent<PubKeyHashType> addressEvent = new AddressEvent<PubKeyHashType>(Activator.CreateInstance(typeof(PubKeyHashType), account.keyPair.pubKey.pubKey) as PubKeyHashType);
+                addressEvent.BalanceUpdated += eh;
+
+                blockChain.AddAddressEvent(addressEvent);
+
+                _UpdateBalance();
+            };
+
+            EventHandler<Account<KeyPairType, DsaPubKeyType, DsaPrivKeyType>> _AccountAdded = (sender, e) => _AddAddressEvent(e);
+            EventHandler<Account<KeyPairType, DsaPubKeyType, DsaPrivKeyType>> _AccountRemoved = (sender, e) =>
+            {
+                EventHandler<Tuple<CurrencyUnit, CurrencyUnit>> eh = changeAmountDict[e];
+
+                changeAmountDict.Remove(e);
+
+                AddressEvent<PubKeyHashType> addressEvent = blockChain.RemoveAddressEvent(Activator.CreateInstance(typeof(PubKeyHashType), e.keyPair.pubKey.pubKey) as PubKeyHashType);
+                addressEvent.BalanceUpdated -= eh;
+
+                _UpdateBalance();
+            };
+
+            foreach (var accountHolder in accountHolders.AllAccountHolders)
+            {
+                foreach (var account in accountHolder.Accounts)
+                    _AddAddressEvent(account);
+
+                accountHolder.AccountAdded += _AccountAdded;
+                accountHolder.AccountRemoved += _AccountRemoved;
+            }
+            accountHolders.AccountHolderAdded += (sender, e) =>
+            {
+                e.AccountAdded += _AccountAdded;
+                e.AccountRemoved += _AccountRemoved;
+            };
+            accountHolders.AccountHolderRemoved += (semder, e) =>
+            {
+                e.AccountAdded -= _AccountAdded;
+                e.AccountRemoved -= _AccountRemoved;
+            };
+
+            blockChain.BalanceUpdated += (sender, e) => _UpdateBalance();
+
+            _UpdateBalance();
 
             mining = new Mining<BlockidHashType, TxidHashType, PubKeyHashType, DsaPubKeyType>();
 
@@ -112,7 +190,6 @@ namespace CREA2014
             blockChain.SaveWhenExit();
 
             ahDatabase.UpdateData(accountHolders.ToBinary());
-            bcDatabase.UpdateData(blockChain.ToBinary());
 
             isSystemStarted = false;
         }
@@ -153,6 +230,21 @@ namespace CREA2014
     public class Core : COREBASE<Ecdsa256KeyPair, Ecdsa256PubKey, Ecdsa256PrivKey, X15Hash, Sha256Sha256Hash, Sha256Ripemd160Hash>
     {
         public Core(string _basePath) : base(_basePath) { }
+    }
+
+    public class AddressEvent<PubKeyHashType> where PubKeyHashType : HASHBASE
+    {
+        public AddressEvent(PubKeyHashType _address) { address = _address; }
+
+        public PubKeyHashType address { get; private set; }
+
+        public event EventHandler<Tuple<CurrencyUnit, CurrencyUnit>> BalanceUpdated = delegate { };
+        public event EventHandler<CurrencyUnit> UsableBalanceUpdated = delegate { };
+        public event EventHandler<CurrencyUnit> UnusableBalanceUpdated = delegate { };
+
+        public void RaiseBalanceUpdated(Tuple<CurrencyUnit, CurrencyUnit> cus) { BalanceUpdated(this, cus); }
+        public void RaiseUsableBalanceUpdated(CurrencyUnit cu) { UsableBalanceUpdated(this, cu); }
+        public void RaiseUnusableBalanceUpdated(CurrencyUnit cu) { UnusableBalanceUpdated(this, cu); }
     }
 
     #region ソケット通信
@@ -4535,8 +4627,8 @@ namespace CREA2014
     {
         IAccount[] iAccounts { get; }
 
-        event EventHandler iAccountAdded;
-        event EventHandler iAccountRemoved;
+        event EventHandler<IAccount> iAccountAdded;
+        event EventHandler<IAccount> iAccountRemoved;
         event EventHandler iAccountHolderChanged;
 
         void iAddAccount(IAccount iAccount);
@@ -4556,8 +4648,8 @@ namespace CREA2014
         IAnonymousAccountHolder iAnonymousAccountHolder { get; }
         IPseudonymousAccountHolder[] iPseudonymousAccountHolders { get; }
 
-        event EventHandler iAccountHolderAdded;
-        event EventHandler iAccountHolderRemoved;
+        event EventHandler<IAccountHolder> iAccountHolderAdded;
+        event EventHandler<IAccountHolder> iAccountHolderRemoved;
         event EventHandler iAccountHoldersChanged;
 
         void iAddAccountHolder(IPseudonymousAccountHolder iPseudonymousAccountHolder);
@@ -4589,29 +4681,27 @@ namespace CREA2014
         public string Name
         {
             get { return name; }
-            set { this.ExecuteBeforeEvent(() => name = value, AccountChanged); }
+            set
+            {
+                if (name != value)
+                    this.ExecuteBeforeEvent(() => name = value, AccountChanged);
+            }
         }
 
         private string description;
         public string Description
         {
             get { return description; }
-            set { this.ExecuteBeforeEvent(() => description = value, AccountChanged); }
+            set
+            {
+                if (description != value)
+                    this.ExecuteBeforeEvent(() => description = value, AccountChanged);
+            }
         }
 
-        private CurrencyUnit usableAmount;
-        public CurrencyUnit UsableAmount
-        {
-            get { return usableAmount; }
-            set { this.ExecuteBeforeEvent(() => usableAmount = value, AccountChanged); }
-        }
+        public CurrencyUnit usableAmount { get; private set; }
 
-        private CurrencyUnit unusableAmount;
-        public CurrencyUnit UnusableAmount
-        {
-            get { return unusableAmount; }
-            set { this.ExecuteBeforeEvent(() => unusableAmount = value, AccountChanged); }
-        }
+        public CurrencyUnit unusableAmount { get; private set; }
 
         public DSAKEYPAIRBASE<DsaPubKeyType, DsaPrivKeyType> keyPair { get; private set; }
 
@@ -4740,10 +4830,10 @@ namespace CREA2014
 
         public void ChangeAmount(CurrencyUnit newUsableAmount, CurrencyUnit newUnusableAmount)
         {
+            //2014/08/18
+            //状態が変化した場合にはAccountChangedを生起すべきではないのではないだろうか
             usableAmount = newUsableAmount;
             unusableAmount = newUnusableAmount;
-
-            AccountChanged(this, EventArgs.Empty);
         }
 
         public override string ToString() { return string.Join(":", Name, AddressBase58); }
@@ -4754,9 +4844,9 @@ namespace CREA2014
 
         public string iAddress { get { return AddressBase58; } }
 
-        public CurrencyUnit iUsableAmount { get { return UsableAmount; } }
+        public CurrencyUnit iUsableAmount { get { return usableAmount; } }
 
-        public CurrencyUnit iUnusableAmount { get { return UnusableAmount; } }
+        public CurrencyUnit iUnusableAmount { get { return unusableAmount; } }
 
         public CurrencyUnit iAmount { get { return Amount; } }
     }
@@ -4766,19 +4856,25 @@ namespace CREA2014
         where DsaPubKeyType : DSAPUBKEYBASE
         where DsaPrivKeyType : DSAPRIVKEYBASE
     {
-        private readonly object accountsLock = new object();
-        private List<Account<KeyPairType, DsaPubKeyType, DsaPrivKeyType>> accounts;
-        public Account<KeyPairType, DsaPubKeyType, DsaPrivKeyType>[] Accounts { get { return accounts.ToArray(); } }
-
         public AccountHolder() { }
 
         public AccountHolder(int? _version)
             : base(_version)
         {
             accounts = new List<Account<KeyPairType, DsaPubKeyType, DsaPrivKeyType>>();
+            accountsCache = new CachedData<Account<KeyPairType, DsaPubKeyType, DsaPrivKeyType>[]>(() =>
+            {
+                lock (accountsLock)
+                    return accounts.ToArray();
+            });
 
             account_changed = (sender, e) => AccountHolderChanged(this, EventArgs.Empty);
         }
+
+        private readonly object accountsLock = new object();
+        private List<Account<KeyPairType, DsaPubKeyType, DsaPrivKeyType>> accounts;
+        private CachedData<Account<KeyPairType, DsaPubKeyType, DsaPrivKeyType>[]> accountsCache;
+        public Account<KeyPairType, DsaPubKeyType, DsaPrivKeyType>[] Accounts { get { return accountsCache.Data; } }
 
         protected override Func<ReaderWriter, IEnumerable<MainDataInfomation>> StreamInfo
         {
@@ -4797,11 +4893,11 @@ namespace CREA2014
             }
         }
 
-        public event EventHandler AccountAdded = delegate { };
-        protected EventHandler PAccountAdded { get { return AccountAdded; } }
+        public event EventHandler<Account<KeyPairType, DsaPubKeyType, DsaPrivKeyType>> AccountAdded = delegate { };
+        protected EventHandler<Account<KeyPairType, DsaPubKeyType, DsaPrivKeyType>> PAccountAdded { get { return AccountAdded; } }
 
-        public event EventHandler AccountRemoved = delegate { };
-        protected EventHandler PAccountRemoved { get { return AccountRemoved; } }
+        public event EventHandler<Account<KeyPairType, DsaPubKeyType, DsaPrivKeyType>> AccountRemoved = delegate { };
+        protected EventHandler<Account<KeyPairType, DsaPubKeyType, DsaPrivKeyType>> PAccountRemoved { get { return AccountRemoved; } }
 
         public event EventHandler AccountHolderChanged = delegate { };
         protected EventHandler PAccountHolderChanged { get { return AccountHolderChanged; } }
@@ -4818,8 +4914,10 @@ namespace CREA2014
                 this.ExecuteBeforeEvent(() =>
                 {
                     accounts.Add(account);
+                    accountsCache.IsModified = true;
+
                     account.AccountChanged += account_changed;
-                }, AccountAdded, AccountHolderChanged);
+                }, account, new EventHandler<Account<KeyPairType, DsaPubKeyType, DsaPrivKeyType>>[] { AccountAdded }, new EventHandler[] { AccountHolderChanged });
             }
         }
 
@@ -4833,23 +4931,55 @@ namespace CREA2014
                 this.ExecuteBeforeEvent(() =>
                 {
                     accounts.Remove(account);
+                    accountsCache.IsModified = true;
+
                     account.AccountChanged -= account_changed;
-                }, AccountRemoved, AccountHolderChanged);
+                }, account, new EventHandler<Account<KeyPairType, DsaPubKeyType, DsaPrivKeyType>>[] { AccountRemoved }, new EventHandler[] { AccountHolderChanged });
             }
         }
 
         public IAccount[] iAccounts { get { return Accounts; } }
 
-        public event EventHandler iAccountAdded
+        private Dictionary<EventHandler<IAccount>, EventHandler<Account<KeyPairType, DsaPubKeyType, DsaPrivKeyType>>> iAccountAddedDict = new Dictionary<EventHandler<IAccount>, EventHandler<Account<KeyPairType, DsaPubKeyType, DsaPrivKeyType>>>();
+        public event EventHandler<IAccount> iAccountAdded
         {
-            add { AccountAdded += value; }
-            remove { AccountAdded -= value; }
+            add
+            {
+                EventHandler<Account<KeyPairType, DsaPubKeyType, DsaPrivKeyType>> eh = (sender, e) => value(sender, e);
+
+                iAccountAddedDict.Add(value, eh);
+
+                AccountAdded += eh;
+            }
+            remove
+            {
+                EventHandler<Account<KeyPairType, DsaPubKeyType, DsaPrivKeyType>> eh = iAccountAddedDict[value];
+
+                iAccountAddedDict.Remove(value);
+
+                AccountAdded -= eh;
+            }
         }
 
-        public event EventHandler iAccountRemoved
+        private Dictionary<EventHandler<IAccount>, EventHandler<Account<KeyPairType, DsaPubKeyType, DsaPrivKeyType>>> iAccountRemovedDict = new Dictionary<EventHandler<IAccount>, EventHandler<Account<KeyPairType, DsaPubKeyType, DsaPrivKeyType>>>();
+        public event EventHandler<IAccount> iAccountRemoved
         {
-            add { AccountRemoved += value; }
-            remove { AccountRemoved -= value; }
+            add
+            {
+                EventHandler<Account<KeyPairType, DsaPubKeyType, DsaPrivKeyType>> eh = (sender, e) => value(sender, e);
+
+                iAccountRemovedDict.Add(value, eh);
+
+                AccountRemoved += eh;
+            }
+            remove
+            {
+                EventHandler<Account<KeyPairType, DsaPubKeyType, DsaPrivKeyType>> eh = iAccountRemovedDict[value];
+
+                iAccountRemovedDict.Remove(value);
+
+                AccountRemoved -= eh;
+            }
         }
 
         public event EventHandler iAccountHolderChanged
@@ -4925,7 +5055,11 @@ namespace CREA2014
         public string Name
         {
             get { return name; }
-            set { this.ExecuteBeforeEvent(() => name = value, PAccountAdded); }
+            set
+            {
+                if (name != value)
+                    this.ExecuteBeforeEvent(() => name = value, PAccountHolderChanged);
+            }
         }
 
         public KeyPairType keyPair { get; private set; }
@@ -4982,6 +5116,12 @@ namespace CREA2014
             anonymousAccountHolder.AccountHolderChanged += accountHolders_changed;
 
             pseudonymousAccountHolders = new List<PseudonymousAccountHolder<KeyPairType, DsaPubKeyType, DsaPrivKeyType>>();
+            pseudonymousAccountHoldersCache = new CachedData<PseudonymousAccountHolder<KeyPairType, DsaPubKeyType, DsaPrivKeyType>[]>(() =>
+            {
+                lock (pahsLock)
+                    return pseudonymousAccountHolders.ToArray();
+            });
+
             candidateAccountHolders = new List<PseudonymousAccountHolder<KeyPairType, DsaPubKeyType, DsaPrivKeyType>>();
         }
 
@@ -4989,9 +5129,17 @@ namespace CREA2014
 
         private readonly object pahsLock = new object();
         private List<PseudonymousAccountHolder<KeyPairType, DsaPubKeyType, DsaPrivKeyType>> pseudonymousAccountHolders;
-        public PseudonymousAccountHolder<KeyPairType, DsaPubKeyType, DsaPrivKeyType>[] PseudonymousAccountHolders
+        private CachedData<PseudonymousAccountHolder<KeyPairType, DsaPubKeyType, DsaPrivKeyType>[]> pseudonymousAccountHoldersCache;
+        public PseudonymousAccountHolder<KeyPairType, DsaPubKeyType, DsaPrivKeyType>[] PseudonymousAccountHolders { get { return pseudonymousAccountHoldersCache.Data; } }
+
+        public IEnumerable<AccountHolder<KeyPairType, DsaPubKeyType, DsaPrivKeyType>> AllAccountHolders
         {
-            get { return pseudonymousAccountHolders.ToArray(); }
+            get
+            {
+                yield return anonymousAccountHolder;
+                foreach (var pseudonymousAccountHolder in PseudonymousAccountHolders)
+                    yield return pseudonymousAccountHolder;
+            }
         }
 
         private readonly object cahsLock = new object();
@@ -5041,8 +5189,10 @@ namespace CREA2014
             }
         }
 
-        public event EventHandler AccountHolderAdded = delegate { };
-        public event EventHandler AccountHolderRemoved = delegate { };
+        public event EventHandler<AccountHolder<KeyPairType, DsaPubKeyType, DsaPrivKeyType>> AccountHolderAdded = delegate { };
+        public event EventHandler<AccountHolder<KeyPairType, DsaPubKeyType, DsaPrivKeyType>> AccountHolderRemoved = delegate { };
+        //<要検討>2014/08/18
+        //本当に必要か？イベントの連鎖は無駄ではないか？
         public event EventHandler AccountHoldersChanged = delegate { };
 
         private EventHandler accountHolders_changed;
@@ -5058,8 +5208,10 @@ namespace CREA2014
                     this.ExecuteBeforeEvent(() =>
                     {
                         pseudonymousAccountHolders.Add(ah);
+                        pseudonymousAccountHoldersCache.IsModified = true;
+
                         ah.AccountHolderChanged += accountHolders_changed;
-                    }, AccountHolderAdded, AccountHoldersChanged);
+                    }, ah, new EventHandler<AccountHolder<KeyPairType, DsaPubKeyType, DsaPrivKeyType>>[] { AccountHolderAdded }, new EventHandler[] { AccountHoldersChanged });
             }
         }
 
@@ -5073,8 +5225,10 @@ namespace CREA2014
                 this.ExecuteBeforeEvent(() =>
                 {
                     pseudonymousAccountHolders.Remove(ah);
+                    pseudonymousAccountHoldersCache.IsModified = true;
+
                     ah.AccountHolderChanged -= accountHolders_changed;
-                }, AccountHolderRemoved, AccountHoldersChanged);
+                }, ah, new EventHandler<AccountHolder<KeyPairType, DsaPubKeyType, DsaPrivKeyType>>[] { AccountHolderRemoved }, new EventHandler[] { AccountHoldersChanged });
             }
         }
 
@@ -5110,16 +5264,46 @@ namespace CREA2014
 
         public IPseudonymousAccountHolder[] iPseudonymousAccountHolders { get { return PseudonymousAccountHolders; } }
 
-        public event EventHandler iAccountHolderAdded
+        private Dictionary<EventHandler<IAccountHolder>, EventHandler<AccountHolder<KeyPairType, DsaPubKeyType, DsaPrivKeyType>>> iAccountHolderAddedDict = new Dictionary<EventHandler<IAccountHolder>, EventHandler<AccountHolder<KeyPairType, DsaPubKeyType, DsaPrivKeyType>>>();
+        public event EventHandler<IAccountHolder> iAccountHolderAdded
         {
-            add { AccountHolderAdded += value; }
-            remove { AccountHolderAdded -= value; }
+            add
+            {
+                EventHandler<AccountHolder<KeyPairType, DsaPubKeyType, DsaPrivKeyType>> eh = (sender, e) => value(sender, e);
+
+                iAccountHolderAddedDict.Add(value, eh);
+
+                AccountHolderAdded += eh;
+            }
+            remove
+            {
+                EventHandler<AccountHolder<KeyPairType, DsaPubKeyType, DsaPrivKeyType>> eh = iAccountHolderAddedDict[value];
+
+                iAccountHolderAddedDict.Remove(value);
+
+                AccountHolderAdded -= eh;
+            }
         }
 
-        public event EventHandler iAccountHolderRemoved
+        private Dictionary<EventHandler<IAccountHolder>, EventHandler<AccountHolder<KeyPairType, DsaPubKeyType, DsaPrivKeyType>>> iAccountHolderRemovedDict = new Dictionary<EventHandler<IAccountHolder>, EventHandler<AccountHolder<KeyPairType, DsaPubKeyType, DsaPrivKeyType>>>();
+        public event EventHandler<IAccountHolder> iAccountHolderRemoved
         {
-            add { AccountHolderRemoved += value; }
-            remove { AccountHolderRemoved -= value; }
+            add
+            {
+                EventHandler<AccountHolder<KeyPairType, DsaPubKeyType, DsaPrivKeyType>> eh = (sender, e) => value(sender, e);
+
+                iAccountHolderRemovedDict.Add(value, eh);
+
+                AccountHolderRemoved += eh;
+            }
+            remove
+            {
+                EventHandler<AccountHolder<KeyPairType, DsaPubKeyType, DsaPrivKeyType>> eh = iAccountHolderRemovedDict[value];
+
+                iAccountHolderRemovedDict.Remove(value);
+
+                AccountHolderAdded -= eh;
+            }
         }
 
         public event EventHandler iAccountHoldersChanged
@@ -5772,36 +5956,39 @@ namespace CREA2014
     {
         public TransactionInput() : base(null) { }
 
-        public TransactionInput(TxidHashType _prevTxHash, int _prevTxOutputIndex, PubKeyType _senderPubKey, CurrencyUnit _amount)
+        public TransactionInput(long _prevTxBlockIndex, int _prevTxIndex, int _prevTxOutputIndex, PubKeyType _senderPubKey)
             : base(null)
         {
-            //prevTxBlockIndex = _prevTxBlockIndex;
-            prevTxHash = _prevTxHash;
+            prevTxBlockIndex = _prevTxBlockIndex;
+            prevTxIndex = _prevTxIndex;
+            //prevTxHash = _prevTxHash;
             prevTxOutputIndex = _prevTxOutputIndex;
             senderPubKey = _senderPubKey;
-            amount = _amount;
+            //amount = _amount;
         }
 
         public static readonly int senderSigLength = 64;
 
-        //public long prevTxBlockIndex { get; private set; }
-        public TxidHashType prevTxHash { get; private set; }
+        public long prevTxBlockIndex { get; private set; }
+        public int prevTxIndex { get; private set; }
+        //public TxidHashType prevTxHash { get; private set; }
         public int prevTxOutputIndex { get; private set; }
         public byte[] senderSig { get; private set; }
         public PubKeyType senderPubKey { get; private set; }
-        public CurrencyUnit amount { get; private set; }
+        //public CurrencyUnit amount { get; private set; }
 
         protected override Func<ReaderWriter, IEnumerable<MainDataInfomation>> StreamInfo
         {
             get
             {
                 return (msrw) => new MainDataInfomation[]{
-                    //new MainDataInfomation(typeof(long), () => prevTxBlockIndex, (o) => prevTxBlockIndex = (long)o),
-                    new MainDataInfomation(typeof(TxidHashType), null, () => prevTxHash, (o) => prevTxHash = (TxidHashType)o),
+                    new MainDataInfomation(typeof(long), () => prevTxBlockIndex, (o) => prevTxBlockIndex = (long)o),
+                    new MainDataInfomation(typeof(int), () => prevTxIndex, (o) => prevTxIndex = (int)o),
+                    //new MainDataInfomation(typeof(TxidHashType), null, () => prevTxHash, (o) => prevTxHash = (TxidHashType)o),
                     new MainDataInfomation(typeof(int), () => prevTxOutputIndex, (o) => prevTxOutputIndex = (int)o),
                     new MainDataInfomation(typeof(byte[]), senderSigLength, () => senderSig, (o) => senderSig = (byte[])o),
                     new MainDataInfomation(typeof(PubKeyType), null, () => senderPubKey, (o) => senderPubKey = (PubKeyType)o),
-                    new MainDataInfomation(typeof(long), () => amount.rawAmount, (o) => amount = new CurrencyUnit((long)o)),
+                    //new MainDataInfomation(typeof(long), () => amount.rawAmount, (o) => amount = new CurrencyUnit((long)o)),
                 };
             }
         }
@@ -5811,10 +5998,11 @@ namespace CREA2014
             get
             {
                 return (msrw) => new MainDataInfomation[]{
-                    //new MainDataInfomation(typeof(long), () => prevTxBlockIndex, (o) => { throw new NotSupportedException("tx_in_si_to_sign"); }),
-                    new MainDataInfomation(typeof(TxidHashType), null, () => prevTxHash, (o) => { throw new NotSupportedException("tx_in_si_to_sign"); }),
+                    new MainDataInfomation(typeof(long), () => prevTxBlockIndex, (o) => { throw new NotSupportedException("tx_in_si_to_sign"); }),
+                    new MainDataInfomation(typeof(int), () => prevTxIndex, (o) => { throw new NotSupportedException("tx_in_si_to_sign"); }),
+                    //new MainDataInfomation(typeof(TxidHashType), null, () => prevTxHash, (o) => { throw new NotSupportedException("tx_in_si_to_sign"); }),
                     new MainDataInfomation(typeof(int), () => prevTxOutputIndex, (o) => { throw new NotSupportedException("tx_in_si_to_sign"); }),
-                    new MainDataInfomation(typeof(long), () => amount.rawAmount, (o) => { throw new NotSupportedException("tx_out_si_to_sign"); }),
+                    //new MainDataInfomation(typeof(long), () => amount.rawAmount, (o) => { throw new NotSupportedException("tx_out_si_to_sign"); }),
                 };
             }
         }
@@ -5965,13 +6153,20 @@ namespace CREA2014
             }
         }
 
-        public virtual IEnumerable<Transaction<TxidHashType, PubKeyHashType, PubKeyType>> Transactions
+        public Transaction<TxidHashType, PubKeyHashType, PubKeyType>[] transactionsCache;
+        public virtual Transaction<TxidHashType, PubKeyHashType, PubKeyType>[] Transactions
         {
             get
             {
-                yield return coinbaseTxToMiner;
-                foreach (var transferTx in transferTxs)
-                    yield return transferTx;
+                if (isTransactionsModified || transactionsCache == null)
+                {
+                    transactionsCache = new Transaction<TxidHashType, PubKeyHashType, PubKeyType>[transferTxs.Length + 1];
+                    transactionsCache[0] = coinbaseTxToMiner;
+                    for (int i = 0; i < transferTxs.Length; i++)
+                        transactionsCache[i + 1] = transferTxs[i];
+                    isTransactionsModified = false;
+                }
+                return transactionsCache;
             }
         }
 
@@ -6378,13 +6573,20 @@ namespace CREA2014
 
         public CoinbaseTransaction<TxidHashType, PubKeyHashType, PubKeyType> coinbaseTxToFoundation { get; private set; }
 
-        public override IEnumerable<Transaction<TxidHashType, PubKeyHashType, PubKeyType>> Transactions
+        public override Transaction<TxidHashType, PubKeyHashType, PubKeyType>[] Transactions
         {
             get
             {
-                foreach (var tx in base.Transactions)
-                    yield return tx;
-                yield return coinbaseTxToFoundation;
+                if (isTransactionsModified || transactionsCache == null)
+                {
+                    transactionsCache = new Transaction<TxidHashType, PubKeyHashType, PubKeyType>[transferTxs.Length + 2];
+                    transactionsCache[0] = coinbaseTxToMiner;
+                    transactionsCache[1] = coinbaseTxToFoundation;
+                    for (int i = 0; i < transferTxs.Length; i++)
+                        transactionsCache[i + 2] = transferTxs[i];
+                    isTransactionsModified = false;
+                }
+                return transactionsCache;
             }
         }
 
@@ -6625,21 +6827,30 @@ namespace CREA2014
         }
     }
 
+    //2014/08/18
+    //何とかしてデータ操作部分を分離できないか？
+    //データ操作の汎用的な仕組みは作れないか？
     public class BlockChain<BlockidHashType, TxidHashType, PubKeyHashType, PubKeyType> : SHAREDDATA
         where BlockidHashType : HASHBASE
         where TxidHashType : HASHBASE
         where PubKeyHashType : HASHBASE
         where PubKeyType : DSAPUBKEYBASE
     {
-        public BlockChain(BlockNodesGroupDatabase _bngDatabase, BlockGroupDatabase _bgDatabase, UtxoDatabase<TxidHashType, PubKeyHashType> _utxoDatabase)
+        public BlockChain(BlockChainDatabase _bcDatabase, BlockNodesGroupDatabase _bngDatabase, BlockGroupDatabase _bgDatabase, UtxoDatabase _utxoDatabase, AddressEventDatabase _addressEventDatabase)
         {
+            bcDatabase = _bcDatabase;
             bngDatabase = _bngDatabase;
             bgDatabase = _bgDatabase;
             utxoDatabase = _utxoDatabase;
+            addressEventDatabase = _addressEventDatabase;
         }
 
         public void Initialize()
         {
+            byte[] bcDataBytes = bcDatabase.GetData();
+            if (bcDataBytes.Length != 0)
+                FromBinary(bcDataBytes);
+
             blockGroups = new SortedDictionary<long, List<TransactionalBlock<BlockidHashType, TxidHashType, PubKeyHashType, PubKeyType>>>();
             mainBlocks = new SortedDictionary<long, TransactionalBlock<BlockidHashType, TxidHashType, PubKeyHashType, PubKeyType>>();
             isVerifieds = new Dictionary<BlockidHashType, bool>();
@@ -6656,134 +6867,105 @@ namespace CREA2014
                     currentBng.FromBinary(currentBngBytes);
             }
 
-            addedUtxosInMemory = new List<Dictionary<PubKeyHashType, List<Utxo<TxidHashType>>>>();
-            removedUtxosInMemory = new List<Dictionary<PubKeyHashType, List<Utxo<TxidHashType>>>>();
+            Dictionary<PubKeyHashType, List<Utxo>> utxosDict = new Dictionary<PubKeyHashType, List<Utxo>>();
+            byte[] utxosBytes = utxoDatabase.GetData();
+            if (utxosBytes.Length != 0)
+            {
+                int addressLength = (Activator.CreateInstance(typeof(PubKeyHashType)) as PubKeyHashType).SizeByte;
+                int utxoLength = new Utxo().LengthOfAll.Value;
+                int pointer = 0;
+
+                int length1 = BitConverter.ToInt32(utxosBytes, pointer);
+
+                pointer += 4;
+
+                for (int i = 0; i < length1; i++)
+                {
+                    byte[] addressBytes = new byte[addressLength];
+                    Array.Copy(utxosBytes, pointer, addressBytes, 0, addressLength);
+
+                    pointer += addressLength;
+
+                    PubKeyHashType address = Activator.CreateInstance(typeof(PubKeyHashType)) as PubKeyHashType;
+                    address.FromHash(addressBytes);
+
+                    int length2 = BitConverter.ToInt32(utxosBytes, pointer);
+
+                    pointer += 4;
+
+                    List<Utxo> list = new List<Utxo>();
+                    for (int j = 0; j < length2; j++)
+                    {
+                        byte[] utxoBytes = new byte[utxoLength];
+                        Array.Copy(utxosBytes, pointer, utxoBytes, 0, utxoLength);
+
+                        pointer += utxoLength;
+
+                        list.Add(SHAREDDATA.FromBinary<Utxo>(utxoBytes));
+                    }
+
+                    utxosDict.Add(address, list);
+                }
+            }
+
+            utxos = new Utxos<PubKeyHashType>(utxosDict);
+
+            addedUtxosInMemory = new List<Dictionary<PubKeyHashType, List<Utxo>>>();
+            removedUtxosInMemory = new List<Dictionary<PubKeyHashType, List<Utxo>>>();
+
+            Dictionary<PubKeyHashType, List<AddressEventData>> addressEventDataDict = new Dictionary<PubKeyHashType, List<AddressEventData>>();
+            byte[] addressEventDatasBytes = addressEventDatabase.GetData();
+            if (addressEventDatasBytes.Length != 0)
+            {
+                int addressLength = (Activator.CreateInstance(typeof(PubKeyHashType)) as PubKeyHashType).SizeByte;
+                int addressEventDataLength = new AddressEventData().LengthOfAll.Value;
+                int pointer = 0;
+
+                int length1 = BitConverter.ToInt32(addressEventDatasBytes, pointer);
+
+                pointer += 4;
+
+                for (int i = 0; i < length1; i++)
+                {
+                    byte[] addressBytes = new byte[addressLength];
+                    Array.Copy(addressEventDatasBytes, pointer, addressBytes, 0, addressLength);
+
+                    pointer += addressLength;
+
+                    PubKeyHashType address = Activator.CreateInstance(typeof(PubKeyHashType)) as PubKeyHashType;
+                    address.FromHash(addressBytes);
+
+                    int length2 = BitConverter.ToInt32(addressEventDatasBytes, pointer);
+
+                    pointer += 4;
+
+                    List<AddressEventData> list = new List<AddressEventData>();
+                    for (int j = 0; j < length2; j++)
+                    {
+                        byte[] addressEventDataBytes = new byte[addressEventDataLength];
+                        Array.Copy(addressEventDatasBytes, pointer, addressEventDataBytes, 0, addressEventDataLength);
+
+                        pointer += addressEventDataLength;
+
+                        list.Add(SHAREDDATA.FromBinary<AddressEventData>(addressEventDataBytes));
+                    }
+
+                    addressEventDataDict.Add(address, list);
+                }
+            }
+
+            addressEventDatas = new AddressEventDatas<PubKeyHashType>(addressEventDataDict);
+            addressEvents = new Dictionary<AddressEvent<PubKeyHashType>, Tuple<CurrencyUnit, CurrencyUnit>>();
 
             Initialized += (sender, e) =>
             {
                 for (long i = utxoDividedHead == 0 ? 1 : utxoDividedHead * utxosInMemoryDiv; i < head + 1; i++)
-                    GoForwardUtxosInMemoryCurrent(GetMainBlock(i));
+                    GoForwardUtxosCurrent(GetMainBlock(i));
             };
 
             isInitialized = true;
 
             Initialized(this, EventArgs.Empty);
-        }
-
-        private void GoForwardUtxosInMemoryCurrent(TransactionalBlock<BlockidHashType, TxidHashType, PubKeyHashType, PubKeyType> txBlock)
-        {
-            if (txBlock.header.index == 1 || txBlock.header.index % utxosInMemoryDiv == 0)
-            {
-                if (currentAddedUtxos != null)
-                {
-                    addedUtxosInMemory.Add(currentAddedUtxos);
-                    removedUtxosInMemory.Add(currentRemovedUtxos);
-
-                    while (addedUtxosInMemory.Count > maxUtxosGroup)
-                    {
-                        utxoDatabase.Update(addedUtxosInMemory[0], removedUtxosInMemory[0]);
-
-                        utxoDividedHead++;
-
-                        addedUtxosInMemory.RemoveAt(0);
-                        removedUtxosInMemory.RemoveAt(0);
-                    }
-                }
-
-                currentAddedUtxos = new Dictionary<PubKeyHashType, List<Utxo<TxidHashType>>>();
-                currentRemovedUtxos = new Dictionary<PubKeyHashType, List<Utxo<TxidHashType>>>();
-            }
-
-            GoForwardUtxosInMemory(txBlock, currentAddedUtxos, currentRemovedUtxos);
-        }
-
-        private void GoBackwardUtxosInMemoryCurrent(TransactionalBlock<BlockidHashType, TxidHashType, PubKeyHashType, PubKeyType> txBlock)
-        {
-            GoBackwardUtxosInMemory(txBlock, currentAddedUtxos, currentRemovedUtxos);
-
-            if (txBlock.header.index == 1 || txBlock.header.index % utxosInMemoryDiv == 0)
-            {
-                foreach (var currentAddedUtxo in currentAddedUtxos)
-                    if (currentAddedUtxo.Value.Count != 0)
-                        throw new InvalidOperationException("current_added_utxos_not_empty");
-                foreach (var currentRemovedUtxo in currentRemovedUtxos)
-                    if (currentRemovedUtxo.Value.Count != 0)
-                        throw new InvalidOperationException("current_removed__utxos_not_empty");
-
-                if (txBlock.header.index == 1)
-                {
-                    currentAddedUtxos = null;
-                    currentRemovedUtxos = null;
-                }
-                else
-                {
-                    if (addedUtxosInMemory.Count > 0)
-                    {
-                        currentAddedUtxos = addedUtxosInMemory[addedUtxosInMemory.Count - 1];
-                        currentRemovedUtxos = removedUtxosInMemory[removedUtxosInMemory.Count - 1];
-
-                        addedUtxosInMemory.RemoveAt(addedUtxosInMemory.Count - 1);
-                        removedUtxosInMemory.RemoveAt(removedUtxosInMemory.Count - 1);
-                    }
-                    else
-                    {
-                        Dictionary<PubKeyHashType, List<Utxo<TxidHashType>>> addedUtxos = new Dictionary<PubKeyHashType, List<Utxo<TxidHashType>>>();
-                        Dictionary<PubKeyHashType, List<Utxo<TxidHashType>>> removedUtxos = new Dictionary<PubKeyHashType, List<Utxo<TxidHashType>>>();
-
-                        for (long i = utxoDividedHead * utxosInMemoryDiv - 1; i >= (utxoDividedHead - 1) * utxosInMemoryDiv; i--)
-                            GoBackwardUtxosInMemory(GetMainBlock(i), addedUtxos, removedUtxos);
-
-                        utxoDatabase.Update(addedUtxos, removedUtxos);
-
-                        utxoDividedHead--;
-
-                        currentAddedUtxos = removedUtxos;
-                        currentRemovedUtxos = addedUtxos;
-                    }
-                }
-            }
-        }
-
-        private void UpdateUtxos(Dictionary<PubKeyHashType, List<Utxo<TxidHashType>>> utxos1, Dictionary<PubKeyHashType, List<Utxo<TxidHashType>>> utxos2, PubKeyHashType address, TxidHashType txHash, int txOutputIndex, CurrencyUnit amount)
-        {
-            if (utxos1.ContainsKey(address))
-            {
-                List<Utxo<TxidHashType>> list = utxos1[address];
-                Utxo<TxidHashType> utxo = list.Where((elem) => elem.txid.Equals(txHash) && elem.index == txOutputIndex).FirstOrDefault();
-
-                if (utxo != null)
-                {
-                    list.Remove(utxo);
-                    return;
-                }
-            }
-
-            if (utxos2.ContainsKey(address))
-                utxos2[address].Add(new Utxo<TxidHashType>(txHash, txOutputIndex, amount));
-            else
-                utxos2.Add(address, new List<Utxo<TxidHashType>>() { new Utxo<TxidHashType>(txHash, txOutputIndex, amount) });
-        }
-
-        private void GoForwardUtxosInMemory(TransactionalBlock<BlockidHashType, TxidHashType, PubKeyHashType, PubKeyType> txBlock, Dictionary<PubKeyHashType, List<Utxo<TxidHashType>>> addedUtxos, Dictionary<PubKeyHashType, List<Utxo<TxidHashType>>> removedUtxos)
-        {
-            foreach (var tx in txBlock.Transactions)
-            {
-                for (int i = 0; i < tx.Inputs.Length; i++)
-                    UpdateUtxos(addedUtxos, removedUtxos, Activator.CreateInstance(typeof(PubKeyHashType), tx.Inputs[i].senderPubKey) as PubKeyHashType, tx.Inputs[i].prevTxHash, tx.Inputs[i].prevTxOutputIndex, tx.Inputs[i].amount);
-                for (int i = 0; i < tx.Outputs.Length; i++)
-                    UpdateUtxos(removedUtxos, addedUtxos, tx.Outputs[i].receiverPubKeyHash, tx.Id, i, tx.Outputs[i].amount);
-            }
-        }
-
-        private void GoBackwardUtxosInMemory(TransactionalBlock<BlockidHashType, TxidHashType, PubKeyHashType, PubKeyType> txBlock, Dictionary<PubKeyHashType, List<Utxo<TxidHashType>>> addedUtxos, Dictionary<PubKeyHashType, List<Utxo<TxidHashType>>> removedUtxos)
-        {
-            foreach (var tx in txBlock.Transactions)
-            {
-                for (int i = 0; i < tx.Inputs.Length; i++)
-                    UpdateUtxos(removedUtxos, addedUtxos, Activator.CreateInstance(typeof(PubKeyHashType), tx.Inputs[i].senderPubKey) as PubKeyHashType, tx.Inputs[i].prevTxHash, tx.Inputs[i].prevTxOutputIndex, tx.Inputs[i].amount);
-                for (int i = 0; i < tx.Outputs.Length; i++)
-                    UpdateUtxos(addedUtxos, removedUtxos, tx.Outputs[i].receiverPubKeyHash, tx.Id, i, tx.Outputs[i].amount);
-            }
         }
 
         private static readonly long blockGroupDiv = 100000;
@@ -6795,6 +6977,8 @@ namespace CREA2014
         private bool isInitialized = false;
 
         public event EventHandler Initialized = delegate { };
+
+        public event EventHandler BalanceUpdated = delegate { };
 
         //未保存のブロックの集まり
         //保存したら削除しなければならない
@@ -6828,14 +7012,20 @@ namespace CREA2014
         private long cacheBngIndex;
         private BlockNodesGroup cacheBng;
 
-        private List<Dictionary<PubKeyHashType, List<Utxo<TxidHashType>>>> addedUtxosInMemory;
-        private List<Dictionary<PubKeyHashType, List<Utxo<TxidHashType>>>> removedUtxosInMemory;
-        private Dictionary<PubKeyHashType, List<Utxo<TxidHashType>>> currentAddedUtxos;
-        private Dictionary<PubKeyHashType, List<Utxo<TxidHashType>>> currentRemovedUtxos;
+        private Utxos<PubKeyHashType> utxos;
+        private List<Dictionary<PubKeyHashType, List<Utxo>>> addedUtxosInMemory;
+        private List<Dictionary<PubKeyHashType, List<Utxo>>> removedUtxosInMemory;
+        private Dictionary<PubKeyHashType, List<Utxo>> currentAddedUtxos;
+        private Dictionary<PubKeyHashType, List<Utxo>> currentRemovedUtxos;
 
+        private AddressEventDatas<PubKeyHashType> addressEventDatas;
+        private Dictionary<AddressEvent<PubKeyHashType>, Tuple<CurrencyUnit, CurrencyUnit>> addressEvents;
+
+        private BlockChainDatabase bcDatabase;
         private BlockNodesGroupDatabase bngDatabase;
         private BlockGroupDatabase bgDatabase;
-        private UtxoDatabase<TxidHashType, PubKeyHashType> utxoDatabase;
+        private UtxoDatabase utxoDatabase;
+        private AddressEventDatabase addressEventDatabase;
 
         private GenesisBlock<BlockidHashType> genesisBlock = new GenesisBlock<BlockidHashType>();
 
@@ -6864,6 +7054,8 @@ namespace CREA2014
         public static readonly long discardOldBlock = 200;
 
         public static readonly int maxUtxosGroup = 2;
+
+        public static readonly long unusableConformation = 6;
 
         public enum TransactionType { normal, foundational }
 
@@ -7127,8 +7319,8 @@ namespace CREA2014
             double branchCumulativeDifficulty = 0.0;
             double mainCumulativeDifficulty = 0.0;
             Stack<TransactionalBlock<BlockidHashType, TxidHashType, PubKeyHashType, PubKeyType>> stack = new Stack<TransactionalBlock<BlockidHashType, TxidHashType, PubKeyHashType, PubKeyType>>();
-            Dictionary<PubKeyHashType, List<Utxo<TxidHashType>>> addedBranchUtxos = new Dictionary<PubKeyHashType, List<Utxo<TxidHashType>>>();
-            Dictionary<PubKeyHashType, List<Utxo<TxidHashType>>> removedBranchUtxos = new Dictionary<PubKeyHashType, List<Utxo<TxidHashType>>>();
+            Dictionary<PubKeyHashType, List<Utxo>> addedBranchUtxos = new Dictionary<PubKeyHashType, List<Utxo>>();
+            Dictionary<PubKeyHashType, List<Utxo>> removedBranchUtxos = new Dictionary<PubKeyHashType, List<Utxo>>();
             if (target.header.index > head)
             {
                 while (target.header.index > head)
@@ -7152,13 +7344,18 @@ namespace CREA2014
 
                 if (head == 0 || target.Id.Equals((main = GetHeadMainBlock()).Id))
                 {
+                    Dictionary<AddressEvent<PubKeyHashType>, bool> balanceUpdatedFlag1 = new Dictionary<AddressEvent<PubKeyHashType>, bool>();
+                    Dictionary<AddressEvent<PubKeyHashType>, long?> balanceUpdatedBefore = new Dictionary<AddressEvent<PubKeyHashType>, long?>();
+
+                    UpdateBalanceBefore(balanceUpdatedFlag1, balanceUpdatedBefore);
+
                     foreach (var newBlock in stack)
                     {
                         bool isValid;
                         if (isVerifieds.ContainsKey(newBlock.Id)) //常に偽が返るはず
                             isValid = isVerifieds[newBlock.Id];
                         else
-                            isVerifieds.Add(newBlock.Id, isValid = VerifyBlock(newBlock));
+                            isVerifieds.Add(newBlock.Id, isValid = VerifyBlock(newBlock, addedUtxosInMemory.Concat(new List<Dictionary<PubKeyHashType, List<Utxo>>>() { currentAddedUtxos }), removedUtxosInMemory.Concat(new List<Dictionary<PubKeyHashType, List<Utxo>>>() { currentRemovedUtxos })));
 
                         if (!isValid)
                             break;
@@ -7170,10 +7367,13 @@ namespace CREA2014
                         else
                             mainBlocks.Add(head, newBlock);
 
-                        GoForwardUtxosInMemoryCurrent(newBlock);
+                        GoForwardUtxosCurrent(newBlock);
+                        GoForwardAddressEventdata(newBlock);
                     }
 
                     main = null;
+
+                    UpdateBalanceAfter(balanceUpdatedFlag1, balanceUpdatedBefore);
                 }
             }
             else
@@ -7255,7 +7455,7 @@ namespace CREA2014
                         if (isVerifieds.ContainsKey(newBlock.Id))
                             isValid = isVerifieds[newBlock.Id];
                         else
-                            isVerifieds.Add(newBlock.Id, isValid = VerifyBlock(newBlock));
+                            isVerifieds.Add(newBlock.Id, isValid = VerifyBlock(newBlock, addedUtxosInMemory.Concat(new List<Dictionary<PubKeyHashType, List<Utxo>>>() { currentAddedUtxos, addedBranchUtxos }), removedUtxosInMemory.Concat(new List<Dictionary<PubKeyHashType, List<Utxo>>>() { currentRemovedUtxos, removedBranchUtxos })));
 
                         if (!isValid)
                             break;
@@ -7268,10 +7468,16 @@ namespace CREA2014
 
                     if (cumulativeDifficulty > mainCumulativeDifficulty)
                     {
+                        Dictionary<AddressEvent<PubKeyHashType>, bool> balanceUpdatedFlag1 = new Dictionary<AddressEvent<PubKeyHashType>, bool>();
+                        Dictionary<AddressEvent<PubKeyHashType>, long?> balanceUpdatedBefore = new Dictionary<AddressEvent<PubKeyHashType>, long?>();
+
+                        UpdateBalanceBefore(balanceUpdatedFlag1, balanceUpdatedBefore);
+
                         TransactionalBlock<BlockidHashType, TxidHashType, PubKeyHashType, PubKeyType> fork = GetHeadMainBlock();
                         while (!fork.Id.Equals(main.Id))
                         {
-                            GoBackwardUtxosInMemoryCurrent(fork);
+                            GoBackwardUtxosCurrent(fork);
+                            GoBackwardAddressEventData(fork);
 
                             fork = GetMainBlock(fork.header.index - 1);
                         }
@@ -7283,7 +7489,8 @@ namespace CREA2014
                             else
                                 mainBlocks.Add(newBlock.header.index, newBlock);
 
-                            GoForwardUtxosInMemoryCurrent(newBlock);
+                            GoForwardUtxosCurrent(newBlock);
+                            GoForwardAddressEventdata(newBlock);
 
                             if (newBlock == validHead)
                                 break;
@@ -7294,6 +7501,8 @@ namespace CREA2014
                                 mainBlocks.Remove(i);
 
                         head = validHead.header.index;
+
+                        UpdateBalanceAfter(balanceUpdatedFlag1, balanceUpdatedBefore);
                     }
                 }
             }
@@ -7335,6 +7544,240 @@ namespace CREA2014
             }
         }
 
+        private void GoForwardAddressEventdata(TransactionalBlock<BlockidHashType, TxidHashType, PubKeyHashType, PubKeyType> txBlock)
+        {
+            foreach (var txi in txBlock.Transactions.Select((tx, i) => new { tx, i }))
+            {
+                for (int i = 0; i < txi.tx.Inputs.Length; i++)
+                    addressEventDatas.Remove(Activator.CreateInstance(typeof(PubKeyHashType), txi.tx.Inputs[i].senderPubKey) as PubKeyHashType, txi.tx.Inputs[i].prevTxBlockIndex, txi.tx.Inputs[i].prevTxIndex, txi.tx.Inputs[i].prevTxOutputIndex);
+                for (int i = 0; i < txi.tx.Outputs.Length; i++)
+                    addressEventDatas.Add(txi.tx.Outputs[i].receiverPubKeyHash, new AddressEventData(txBlock.header.index, txi.i, i, txi.tx.Outputs[i].amount));
+            }
+        }
+
+        private void GoBackwardAddressEventData(TransactionalBlock<BlockidHashType, TxidHashType, PubKeyHashType, PubKeyType> txBlock)
+        {
+            foreach (var txi in txBlock.Transactions.Select((tx, i) => new { tx, i }))
+            {
+                for (int i = 0; i < txi.tx.Inputs.Length; i++)
+                    addressEventDatas.Add(Activator.CreateInstance(typeof(PubKeyHashType), txi.tx.Inputs[i].senderPubKey) as PubKeyHashType, new AddressEventData(txi.tx.Inputs[i].prevTxBlockIndex, txi.tx.Inputs[i].prevTxIndex, txi.tx.Inputs[i].prevTxOutputIndex, GetMainBlock(txi.tx.Inputs[i].prevTxBlockIndex).Transactions[txi.tx.Inputs[i].prevTxIndex].Outputs[txi.tx.Inputs[i].prevTxOutputIndex].amount));
+                for (int i = 0; i < txi.tx.Outputs.Length; i++)
+                    addressEventDatas.Remove(txi.tx.Outputs[i].receiverPubKeyHash, txBlock.header.index, txi.i, i);
+            }
+        }
+
+        public void AddAddressEvent(AddressEvent<PubKeyHashType> addressEvent)
+        {
+            if (addressEvents.ContainsKey(addressEvent))
+                throw new ArgumentException("already_added");
+
+            List<AddressEventData> listAddressEventData = null;
+            if (addressEventDatas.ContainsAddress(addressEvent.address))
+                listAddressEventData = addressEventDatas.GetAddressEventDatas(addressEvent.address);
+            else
+            {
+                List<Utxo> listUtxo = utxos.ContainsAddress(addressEvent.address) ? utxos.GetAddressUtxos(addressEvent.address) : new List<Utxo>() { };
+
+                foreach (var added in addedUtxosInMemory.Concat(new List<Dictionary<PubKeyHashType, List<Utxo>>>() { currentAddedUtxos }))
+                    if (added.ContainsKey(addressEvent.address))
+                        foreach (var utxo in added[addressEvent.address])
+                            listUtxo.Add(utxo);
+
+                foreach (var removed in removedUtxosInMemory.Concat(new List<Dictionary<PubKeyHashType, List<Utxo>>>() { currentRemovedUtxos }))
+                    if (removed.ContainsKey(addressEvent.address))
+                        foreach (var utxo in removed[addressEvent.address])
+                        {
+                            Utxo removedUtxo = listUtxo.FirstOrDefault((elem) => elem.blockIndex == utxo.blockIndex && elem.txIndex == utxo.txIndex && elem.txOutIndex == utxo.txOutIndex);
+                            if (removedUtxo == null)
+                                throw new InvalidOperationException("not_found");
+                            listUtxo.Remove(removedUtxo);
+                        }
+
+                listAddressEventData = new List<AddressEventData>();
+                foreach (var utxo in listUtxo)
+                    listAddressEventData.Add(new AddressEventData(utxo.blockIndex, utxo.txIndex, utxo.txOutIndex, GetMainBlock(utxo.blockIndex).Transactions[utxo.txIndex].Outputs[utxo.txOutIndex].amount));
+
+                addressEventDatas.Add(addressEvent.address, listAddressEventData);
+            }
+
+            Tuple<CurrencyUnit, CurrencyUnit> balance = CalculateBalance(listAddressEventData);
+
+            addressEvents.Add(addressEvent, balance);
+
+            addressEvent.RaiseBalanceUpdated(balance);
+            addressEvent.RaiseUsableBalanceUpdated(balance.Item1);
+            addressEvent.RaiseUnusableBalanceUpdated(balance.Item2);
+        }
+
+        public AddressEvent<PubKeyHashType> RemoveAddressEvent(PubKeyHashType address)
+        {
+            AddressEvent<PubKeyHashType> addressEvent;
+            if ((addressEvent = addressEvents.Keys.FirstOrDefault((elem) => elem.address.Equals(address))) == null)
+                throw new ArgumentException("not_added");
+
+            if (addressEventDatas.ContainsAddress(address))
+                addressEventDatas.Remove(address);
+
+            addressEvents.Remove(addressEvent);
+
+            return addressEvent;
+        }
+
+        private Tuple<CurrencyUnit, CurrencyUnit> CalculateBalance(List<AddressEventData> listAddressEventData)
+        {
+            CurrencyUnit usable = new CurrencyUnit(0);
+            CurrencyUnit unusable = new CurrencyUnit(0);
+
+            foreach (var addressEventData in listAddressEventData)
+                if (addressEventData.blockIndex + unusableConformation > head)
+                    unusable = new CurrencyUnit(unusable.rawAmount + addressEventData.amount.rawAmount);
+                else
+                    usable = new CurrencyUnit(usable.rawAmount + addressEventData.amount.rawAmount);
+
+            return new Tuple<CurrencyUnit, CurrencyUnit>(usable, unusable);
+        }
+
+        private void UpdateBalanceBefore(Dictionary<AddressEvent<PubKeyHashType>, bool> balanceUpdatedFlag1, Dictionary<AddressEvent<PubKeyHashType>, long?> balanceUpdatedBefore)
+        {
+            foreach (var addressEvent in addressEvents)
+            {
+                AddressEventData addressEventData = addressEventDatas.GetAddressEventDatas(addressEvent.Key.address).LastOrDefault();
+                balanceUpdatedFlag1.Add(addressEvent.Key, addressEventData != null && addressEventData.blockIndex + unusableConformation > head);
+                balanceUpdatedBefore.Add(addressEvent.Key, addressEventData == null ? null : (long?)addressEventData.blockIndex);
+            }
+        }
+
+        private void UpdateBalanceAfter(Dictionary<AddressEvent<PubKeyHashType>, bool> balanceUpdatedFlag1, Dictionary<AddressEvent<PubKeyHashType>, long?> balanceUpdatedBefore)
+        {
+            bool flag = false;
+
+            List<AddressEvent<PubKeyHashType>> addressEventsCopy = new List<AddressEvent<PubKeyHashType>>(addressEvents.Keys);
+            foreach (var addressEvent in addressEventsCopy)
+            {
+                List<AddressEventData> listAddressEventData = addressEventDatas.GetAddressEventDatas(addressEvent.address);
+
+                AddressEventData addressEventData = listAddressEventData.LastOrDefault();
+                if (balanceUpdatedFlag1[addressEvent] || balanceUpdatedBefore[addressEvent] != (addressEventData == null ? null : (long?)addressEventData.blockIndex) || (addressEventData != null && addressEventData.blockIndex + unusableConformation > head))
+                {
+                    Tuple<CurrencyUnit, CurrencyUnit> balanceBefore = addressEvents[addressEvent];
+                    Tuple<CurrencyUnit, CurrencyUnit> balanceAfter = CalculateBalance(listAddressEventData);
+
+                    bool flag1 = balanceBefore.Item1.rawAmount != balanceAfter.Item1.rawAmount;
+                    bool flag2 = balanceBefore.Item2.rawAmount != balanceAfter.Item2.rawAmount;
+
+                    flag |= flag1;
+                    flag |= flag2;
+
+                    if (flag1 || flag2)
+                        addressEvent.RaiseBalanceUpdated(balanceAfter);
+                    if (flag1)
+                        addressEvent.RaiseUsableBalanceUpdated(balanceAfter.Item1);
+                    if (flag2)
+                        addressEvent.RaiseUnusableBalanceUpdated(balanceAfter.Item2);
+
+                    if (flag1 || flag2)
+                        addressEvents[addressEvent] = balanceAfter;
+                }
+            }
+
+            if (flag)
+                BalanceUpdated(this, EventArgs.Empty);
+        }
+
+        private void GoForwardUtxosCurrent(TransactionalBlock<BlockidHashType, TxidHashType, PubKeyHashType, PubKeyType> txBlock)
+        {
+            if (txBlock.header.index == 1 || txBlock.header.index % utxosInMemoryDiv == 0)
+            {
+                if (currentAddedUtxos != null)
+                {
+                    addedUtxosInMemory.Add(currentAddedUtxos);
+                    removedUtxosInMemory.Add(currentRemovedUtxos);
+                }
+
+                currentAddedUtxos = new Dictionary<PubKeyHashType, List<Utxo>>();
+                currentRemovedUtxos = new Dictionary<PubKeyHashType, List<Utxo>>();
+            }
+
+            GoForwardUtxosInMemory(txBlock, currentAddedUtxos, currentRemovedUtxos);
+        }
+
+        private void GoBackwardUtxosCurrent(TransactionalBlock<BlockidHashType, TxidHashType, PubKeyHashType, PubKeyType> txBlock)
+        {
+            GoBackwardUtxosInMemory(txBlock, currentAddedUtxos, currentRemovedUtxos);
+
+            if (txBlock.header.index == 1 || txBlock.header.index % utxosInMemoryDiv == 0)
+            {
+                foreach (var currentAddedUtxo in currentAddedUtxos)
+                    if (currentAddedUtxo.Value.Count != 0)
+                        throw new InvalidOperationException("current_added_utxos_not_empty");
+                foreach (var currentRemovedUtxo in currentRemovedUtxos)
+                    if (currentRemovedUtxo.Value.Count != 0)
+                        throw new InvalidOperationException("current_removed__utxos_not_empty");
+
+                if (txBlock.header.index == 1)
+                {
+                    currentAddedUtxos = null;
+                    currentRemovedUtxos = null;
+                }
+                else
+                {
+                    if (addedUtxosInMemory.Count > 0)
+                    {
+                        currentAddedUtxos = addedUtxosInMemory[addedUtxosInMemory.Count - 1];
+                        currentRemovedUtxos = removedUtxosInMemory[removedUtxosInMemory.Count - 1];
+
+                        addedUtxosInMemory.RemoveAt(addedUtxosInMemory.Count - 1);
+                        removedUtxosInMemory.RemoveAt(removedUtxosInMemory.Count - 1);
+                    }
+                    else
+                        //2014/07/20 既に保存されているUTXOは戻せないものとする
+                        throw new InvalidOperationException("disallowed_go_backward_further");
+                }
+            }
+        }
+
+        private void UpdateUtxosTemp(Dictionary<PubKeyHashType, List<Utxo>> utxos1, Dictionary<PubKeyHashType, List<Utxo>> utxos2, PubKeyHashType address, long blockIndex, int txIndex, int txOutputIndex)
+        {
+            if (utxos1.ContainsKey(address))
+            {
+                List<Utxo> list = utxos1[address];
+                Utxo utxo = list.Where((elem) => elem.blockIndex == blockIndex && elem.txIndex == txIndex && elem.txOutIndex == txOutputIndex).FirstOrDefault();
+
+                if (utxo != null)
+                {
+                    list.Remove(utxo);
+                    return;
+                }
+            }
+
+            if (utxos2.ContainsKey(address))
+                utxos2[address].Add(new Utxo(blockIndex, txIndex, txOutputIndex));
+            else
+                utxos2.Add(address, new List<Utxo>() { new Utxo(blockIndex, txIndex, txOutputIndex) });
+        }
+
+        private void GoForwardUtxosInMemory(TransactionalBlock<BlockidHashType, TxidHashType, PubKeyHashType, PubKeyType> txBlock, Dictionary<PubKeyHashType, List<Utxo>> addedUtxos, Dictionary<PubKeyHashType, List<Utxo>> removedUtxos)
+        {
+            foreach (var txi in txBlock.Transactions.Select((tx, i) => new { tx, i }))
+            {
+                for (int i = 0; i < txi.tx.Inputs.Length; i++)
+                    UpdateUtxosTemp(addedUtxos, removedUtxos, Activator.CreateInstance(typeof(PubKeyHashType), txi.tx.Inputs[i].senderPubKey) as PubKeyHashType, txi.tx.Inputs[i].prevTxBlockIndex, txi.tx.Inputs[i].prevTxIndex, txi.tx.Inputs[i].prevTxOutputIndex);
+                for (int i = 0; i < txi.tx.Outputs.Length; i++)
+                    UpdateUtxosTemp(removedUtxos, addedUtxos, txi.tx.Outputs[i].receiverPubKeyHash, txBlock.header.index, txi.i, i);
+            }
+        }
+
+        private void GoBackwardUtxosInMemory(TransactionalBlock<BlockidHashType, TxidHashType, PubKeyHashType, PubKeyType> txBlock, Dictionary<PubKeyHashType, List<Utxo>> addedUtxos, Dictionary<PubKeyHashType, List<Utxo>> removedUtxos)
+        {
+            foreach (var txi in txBlock.Transactions.Select((tx, i) => new { tx, i }))
+            {
+                for (int i = 0; i < txi.tx.Inputs.Length; i++)
+                    UpdateUtxosTemp(removedUtxos, addedUtxos, Activator.CreateInstance(typeof(PubKeyHashType), txi.tx.Inputs[i].senderPubKey) as PubKeyHashType, txi.tx.Inputs[i].prevTxBlockIndex, txi.tx.Inputs[i].prevTxIndex, txi.tx.Inputs[i].prevTxOutputIndex);
+                for (int i = 0; i < txi.tx.Outputs.Length; i++)
+                    UpdateUtxosTemp(addedUtxos, removedUtxos, txi.tx.Outputs[i].receiverPubKeyHash, txBlock.header.index, txi.i, i);
+            }
+        }
+
         //終了時にしか呼ばない
         public void SaveWhenExit()
         {
@@ -7342,6 +7785,48 @@ namespace CREA2014
                 throw new InvalidOperationException("not_initialized");
 
             SaveBgAndBng(GetToBeSavedBlockss(), long.MaxValue);
+
+            while (addedUtxosInMemory.Count > maxUtxosGroup)
+            {
+                utxos.Update(addedUtxosInMemory[0], removedUtxosInMemory[0]);
+
+                utxoDividedHead++;
+
+                addedUtxosInMemory.RemoveAt(0);
+                removedUtxosInMemory.RemoveAt(0);
+            }
+
+            using (MemoryStream ms = new MemoryStream())
+            {
+                ms.Write(BitConverter.GetBytes(addressEventDatas.addressEventDatas.Count), 0, 4);
+
+                foreach (var addressEventDatasDict in addressEventDatas.addressEventDatas)
+                {
+                    ms.Write(addressEventDatasDict.Key.hash, 0, addressEventDatasDict.Key.SizeByte);
+                    ms.Write(BitConverter.GetBytes(addressEventDatasDict.Value.Count), 0, 4);
+                    foreach (var addressEventData in addressEventDatasDict.Value)
+                        ms.Write(addressEventData.ToBinary(), 0, addressEventData.LengthOfAll.Value);
+                }
+
+                addressEventDatabase.UpdateData(ms.ToArray());
+            }
+
+            using (MemoryStream ms = new MemoryStream())
+            {
+                ms.Write(BitConverter.GetBytes(utxos.utxos.Count), 0, 4);
+
+                foreach (var utxosDict in utxos.utxos)
+                {
+                    ms.Write(utxosDict.Key.hash, 0, utxosDict.Key.SizeByte);
+                    ms.Write(BitConverter.GetBytes(utxosDict.Value.Count), 0, 4);
+                    foreach (var utxo in utxosDict.Value)
+                        ms.Write(utxo.ToBinary(), 0, utxo.LengthOfAll.Value);
+                }
+
+                utxoDatabase.UpdateData(ms.ToArray());
+            }
+
+            bcDatabase.UpdateData(ToBinary());
         }
 
         private SortedDictionary<long, List<TransactionalBlock<BlockidHashType, TxidHashType, PubKeyHashType, PubKeyType>>> GetToBeSavedBlockss()
@@ -7449,29 +7934,69 @@ namespace CREA2014
             bngDatabase.UpdateBlockNodesGroupData(currentBng.ToBinary(), currentBngIndex);
         }
 
-        public bool VerifyBlock(TransactionalBlock<BlockidHashType, TxidHashType, PubKeyHashType, PubKeyType> txBlock)
+        public bool VerifyBlock(TransactionalBlock<BlockidHashType, TxidHashType, PubKeyHashType, PubKeyType> txBlock, IEnumerable<Dictionary<PubKeyHashType, List<Utxo>>> addeds, IEnumerable<Dictionary<PubKeyHashType, List<Utxo>>> removeds)
         {
             if (!isInitialized)
                 throw new InvalidOperationException("not_initialized");
 
+            if (!txBlock.IsValid)
+                return false;
+
+            TransactionOutput<PubKeyHashType>[][] prevTxOutputs = new TransactionOutput<PubKeyHashType>[txBlock.transferTxs.Length][];
+            foreach (var transrferTx in txBlock.transferTxs.Select((v, i) => new { v, i }))
+            {
+                prevTxOutputs[transrferTx.i] = new TransactionOutput<PubKeyHashType>[transrferTx.v.Inputs.Length];
+                foreach (var txInput in transrferTx.v.Inputs.Select((v, i) => new { v, i }))
+                {
+                    PubKeyHashType address = Activator.CreateInstance(typeof(PubKeyHashType), txInput.v.senderPubKey.pubKey) as PubKeyHashType;
+                    if (utxos.Contains(address, txInput.v.prevTxBlockIndex, txInput.v.prevTxIndex, txInput.v.prevTxOutputIndex))
+                    {
+                        foreach (var removed in removeds)
+                            if (removed.ContainsKey(address))
+                                foreach (var removedUtxo in removed[address])
+                                    if (removedUtxo.blockIndex == txInput.v.prevTxBlockIndex && removedUtxo.txIndex == txInput.v.prevTxIndex && removedUtxo.txOutIndex == txInput.v.prevTxOutputIndex)
+                                        return false;
+                        prevTxOutputs[transrferTx.i][txInput.i] = GetMainBlock(txInput.v.prevTxBlockIndex).Transactions[txInput.v.prevTxIndex].Outputs[txInput.v.prevTxOutputIndex];
+                    }
+                    else
+                    {
+                        foreach (var added in addeds)
+                            if (added.ContainsKey(address))
+                                foreach (var addedUtxo in added[address])
+                                    if (addedUtxo.blockIndex == txInput.v.prevTxBlockIndex && addedUtxo.txIndex == txInput.v.prevTxIndex && addedUtxo.txOutIndex == txInput.v.prevTxOutputIndex)
+                                        prevTxOutputs[transrferTx.i][txInput.i] = GetMainBlock(txInput.v.prevTxBlockIndex).Transactions[txInput.v.prevTxIndex].Outputs[txInput.v.prevTxOutputIndex];
+                        if (prevTxOutputs[transrferTx.i][txInput.i] == null)
+                            return false;
+                        foreach (var removed in removeds)
+                            if (removed.ContainsKey(address))
+                                foreach (var removedUtxo in removed[address])
+                                    if (removedUtxo.blockIndex == txInput.v.prevTxBlockIndex && removedUtxo.txIndex == txInput.v.prevTxIndex && removedUtxo.txOutIndex == txInput.v.prevTxOutputIndex)
+                                        return false;
+                    }
+                }
+            }
+
+            txBlock.VerifyAll(prevTxOutputs, (index) => GetMainBlock(index));
+
             return true;
-            throw new NotImplementedException("");
         }
     }
 
-    public class Utxo<TxidHashType> : SHAREDDATA where TxidHashType : HASHBASE
+    public class AddressEventData : SHAREDDATA
     {
-        public Utxo() { }
+        public AddressEventData() { }
 
-        public Utxo(TxidHashType _txid, int _index, CurrencyUnit _amount)
+        public AddressEventData(long _blockIndex, int _txIndex, int _txOutIndex, CurrencyUnit _amount)
         {
-            txid = _txid;
-            index = _index;
+            blockIndex = _blockIndex;
+            txIndex = _txIndex;
+            txOutIndex = _txOutIndex;
             amount = _amount;
         }
 
-        public TxidHashType txid { get; private set; }
-        public int index { get; private set; }
+        public long blockIndex { get; private set; }
+        public int txIndex { get; private set; }
+        public int txOutIndex { get; private set; }
         public CurrencyUnit amount { get; private set; }
 
         protected override Func<ReaderWriter, IEnumerable<MainDataInfomation>> StreamInfo
@@ -7479,46 +8004,197 @@ namespace CREA2014
             get
             {
                 return (msrw) => new MainDataInfomation[]{
-                    new MainDataInfomation(typeof(TxidHashType), null, () => txid, (o) => txid = (TxidHashType)o),
-                    new MainDataInfomation(typeof(int), () => index, (o) => index = (int)o),
+                    new MainDataInfomation(typeof(long), () => blockIndex, (o) => blockIndex = (long)o),
+                    new MainDataInfomation(typeof(int), () => txIndex, (o) => txIndex = (int)o),
+                    new MainDataInfomation(typeof(int), () => txOutIndex, (o) => txOutIndex = (int)o),
                     new MainDataInfomation(typeof(long), () => amount.rawAmount, (o) => amount = new CurrencyUnit((long)o)),
                 };
             }
         }
     }
 
-    public class UtxoGroup<TxidHashType> : SHAREDDATA where TxidHashType : HASHBASE
+    public class AddressEventDatas<PubKeyHashType>
     {
-        public UtxoGroup() { }
+        public AddressEventDatas() { }
 
-        public UtxoGroup(bool _isInitialize)
+        public AddressEventDatas(Dictionary<PubKeyHashType, List<AddressEventData>> _addressEventData) { addressEventDatas = _addressEventData; }
+
+        public Dictionary<PubKeyHashType, List<AddressEventData>> addressEventDatas { get; private set; }
+
+        public void Add(PubKeyHashType address, AddressEventData addressEventData)
         {
-            if (_isInitialize)
-            {
-                utxos = new Utxo<TxidHashType>[length];
-                for (int i = 0; i < length; i++)
-                    utxos[i] = new Utxo<TxidHashType>(Activator.CreateInstance(typeof(TxidHashType)) as TxidHashType, 0, new CurrencyUnit(0));
-                nextPosition = -1;
-            }
+            List<AddressEventData> list = null;
+            if (addressEventDatas.Keys.Contains(address))
+                list = addressEventDatas[address];
+            else
+                addressEventDatas.Add(address, list = new List<AddressEventData>());
+
+            if (list.FirstOrDefault((elem) => elem.blockIndex == addressEventData.blockIndex && elem.txIndex == addressEventData.txIndex && elem.txOutIndex == addressEventData.txOutIndex) != null)
+                throw new InvalidOperationException("already_existed");
+
+            list.Add(addressEventData);
         }
 
-        private static readonly int length = 10;
+        public void Add(PubKeyHashType address, List<AddressEventData> list)
+        {
+            if (addressEventDatas.Keys.Contains(address))
+                throw new InvalidOperationException("already_existed");
 
-        public Utxo<TxidHashType>[] utxos { get; private set; }
-        public long nextPosition { get; private set; }
+            addressEventDatas.Add(address, list);
+        }
+
+        public void Remove(PubKeyHashType address, long blockIndex, int txIndex, int txOutIndex)
+        {
+            if (!addressEventDatas.Keys.Contains(address))
+                throw new InvalidOperationException("not_existed");
+
+            List<AddressEventData> list = addressEventDatas[address];
+
+            AddressEventData utxo = null;
+            if ((utxo = list.FirstOrDefault((elem) => elem.blockIndex == blockIndex && elem.txIndex == txIndex && elem.txOutIndex == txOutIndex)) == null)
+                throw new InvalidOperationException("not_existed");
+
+            list.Remove(utxo);
+
+            if (list.Count == 0)
+                addressEventDatas.Remove(address);
+        }
+
+        public void Remove(PubKeyHashType address)
+        {
+            if (!addressEventDatas.Keys.Contains(address))
+                throw new InvalidOperationException("not_existed");
+
+            addressEventDatas.Remove(address);
+        }
+
+        public void Update(Dictionary<PubKeyHashType, List<AddressEventData>> addedUtxos, Dictionary<PubKeyHashType, List<AddressEventData>> removedUtxos)
+        {
+            foreach (var addedUtxos2 in addedUtxos)
+                foreach (var addedUtxo in addedUtxos2.Value)
+                    Add(addedUtxos2.Key, addedUtxo);
+            foreach (var removedUtxos2 in removedUtxos)
+                foreach (var removedUtxo in removedUtxos2.Value)
+                    Remove(removedUtxos2.Key, removedUtxo.blockIndex, removedUtxo.txIndex, removedUtxo.txOutIndex);
+        }
+
+        public bool Contains(PubKeyHashType address, long blockIndex, int txIndex, int txOutIndex)
+        {
+            if (!addressEventDatas.Keys.Contains(address))
+                return false;
+
+            List<AddressEventData> list = addressEventDatas[address];
+
+            return list.FirstOrDefault((elem) => elem.blockIndex == blockIndex && elem.txIndex == txIndex && elem.txOutIndex == txOutIndex) != null;
+        }
+
+        public bool ContainsAddress(PubKeyHashType address) { return addressEventDatas.Keys.Contains(address); }
+
+        public List<AddressEventData> GetAddressEventDatas(PubKeyHashType address)
+        {
+            if (!addressEventDatas.Keys.Contains(address))
+                throw new InvalidOperationException("not_existed");
+
+            return addressEventDatas[address];
+        }
+    }
+
+    public class Utxo : SHAREDDATA
+    {
+        public Utxo() { }
+
+        public Utxo(long _blockIndex, int _txIndex, int _txOutIndex)
+        {
+            blockIndex = _blockIndex;
+            txIndex = _txIndex;
+            txOutIndex = _txOutIndex;
+        }
+
+        public long blockIndex { get; private set; }
+        public int txIndex { get; private set; }
+        public int txOutIndex { get; private set; }
 
         protected override Func<ReaderWriter, IEnumerable<MainDataInfomation>> StreamInfo
         {
             get
             {
                 return (msrw) => new MainDataInfomation[]{
-                    new MainDataInfomation(typeof(Utxo<TxidHashType>[]), null, length, () => utxos, (o) => utxos = (Utxo<TxidHashType>[])o),
-                    new MainDataInfomation(typeof(long), () => nextPosition, (o) => nextPosition = (long)o),
+                    new MainDataInfomation(typeof(long), () => blockIndex, (o) => blockIndex = (long)o),
+                    new MainDataInfomation(typeof(int), () => txIndex, (o) => txIndex = (int)o),
+                    new MainDataInfomation(typeof(int), () => txOutIndex, (o) => txOutIndex = (int)o),
                 };
             }
         }
+    }
 
-        public void SetNextPosition(long newNextPosition) { nextPosition = newNextPosition; }
+    public class Utxos<PubKeyHashType>
+    {
+        public Utxos() { }
+
+        public Utxos(Dictionary<PubKeyHashType, List<Utxo>> _utxos) { utxos = _utxos; }
+
+        public Dictionary<PubKeyHashType, List<Utxo>> utxos { get; private set; }
+
+        public void Add(PubKeyHashType address, Utxo utxo)
+        {
+            List<Utxo> list = null;
+            if (utxos.Keys.Contains(address))
+                list = utxos[address];
+            else
+                utxos.Add(address, list = new List<Utxo>());
+
+            if (list.FirstOrDefault((elem) => elem.blockIndex == utxo.blockIndex && elem.txIndex == utxo.txIndex && elem.txOutIndex == utxo.txOutIndex) != null)
+                throw new InvalidOperationException("already_existed");
+
+            list.Add(utxo);
+        }
+
+        public void Remove(PubKeyHashType address, long blockIndex, int txIndex, int txOutIndex)
+        {
+            if (!utxos.Keys.Contains(address))
+                throw new InvalidOperationException("not_existed");
+
+            List<Utxo> list = utxos[address];
+
+            Utxo utxo = null;
+            if ((utxo = list.FirstOrDefault((elem) => elem.blockIndex == blockIndex && elem.txIndex == txIndex && elem.txOutIndex == txOutIndex)) == null)
+                throw new InvalidOperationException("not_existed");
+
+            list.Remove(utxo);
+
+            if (list.Count == 0)
+                utxos.Remove(address);
+        }
+
+        public void Update(Dictionary<PubKeyHashType, List<Utxo>> addedUtxos, Dictionary<PubKeyHashType, List<Utxo>> removedUtxos)
+        {
+            foreach (var addedUtxos2 in addedUtxos)
+                foreach (var addedUtxo in addedUtxos2.Value)
+                    Add(addedUtxos2.Key, addedUtxo);
+            foreach (var removedUtxos2 in removedUtxos)
+                foreach (var removedUtxo in removedUtxos2.Value)
+                    Remove(removedUtxos2.Key, removedUtxo.blockIndex, removedUtxo.txIndex, removedUtxo.txOutIndex);
+        }
+
+        public bool Contains(PubKeyHashType address, long blockIndex, int txIndex, int txOutIndex)
+        {
+            if (!utxos.Keys.Contains(address))
+                return false;
+
+            List<Utxo> list = utxos[address];
+
+            return list.FirstOrDefault((elem) => elem.blockIndex == blockIndex && elem.txIndex == txIndex && elem.txOutIndex == txOutIndex) != null;
+        }
+
+        public bool ContainsAddress(PubKeyHashType address) { return utxos.Keys.Contains(address); }
+
+        public List<Utxo> GetAddressUtxos(PubKeyHashType address)
+        {
+            if (!utxos.Keys.Contains(address))
+                throw new InvalidOperationException("not_existed");
+
+            return utxos[address];
+        }
     }
 
     public class BlockNode : SHAREDDATA
@@ -7724,6 +8400,28 @@ namespace CREA2014
 #endif
     }
 
+    public class AddressEventDatabase : SimpleDatabase
+    {
+        public AddressEventDatabase(string _pathBase) : base(_pathBase) { }
+
+#if TEST
+        protected override string filenameBase { get { return "address_event_test"; } }
+#else
+        protected override string filenameBase { get { return "address_event"; } }
+#endif
+    }
+
+    public class UtxoDatabase : SimpleDatabase
+    {
+        public UtxoDatabase(string _pathBase) : base(_pathBase) { }
+
+#if TEST
+        protected override string filenameBase { get { return "utxo_test"; } }
+#else
+        protected override string filenameBase { get { return "utxo"; } }
+#endif
+    }
+
     public class BlockNodesGroupDatabase : DATABASEBASE
     {
         public BlockNodesGroupDatabase(string _pathBase) : base(_pathBase) { }
@@ -7798,131 +8496,6 @@ namespace CREA2014
         private string GetPath(long bgIndex)
         {
             return Path.Combine(pathBase, filenameBase + bgIndex.ToString());
-        }
-    }
-
-    public class UtxoIndexDatabase : DATABASEBASE
-    {
-        public UtxoIndexDatabase(string _pathBase)
-            : base(_pathBase)
-        {
-            options = new BPlusTree<byte[], long>.Options(PrimitiveSerializer.Bytes, PrimitiveSerializer.Int64)
-            {
-                CreateFile = CreatePolicy.IfNeeded,
-                FileName = Path.Combine(pathBase, filenameBase),
-            };
-        }
-
-        private readonly BPlusTree<byte[], long>.Options options;
-
-#if TEST
-        protected override string filenameBase { get { return "utxoidx_test"; } }
-#else
-        protected override string filenameBase { get { return "utxoidx"; } }
-#endif
-
-        public bool ContainsAddress(byte[] addressBytes)
-        {
-            using (BPlusTree<byte[], long> map = new BPlusTree<byte[], long>(options))
-                return map.ContainsKey(addressBytes);
-        }
-
-        public void Add(byte[] addressBytes, long position)
-        {
-            using (BPlusTree<byte[], long> map = new BPlusTree<byte[], long>(options))
-            {
-                if (map.ContainsKey(addressBytes))
-                    throw new InvalidOperationException("address_already_existed");
-
-                map.Add(addressBytes, position);
-            }
-        }
-
-        public long? Get(byte[] addressBytes)
-        {
-            using (BPlusTree<byte[], long> map = new BPlusTree<byte[], long>(options))
-            {
-                if (!map.ContainsKey(addressBytes))
-                    return null;
-                return map[addressBytes];
-            }
-        }
-    }
-
-    public class UtxoEmptySpacesDatabase : SimpleDatabase
-    {
-        public UtxoEmptySpacesDatabase(string _pathBase) : base(_pathBase) { }
-
-#if TEST
-        protected override string filenameBase { get { return "utxoempty_test"; } }
-#else
-        protected override string filenameBase { get { return "utxoempty"; } }
-#endif
-    }
-
-    public class UtxoDatabase<TxidHashType, PubKeyHashType> : DATABASEBASE
-        where TxidHashType : HASHBASE
-        where PubKeyHashType : HASHBASE
-    {
-        public UtxoDatabase(string _pathBase, UtxoIndexDatabase _utxoIndexDatabase, UtxoEmptySpacesDatabase _utxoEmptySpacesDatabase)
-            : base(_pathBase)
-        {
-            utxoIndexDatabase = _utxoIndexDatabase;
-            utxoEmptySpacesDatabase = _utxoEmptySpacesDatabase;
-        }
-
-        private readonly UtxoIndexDatabase utxoIndexDatabase;
-        private readonly UtxoEmptySpacesDatabase utxoEmptySpacesDatabase;
-
-        private List<long> emptySpaces;
-
-#if TEST
-        protected override string filenameBase { get { return "utxo_test"; } }
-#else
-        protected override string filenameBase { get { return "utxo"; } }
-#endif
-
-        public void Open()
-        {
-            emptySpaces = new List<long>();
-
-            byte[] emptySpacesBytes = utxoEmptySpacesDatabase.GetData();
-            int length = BitConverter.ToInt32(emptySpacesBytes, 0);
-            for (int i = 0; i < length; i++)
-                emptySpaces.Add(BitConverter.ToInt64(emptySpacesBytes, 4 + i * 8));
-        }
-
-        public void Close()
-        {
-            byte[] emptySpacesBytes = new byte[4 + emptySpaces.Count * 8];
-            Array.Copy(BitConverter.GetBytes(emptySpaces.Count), 0, emptySpacesBytes, 0, 4);
-            for (int i = 0; i < emptySpaces.Count; i++)
-                Array.Copy(BitConverter.GetBytes(emptySpaces[i]), 0, emptySpacesBytes, 4 + i * 8, 8);
-
-            utxoEmptySpacesDatabase.UpdateData(emptySpacesBytes);
-        }
-
-        public void Update(Dictionary<PubKeyHashType, List<Utxo<TxidHashType>>> addedUtxos, Dictionary<PubKeyHashType, List<Utxo<TxidHashType>>> removedUtxos)
-        {
-            foreach (var addedUtxo in addedUtxos)
-            {
-                long? position = utxoIndexDatabase.Get(addedUtxo.Key.hash);
-
-                if (position == null)
-                {
-
-                }
-            }
-        }
-
-        public bool Exists()
-        {
-            return false;
-        }
-
-        private string GetPath()
-        {
-            return Path.Combine(pathBase, filenameBase);
         }
     }
 

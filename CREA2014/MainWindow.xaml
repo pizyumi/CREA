@@ -15,6 +15,7 @@
             <MenuItem x:Name="miHelp">
                 <MenuItem x:Name="miAbout" Click="miAbout_Click"></MenuItem>
             </MenuItem>
+            <MenuItem x:Name="miTest" Click="miTest_Click"></MenuItem>
         </Menu>
         <WebBrowser x:Name="wb"></WebBrowser>
     </DockPanel>

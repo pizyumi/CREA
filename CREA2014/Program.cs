@@ -14,7 +14,9 @@ using System.Net;
 using System.Net.Sockets;
 using System.Numerics;
 using System.Reflection;
+using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
+using System.Security;
 using System.Security.AccessControl;
 using System.Security.Cryptography;
 using System.Text;
@@ -38,6 +40,48 @@ namespace CREA2014
                     throw new InvalidOperationException("one_time");
                 o = new object();
             };
+        }
+    }
+
+    public class CachedData<Type>
+    {
+        public CachedData(Func<Type> _generator)
+        {
+            generator = _generator;
+            isCached = false;
+            isModified = false;
+        }
+
+        private Func<Type> generator;
+
+        public bool isCached { get; private set; }
+
+        private bool isModified;
+        public bool IsModified
+        {
+            get { return isModified; }
+            set
+            {
+                if (!value)
+                    throw new InvalidOperationException("is_modified_cant_set_false");
+
+                isModified = value;
+            }
+        }
+
+        private Type cache;
+        public Type Data
+        {
+            get
+            {
+                if (isModified || !isCached)
+                {
+                    cache = generator();
+                    isModified = false;
+                    isCached = true;
+                }
+                return cache;
+            }
         }
     }
 
@@ -440,6 +484,16 @@ namespace CREA2014
                 eh(obj, parameter);
         }
 
+        //イベントの前に処理を実行する（拡張：物件型）
+        public static void ExecuteBeforeEvent<T>(this object obj, Action action, T parameter, EventHandler<T>[] ehs1, EventHandler[] ehs2)
+        {
+            action();
+            foreach (var eh in ehs1)
+                eh(obj, parameter);
+            foreach (var eh in ehs2)
+                eh(obj, EventArgs.Empty);
+        }
+
         //イベントの後に処理を実行する（拡張：物件型）
         public static void ExecuteAfterEvent(this object obj, Action action, params EventHandler[] ehs)
         {
@@ -453,6 +507,16 @@ namespace CREA2014
         {
             foreach (var eh in ehs)
                 eh(obj, parameter);
+            action();
+        }
+
+        //イベントの後に処理を実行する（拡張：物件型）
+        public static void ExecuteAfterEvent<T>(this object obj, Action action, T parameter, EventHandler<T>[] ehs1, EventHandler[] ehs2)
+        {
+            foreach (var eh in ehs1)
+                eh(obj, parameter);
+            foreach (var eh in ehs2)
+                eh(obj, EventArgs.Empty);
             action();
         }
 
@@ -1088,10 +1152,15 @@ namespace CREA2014
 
     #endregion
 
-    #region WIN32API
+    #region P/Invoke
 
-    public static class WIN32API
+    public static class API
     {
+        [DllImport("kernel32.dll")]
+        public static extern bool AllocConsole();
+        [DllImport("kernel32.dll")]
+        public static extern bool FreeConsole();
+
         [DllImport("user32.dll")]
         public static extern bool SetForegroundWindow(IntPtr hWnd);
         [DllImport("user32.dll")]
@@ -1099,6 +1168,9 @@ namespace CREA2014
         [DllImport("user32.dll")]
         public static extern bool IsIconic(IntPtr hWnd);
         public const int SW_RESTORE = 9;
+
+        [DllImport("mscoree.dll", CharSet = CharSet.Unicode)]
+        public static extern bool StrongNameSignatureVerificationEx(string wszFilePath, bool fForceVerification, ref bool pfWasVerified);
     }
 
     #endregion
@@ -3093,26 +3165,121 @@ namespace CREA2014
             return exceptionMessages.GetValue(rawMessage, () => rawMessage)();
         }
 
+        private static string appname = "CREA2014";
+        private static int verMaj = 0;
+        private static int verMin = 0;
+        private static int verMMin = 1;
+        private static string verS = "α";
+        private static int verR = 1; //リリース番号（リリース毎に増やす番号）
+        private static int verC = 46; //コミット番号（コミット毎に増やす番号）
+        private static string version = string.Join(".", verMaj.ToString(), verMin.ToString(), verMMin.ToString()) + "(" + verS + ")" + "(" + verR.ToString() + ")" + "(" + verC.ToString() + ")";
+        private static string appnameWithVersion = string.Join(" ", appname, version);
+
+        private static Assembly assembly = Assembly.GetEntryAssembly();
+        private static string basepath = Path.GetDirectoryName(assembly.Location);
+        private static string assemblyFileName = Path.GetFileName(assembly.Location);
+
         [STAThread]
-        public static void Main()
+        public static void Main(string[] args)
         {
-            string appname = "CREA2014";
-            int verMaj = 0;
-            int verMin = 0;
-            int verMMin = 1;
-            string verS = "α";
-            int verR = 1; //リリース番号（リリース毎に増やす番号）
-            int verC = 46; //コミット番号（コミット毎に増やす番号）
-            string version = string.Join(".", verMaj.ToString(), verMin.ToString(), verMMin.ToString()) + "(" + verS + ")" + "(" + verR.ToString() + ")" + "(" + verC.ToString() + ")";
-            string appnameWithVersion = string.Join(" ", appname, version);
+            string argExtract = "extract";
+            string argCopy = "copy";
 
-            Assembly assembly = Assembly.GetEntryAssembly();
-            string basepath = new FileInfo(assembly.Location).DirectoryName;
+            if (args.Length < 1)
+            {
+                AppDomain appDomain = AppDomain.CreateDomain(argExtract);
+                appDomain.ExecuteAssembly(assembly.Location, new string[] { argExtract });
+                AppDomain.Unload(appDomain);
+            }
 
+            if (args.Length > 0)
+                if (args[0] == argCopy)
+                {
+                    API.AllocConsole();
+
+                    Process process = null;
+                    try
+                    {
+                        process = Process.GetProcessById(int.Parse(args[1]));
+                    }
+                    catch (ArgumentException) { }
+                    if (process != null)
+                        while (!process.HasExited)
+                            Thread.Sleep(100);
+
+                    string fromLocation = assembly.Location;
+                    string toLocation = Path.Combine(Path.GetDirectoryName(basepath), assemblyFileName);
+                    File.Copy(fromLocation, toLocation, true);
+
+                    Process.Start(toLocation);
+
+                    API.FreeConsole();
+                }
+                else if (args[0] == argExtract)
+                {
+                    Action<string, string> _CopyComponent = (location, filename) =>
+                    {
+                        using (Stream stream = assembly.GetManifestResourceStream(string.Join(".", location, filename)))
+                        {
+                            byte[] bytes = new byte[stream.Length];
+                            stream.Read(bytes, 0, bytes.Length);
+
+                            File.WriteAllBytes(filename, bytes);
+                        }
+                    };
+
+                    string[] filenames = new string[]
+                    {
+                        "Lisence.txt", 
+                        "HashLib.dll", 
+                        "log4net.dll", 
+                        "Newtonsoft.Json.dll", 
+                        "SuperSocket.Common.dll", 
+                        "SuperSocket.SocketBase.dll", 
+                        "SuperSocket.SocketEngine.dll", 
+                        "SuperWebSocket.dll", 
+                    };
+
+                    foreach (var filename in filenames)
+                        _CopyComponent(string.Join(".", appname, "Component"), filename);
+                }
+                else
+                    throw new NotSupportedException("not_supported_argument");
+            else
+            {
+                string exeDirectoryName = "exe";
+
+                //未だ存在しない（抽出が行われていない）アセンブリを読み込む可能性のないようにしなければならない
+                //本来的なMainの処理を別メソッドにすれば問題ないと思われる
+                Main2(exeDirectoryName, (data) =>
+                {
+                    string newAssemblyDiretory = Path.Combine(basepath, exeDirectoryName);
+                    string newAssemblyPath = Path.Combine(newAssemblyDiretory, assemblyFileName);
+
+                    if (!Directory.Exists(newAssemblyDiretory))
+                        Directory.CreateDirectory(newAssemblyDiretory);
+                    File.WriteAllBytes(newAssemblyPath, data);
+
+                    bool pfWasVerified = false;
+                    bool ret = API.StrongNameSignatureVerificationEx(newAssemblyPath, false, ref pfWasVerified);
+
+                    bool isValid = pfWasVerified && ret && Assembly.LoadFrom(newAssemblyPath).GetName().GetPublicKeyToken().BytesEquals(assembly.GetName().GetPublicKeyToken());
+
+                    if (isValid)
+                        Process.Start(newAssemblyPath, string.Join(" ", argCopy, Process.GetCurrentProcess().Id.ToString()));
+
+                    return isValid;
+                });
+            }
+        }
+
+        public static void Main2(string exeDirectoryName, Func<byte[], bool> _UpVersion)
+        {
             string lisenceTextFilename = "Lisence.txt";
             string pstatusFilename = "ps";
 
             string pstatusFilepath = Path.Combine(basepath, pstatusFilename);
+            string exeDirectoryPath = Path.Combine(basepath, exeDirectoryName);
 
             ProgramSettings psettings = new ProgramSettings();
             ProgramStatus pstatus = new ProgramStatus();
@@ -3295,8 +3462,7 @@ namespace CREA2014
                                 if (mo["Name"] != null)
                                     cpu = mo["Name"].ToString();
                         }
-                        catch (Exception)
-                        { }
+                        catch (Exception) { }
 
                         string videoCard = string.Empty;
                         try
@@ -3307,8 +3473,7 @@ namespace CREA2014
                                 if (mo["Name"] != null)
                                     videoCard = mo["Name"].ToString();
                         }
-                        catch (Exception)
-                        { }
+                        catch (Exception) { }
 
                         string memory = string.Empty;
                         string architecture = string.Empty;
@@ -3324,8 +3489,7 @@ namespace CREA2014
                                     architecture = mo["OSArchitecture"].ToString() == "" ? "x86" : mo["OSArchitecture"].ToString();
                             }
                         }
-                        catch (Exception)
-                        { }
+                        catch (Exception) { }
 
                         string dotnetVerAll = string.Empty;
                         List<string> versions = new List<string>();
@@ -3483,7 +3647,7 @@ namespace CREA2014
                 };
                 app.Startup += (sender, e) =>
                 {
-                    MainWindow mw = new MainWindow(core, logger, psettings, pstatus, appname, version, appnameWithVersion, lisenceTextFilename, assembly, basepath, _OnException);
+                    MainWindow mw = new MainWindow(core, logger, psettings, pstatus, appname, version, appnameWithVersion, lisenceTextFilename, assembly, basepath, _OnException, _UpVersion);
                     mw.Show();
                 };
                 app.InitializeComponent();
@@ -3511,10 +3675,10 @@ namespace CREA2014
 
                 if (prevProcess != null && prevProcess.MainWindowHandle != IntPtr.Zero)
                 {
-                    if (WIN32API.IsIconic(prevProcess.MainWindowHandle))
-                        WIN32API.ShowWindowAsync(prevProcess.MainWindowHandle, WIN32API.SW_RESTORE);
+                    if (API.IsIconic(prevProcess.MainWindowHandle))
+                        API.ShowWindowAsync(prevProcess.MainWindowHandle, API.SW_RESTORE);
 
-                    WIN32API.SetForegroundWindow(prevProcess.MainWindowHandle);
+                    API.SetForegroundWindow(prevProcess.MainWindowHandle);
                 }
                 else
                     throw new ApplicationException("already_starting");

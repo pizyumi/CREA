@@ -39,6 +39,15 @@
                 else if (e.data.indexOf("log", 0) == 0) {
                     $("#logs_container").prepend(e.data.substring(4));
                 }
+                else if (e.data.indexOf("balance", 0) == 0) {
+                    $("#zandaka").text(e.data.substring(8));
+                }
+                else if (e.data.indexOf("usable_balance", 0) == 0) {
+                    $("#zandaka_kanou").text(e.data.substring(15));
+                }
+                else if (e.data.indexOf("unusable_balance", 0) == 0) {
+                    $("#zandaka_huka").text(e.data.substring(17));
+                }
                 else
                     throw "wss_command_html";
             };
@@ -175,6 +184,30 @@
                         margin: 15px 0px 0px 45px;
                     }
 
+                    #zandaka_kanou_label {
+                        font-size: 12px;
+                        font-weight: bold;
+                        margin: 15px 0px 0px 45px;
+                    }
+
+                    #zandaka_kanou {
+                        font-size: 12px;
+                        font-weight: bold;
+                        margin: 15px 0px 0px 45px;
+                    }
+
+                    #zandaka_huka_label {
+                        font-size: 12px;
+                        font-weight: bold;
+                        margin: 15px 0px 0px 45px;
+                    }
+
+                    #zandaka_huka {
+                        font-size: 12px;
+                        font-weight: bold;
+                        margin: 15px 0px 0px 45px;
+                    }
+
                     .log_item {
                         color: yellow;
                     }
@@ -233,6 +266,10 @@
                     <div id="tab1_tabcontent1" class="tab1_tabcontent">
                         <div id="zandaka_label">残高</div>
                         <div id="zandaka">0.00000000CREA</div>
+                        <div id="zandaka_kanou_label">使用可能</div>
+                        <div id="zandaka_kanou">0.00000000CREA</div>
+                        <div id="zandaka_huka_label">使用不可</div>
+                        <div id="zandaka_huka">0.00000000CREA</div>
                     </div>
                     <div id="tab1_tabcontent2" class="tab1_tabcontent">
                         %%new_account_holder%%

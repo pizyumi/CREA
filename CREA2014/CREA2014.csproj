@@ -56,27 +56,25 @@
     <ApplicationIcon>up0669.ico</ApplicationIcon>
   </PropertyGroup>
   <PropertyGroup>
-    <SignAssembly>false</SignAssembly>
+    <SignAssembly>true</SignAssembly>
+  </PropertyGroup>
+  <PropertyGroup>
+    <AssemblyOriginatorKeyFile>yuminyan.pfx</AssemblyOriginatorKeyFile>
   </PropertyGroup>
   <ItemGroup>
-    <Reference Include="CSharpTest.Net.BPlusTree">
-      <HintPath>C:\Users\湯味菜\Downloads\CSharpTest.Net_40_v2.12.810.409\CSharpTest.Net_40_v2.12.810.409\CSharpTest.Net.BPlusTree.dll</HintPath>
-    </Reference>
-    <Reference Include="CSharpTest.Net.Library">
-      <HintPath>C:\Users\湯味菜\Downloads\CSharpTest.Net_40_v2.12.810.409\CSharpTest.Net_40_v2.12.810.409\CSharpTest.Net.Library.dll</HintPath>
-    </Reference>
-    <Reference Include="HashLib">
-      <HintPath>C:\Users\湯味菜\Downloads\HashLib 2.1\HashLib 2.1\HashLib\bin\x86\Debug\HashLib.dll</HintPath>
+    <Reference Include="HashLib, Version=2.1.0.0, Culture=neutral, processorArchitecture=x86">
+      <SpecificVersion>False</SpecificVersion>
+      <HintPath>..\..\..\..\プログラミング関係\HashLib 2.1\HashLib 2.1\HashLib\bin\x86\Debug\HashLib.dll</HintPath>
     </Reference>
     <Reference Include="SuperSocket.SocketBase">
-      <HintPath>..\..\..\..\アプリケーション\#開発\SuperWebSocket(0.8).Binaries\Net45\Release\SuperSocket.SocketBase.dll</HintPath>
+      <HintPath>..\..\..\..\プログラミング関係\SuperWebSocket(0.8).Binaries\Net45\Release\SuperSocket.SocketBase.dll</HintPath>
     </Reference>
     <Reference Include="SuperSocket.SocketEngine">
-      <HintPath>..\..\..\..\アプリケーション\#開発\SuperWebSocket(0.8).Binaries\Net45\Release\SuperSocket.SocketEngine.dll</HintPath>
+      <HintPath>..\..\..\..\プログラミング関係\SuperWebSocket(0.8).Binaries\Net45\Release\SuperSocket.SocketEngine.dll</HintPath>
     </Reference>
     <Reference Include="SuperWebSocket, Version=0.8.0.0, Culture=neutral, PublicKeyToken=7ba53b9a7cef5d1c, processorArchitecture=MSIL">
       <SpecificVersion>False</SpecificVersion>
-      <HintPath>..\..\..\..\アプリケーション\#開発\SuperWebSocket(0.8).Binaries\Net45\Release\SuperWebSocket.dll</HintPath>
+      <HintPath>..\..\..\..\プログラミング関係\SuperWebSocket(0.8).Binaries\Net45\Release\SuperWebSocket.dll</HintPath>
     </Reference>
     <Reference Include="System" />
     <Reference Include="System.Configuration" />
@@ -187,6 +185,7 @@
       <LastGenOutput>Settings.Designer.cs</LastGenOutput>
     </None>
     <AppDesigner Include="Properties\" />
+    <None Include="yuminyan.pfx" />
     <Resource Include="Resources\Ubuntu-Regular.ttf" />
     <Resource Include="Resources\Audiowide-Regular.ttf" />
   </ItemGroup>
@@ -194,9 +193,7 @@
     <None Include="App.config" />
   </ItemGroup>
   <ItemGroup>
-    <None Include="Lisence.txt">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </None>
+    <EmbeddedResource Include="Component\Lisence.txt" />
   </ItemGroup>
   <ItemGroup>
     <EmbeddedResource Include="Resources\langResouece_ja-JP.txt" />
@@ -255,6 +252,17 @@
   <ItemGroup>
     <EmbeddedResource Include="WebResources\error_log.htm" />
     <EmbeddedResource Include="WebResources\log.htm" />
+  </ItemGroup>
+  <ItemGroup>
+    <EmbeddedResource Include="Component\log4net.dll" />
+    <EmbeddedResource Include="Component\Newtonsoft.Json.dll" />
+    <EmbeddedResource Include="Component\SuperSocket.Common.dll" />
+    <EmbeddedResource Include="Component\SuperSocket.SocketBase.dll" />
+    <EmbeddedResource Include="Component\SuperSocket.SocketEngine.dll" />
+    <EmbeddedResource Include="Component\SuperWebSocket.dll" />
+  </ItemGroup>
+  <ItemGroup>
+    <EmbeddedResource Include="Component\HashLib.dll" />
   </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
   <!-- To modify your build process, add your task inside one of the targets below and uncomment it. 
