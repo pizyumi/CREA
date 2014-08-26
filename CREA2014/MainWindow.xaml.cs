@@ -13,6 +13,7 @@ using System.Text;
 using System.Threading;
 using System.Windows;
 using System.Windows.Input;
+using System.Windows.Threading;
 
 namespace CREA2014
 {
@@ -417,11 +418,14 @@ namespace CREA2014
         private Assembly assembly;
 
         private Action<Exception, Program.ExceptionKind> _OnException;
-        private Func<byte[], bool> _UpVersion;
+        private Func<byte[], Version, bool> _UpVersion;
+
+        private List<UnhandledExceptionEventHandler> unhandledExceptionEventHandlers;
+        private List<DispatcherUnhandledExceptionEventHandler> dispatcherUnhandledExceptionEventHandlers;
 
         private Action<string> _CreateUiFiles;
 
-        public MainWindow(Core _core, Program.Logger _logger, Program.ProgramSettings _psettings, Program.ProgramStatus _pstatus, string _appname, string _version, string _appnameWithVersion, string _lisenceTextFilename, Assembly _assembly, string _basepath, Action<Exception, Program.ExceptionKind> __OnException, Func<byte[], bool> __UpVersion)
+        public MainWindow(Core _core, Program.Logger _logger, Program.ProgramSettings _psettings, Program.ProgramStatus _pstatus, string _appname, string _version, string _appnameWithVersion, string _lisenceTextFilename, Assembly _assembly, string _basepath, Action<Exception, Program.ExceptionKind> __OnException, Func<byte[], Version, bool> __UpVersion, List<UnhandledExceptionEventHandler> _unhandledExceptionEventHandlers, List<DispatcherUnhandledExceptionEventHandler> _dispatcherUnhandledExceptionEventHandlers)
         {
             core = _core;
             logger = _logger;
@@ -435,6 +439,9 @@ namespace CREA2014
 
             _OnException = __OnException;
             _UpVersion = __UpVersion;
+
+            unhandledExceptionEventHandlers = _unhandledExceptionEventHandlers;
+            dispatcherUnhandledExceptionEventHandlers = _dispatcherUnhandledExceptionEventHandlers;
 
             InitializeComponent();
 
@@ -704,6 +711,12 @@ namespace CREA2014
             //<未改良>.NET Framework 4.5 のWenSocketを使用する
             SessionHandler<WebSocketSession, string> newMessageReceived = (session, message) =>
             {
+                //2014/08/26
+                //このイベントハンドラの中で例外が発生しても、例外を捕捉していないにも拘らず、
+                //捕捉されなかった例外とならない
+                //内部で例外が握り潰されているのではないかと思うが・・・
+                //仕方がないので、全ての例外を捕捉し、本来例外が捕捉されなかった場合に実行する処理を特別に実行することにした
+
                 try
                 {
                     this.ExecuteInUIThread(() =>
@@ -1006,7 +1019,7 @@ namespace CREA2014
 
         private void miTest_Click(object sender, RoutedEventArgs e)
         {
-            if (_UpVersion(File.ReadAllBytes(assembly.Location)))
+            if (_UpVersion(File.ReadAllBytes(assembly.Location), assembly.GetName().Version))
                 Close();
             else
                 MessageBox.Show("失敗");

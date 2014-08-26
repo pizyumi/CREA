@@ -23,6 +23,7 @@ using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading;
 using System.Windows;
+using System.Windows.Threading;
 using System.Xml.Linq;
 
 namespace CREA2014
@@ -3165,19 +3166,20 @@ namespace CREA2014
             return exceptionMessages.GetValue(rawMessage, () => rawMessage)();
         }
 
+        private static Assembly assembly = Assembly.GetEntryAssembly();
+        private static string basepath = Path.GetDirectoryName(assembly.Location);
+        private static string assemblyFileName = Path.GetFileName(assembly.Location);
+        private static Version assemblyVersion = assembly.GetName().Version;
+
         private static string appname = "CREA2014";
-        private static int verMaj = 0;
-        private static int verMin = 0;
-        private static int verMMin = 1;
+        private static int verMaj = assemblyVersion.Major;
+        private static int verMin = assemblyVersion.Minor;
+        private static int verMMin = assemblyVersion.Build;
         private static string verS = "α";
         private static int verR = 1; //リリース番号（リリース毎に増やす番号）
         private static int verC = 46; //コミット番号（コミット毎に増やす番号）
         private static string version = string.Join(".", verMaj.ToString(), verMin.ToString(), verMMin.ToString()) + "(" + verS + ")" + "(" + verR.ToString() + ")" + "(" + verC.ToString() + ")";
         private static string appnameWithVersion = string.Join(" ", appname, version);
-
-        private static Assembly assembly = Assembly.GetEntryAssembly();
-        private static string basepath = Path.GetDirectoryName(assembly.Location);
-        private static string assemblyFileName = Path.GetFileName(assembly.Location);
 
         [STAThread]
         public static void Main(string[] args)
@@ -3190,9 +3192,35 @@ namespace CREA2014
                 AppDomain appDomain = AppDomain.CreateDomain(argExtract);
                 appDomain.ExecuteAssembly(assembly.Location, new string[] { argExtract });
                 AppDomain.Unload(appDomain);
-            }
 
-            if (args.Length > 0)
+                string exeDirectoryName = "exe";
+
+                //未だ存在しない（抽出が行われていない）アセンブリを読み込む可能性のないようにしなければならない
+                //本来的なMainの処理を別メソッドにすれば問題ないと思われる
+                Main2(exeDirectoryName, (data, assemblyVersion) =>
+                {
+                    string newAssemblyDiretory = Path.Combine(basepath, exeDirectoryName);
+                    string newAssemblyPath = Path.Combine(newAssemblyDiretory, assemblyFileName);
+
+                    if (!Directory.Exists(newAssemblyDiretory))
+                        Directory.CreateDirectory(newAssemblyDiretory);
+                    File.WriteAllBytes(newAssemblyPath, data);
+
+                    Assembly newAssembly = Assembly.LoadFrom(newAssemblyPath);
+                    Version newAssemblyVersion = newAssembly.GetName().Version;
+
+                    bool pfWasVerified = false;
+                    bool ret = API.StrongNameSignatureVerificationEx(newAssemblyPath, false, ref pfWasVerified);
+
+                    bool isValid = newAssemblyVersion.Major == assemblyVersion.Major && newAssemblyVersion.Minor == assemblyVersion.Minor && newAssemblyVersion.Build == assemblyVersion.Build && newAssemblyVersion.Revision == assemblyVersion.Revision && pfWasVerified && ret && newAssembly.GetName().GetPublicKeyToken().BytesEquals(assembly.GetName().GetPublicKeyToken());
+
+                    if (isValid)
+                        Process.Start(newAssemblyPath, string.Join(" ", argCopy, Process.GetCurrentProcess().Id.ToString()));
+
+                    return isValid;
+                });
+            }
+            else if (args.Length > 0)
                 if (args[0] == argCopy)
                 {
                     API.AllocConsole();
@@ -3245,35 +3273,9 @@ namespace CREA2014
                 }
                 else
                     throw new NotSupportedException("not_supported_argument");
-            else
-            {
-                string exeDirectoryName = "exe";
-
-                //未だ存在しない（抽出が行われていない）アセンブリを読み込む可能性のないようにしなければならない
-                //本来的なMainの処理を別メソッドにすれば問題ないと思われる
-                Main2(exeDirectoryName, (data) =>
-                {
-                    string newAssemblyDiretory = Path.Combine(basepath, exeDirectoryName);
-                    string newAssemblyPath = Path.Combine(newAssemblyDiretory, assemblyFileName);
-
-                    if (!Directory.Exists(newAssemblyDiretory))
-                        Directory.CreateDirectory(newAssemblyDiretory);
-                    File.WriteAllBytes(newAssemblyPath, data);
-
-                    bool pfWasVerified = false;
-                    bool ret = API.StrongNameSignatureVerificationEx(newAssemblyPath, false, ref pfWasVerified);
-
-                    bool isValid = pfWasVerified && ret && Assembly.LoadFrom(newAssemblyPath).GetName().GetPublicKeyToken().BytesEquals(assembly.GetName().GetPublicKeyToken());
-
-                    if (isValid)
-                        Process.Start(newAssemblyPath, string.Join(" ", argCopy, Process.GetCurrentProcess().Id.ToString()));
-
-                    return isValid;
-                });
-            }
         }
 
-        public static void Main2(string exeDirectoryName, Func<byte[], bool> _UpVersion)
+        public static void Main2(string exeDirectoryName, Func<byte[], Version, bool> _UpVersion)
         {
             string lisenceTextFilename = "Lisence.txt";
             string pstatusFilename = "ps";
@@ -3551,11 +3553,22 @@ namespace CREA2014
                 Environment.Exit(0);
             };
 
-            AppDomain.CurrentDomain.UnhandledException += (sender, e) =>
+            List<UnhandledExceptionEventHandler> unhandledExceptionEventHandlers = new List<UnhandledExceptionEventHandler>();
+            unhandledExceptionEventHandlers.Add((sender, e) =>
             {
                 Exception ex = e.ExceptionObject as Exception;
                 if (ex != null)
                     _OnException(ex, ExceptionKind.unhandled);
+            });
+
+            AppDomain.CurrentDomain.UnhandledException += (sender, e) =>
+            {
+                foreach (var unhandledExceptionEventHandler in unhandledExceptionEventHandlers)
+                    unhandledExceptionEventHandler(sender, e);
+            };
+            //<未実装>例外発生状況の記録など？
+            AppDomain.CurrentDomain.FirstChanceException += (sender, e) =>
+            {
             };
 
             Thread.CurrentThread.CurrentCulture = new CultureInfo(psettings.Culture);
@@ -3641,13 +3654,21 @@ namespace CREA2014
                 core.StartSystem();
 
                 App app = new App();
-                app.DispatcherUnhandledException += (sender, e) =>
+
+                List<DispatcherUnhandledExceptionEventHandler> dispatcherUnhandledExceptionEventHandlers = new List<DispatcherUnhandledExceptionEventHandler>();
+                dispatcherUnhandledExceptionEventHandlers.Add((sender, e) =>
                 {
                     _OnException(e.Exception, ExceptionKind.wpf);
+                });
+
+                app.DispatcherUnhandledException += (sender, e) =>
+                {
+                    foreach (var dispatcherUnhandledExceptionEventHandler in dispatcherUnhandledExceptionEventHandlers)
+                        dispatcherUnhandledExceptionEventHandler(sender, e);
                 };
                 app.Startup += (sender, e) =>
                 {
-                    MainWindow mw = new MainWindow(core, logger, psettings, pstatus, appname, version, appnameWithVersion, lisenceTextFilename, assembly, basepath, _OnException, _UpVersion);
+                    MainWindow mw = new MainWindow(core, logger, psettings, pstatus, appname, version, appnameWithVersion, lisenceTextFilename, assembly, basepath, _OnException, _UpVersion, unhandledExceptionEventHandlers, dispatcherUnhandledExceptionEventHandlers);
                     mw.Show();
                 };
                 app.InitializeComponent();
