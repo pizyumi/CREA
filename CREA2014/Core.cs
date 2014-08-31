@@ -1,8 +1,6 @@
 ﻿//がをがを～！
 //作譜者：@pizyumi
 
-#define TEST
-
 using System;
 using System.Collections;
 using System.Collections.Generic;
@@ -2949,22 +2947,33 @@ namespace CREA2014
         }
     }
 
-    public class CreaNetworkLocalTest
+    public abstract class TestApplication
     {
-        public CreaNetworkLocalTest(Program.Logger _logger, Action<Exception, Program.ExceptionKind> _OnException)
+        public TestApplication(Program.Logger _logger) { logger = _logger; }
+
+        protected Program.Logger logger;
+
+        public virtual bool IsUseCore { get { return false; } }
+
+        protected abstract Action ExecuteAction { get; }
+
+        public void Execute() { ExecuteAction(); }
+    }
+
+    public class CreaNetworkLocalTestApplication : TestApplication
+    {
+        public CreaNetworkLocalTestApplication(Program.Logger _logger) : base(_logger) { }
+
+        protected override Action ExecuteAction
         {
-            App app = new App();
-            app.DispatcherUnhandledException += (sender, e) =>
+            get
             {
-                _OnException(e.Exception, Program.ExceptionKind.wpf);
-            };
-            app.Startup += (sender, e) =>
-            {
-                TestWindow tw = new TestWindow(_logger);
-                tw.Show();
-            };
-            app.InitializeComponent();
-            app.Run();
+                return () =>
+                {
+                    TestWindow tw = new TestWindow(logger);
+                    tw.Show();
+                };
+            }
         }
 
         public class TestWindow : Window
@@ -4470,6 +4479,34 @@ namespace CREA2014
         }
     }
 
+    public abstract class DSASIGNATUREBASE : SHAREDDATA
+    {
+        public DSASIGNATUREBASE() : base(null) { }
+
+        public DSASIGNATUREBASE(byte[] _signature)
+            : base(null)
+        {
+            if (_signature.Length != SizeByte)
+                throw new InvalidOperationException("invalid_length_signature");
+
+            signature = _signature;
+        }
+
+        public byte[] signature { get; private set; }
+
+        public abstract int SizeByte { get; }
+
+        protected override Func<ReaderWriter, IEnumerable<MainDataInfomation>> StreamInfo
+        {
+            get
+            {
+                return (msrw) => new MainDataInfomation[]{
+                    new MainDataInfomation(typeof(byte[]), SizeByte, () => signature, (o) => signature = (byte[])o),
+                };
+            }
+        }
+    }
+
     public class Ecdsa256PubKey : DSAPUBKEYBASE
     {
         public Ecdsa256PubKey() : base() { }
@@ -4506,6 +4543,15 @@ namespace CREA2014
                 privKey = new Ecdsa256PrivKey(ck.Export(CngKeyBlobFormat.EccPrivateBlob));
             }
         }
+    }
+
+    public class Ecdsa256Signature : DSASIGNATUREBASE
+    {
+        public Ecdsa256Signature() : base() { }
+
+        public Ecdsa256Signature(byte[] _signature) : base(_signature) { }
+
+        public override int SizeByte { get { return 64; } }
     }
 
     public class Secp256k1PubKey<HashType> : DSAPUBKEYBASE where HashType : HASHBASE
@@ -4607,6 +4653,15 @@ namespace CREA2014
                 privKey = new Secp256k1PribKey<HashType>(privKeyBytes);
             }
         }
+    }
+
+    public class Secp256k1Signature : DSASIGNATUREBASE
+    {
+        public Secp256k1Signature() : base() { }
+
+        public Secp256k1Signature(byte[] _signature) : base(_signature) { }
+
+        public override int SizeByte { get { return 65; } }
     }
 
     #endregion
@@ -5731,6 +5786,119 @@ namespace CREA2014
 
     #region 取引
 
+    public class TransactionInput<TxidHashType, PubKeyType> : SHAREDDATA
+        where TxidHashType : HASHBASE
+        where PubKeyType : DSAPUBKEYBASE
+    {
+        public TransactionInput() : base(null) { }
+
+        public TransactionInput(long _prevTxBlockIndex, int _prevTxIndex, int _prevTxOutputIndex, PubKeyType _senderPubKey)
+            : base(null)
+        {
+            prevTxBlockIndex = _prevTxBlockIndex;
+            prevTxIndex = _prevTxIndex;
+            //prevTxHash = _prevTxHash;
+            prevTxOutputIndex = _prevTxOutputIndex;
+            senderPubKey = _senderPubKey;
+            //amount = _amount;
+        }
+
+        public static readonly int senderSigLength = 64;
+
+        public long prevTxBlockIndex { get; private set; }
+        public int prevTxIndex { get; private set; }
+        //public TxidHashType prevTxHash { get; private set; }
+        public int prevTxOutputIndex { get; private set; }
+        public byte[] senderSig { get; private set; }
+        public PubKeyType senderPubKey { get; private set; }
+        //public CurrencyUnit amount { get; private set; }
+
+        protected override Func<ReaderWriter, IEnumerable<MainDataInfomation>> StreamInfo
+        {
+            get
+            {
+                return (msrw) => new MainDataInfomation[]{
+                    new MainDataInfomation(typeof(long), () => prevTxBlockIndex, (o) => prevTxBlockIndex = (long)o),
+                    new MainDataInfomation(typeof(int), () => prevTxIndex, (o) => prevTxIndex = (int)o),
+                    //new MainDataInfomation(typeof(TxidHashType), null, () => prevTxHash, (o) => prevTxHash = (TxidHashType)o),
+                    new MainDataInfomation(typeof(int), () => prevTxOutputIndex, (o) => prevTxOutputIndex = (int)o),
+                    new MainDataInfomation(typeof(byte[]), senderSigLength, () => senderSig, (o) => senderSig = (byte[])o),
+                    new MainDataInfomation(typeof(PubKeyType), null, () => senderPubKey, (o) => senderPubKey = (PubKeyType)o),
+                    //new MainDataInfomation(typeof(long), () => amount.rawAmount, (o) => amount = new CurrencyUnit((long)o)),
+                };
+            }
+        }
+
+        public Func<ReaderWriter, IEnumerable<MainDataInfomation>> StreamInfoToSign
+        {
+            get
+            {
+                return (msrw) => new MainDataInfomation[]{
+                    new MainDataInfomation(typeof(long), () => prevTxBlockIndex, (o) => { throw new NotSupportedException("tx_in_si_to_sign"); }),
+                    new MainDataInfomation(typeof(int), () => prevTxIndex, (o) => { throw new NotSupportedException("tx_in_si_to_sign"); }),
+                    //new MainDataInfomation(typeof(TxidHashType), null, () => prevTxHash, (o) => { throw new NotSupportedException("tx_in_si_to_sign"); }),
+                    new MainDataInfomation(typeof(int), () => prevTxOutputIndex, (o) => { throw new NotSupportedException("tx_in_si_to_sign"); }),
+                    //new MainDataInfomation(typeof(long), () => amount.rawAmount, (o) => { throw new NotSupportedException("tx_out_si_to_sign"); }),
+                };
+            }
+        }
+
+        public void SetSenderSig(byte[] sig)
+        {
+            if (sig.Length != senderSigLength)
+                throw new ArgumentException("tx_in_sender_sig_length");
+
+            senderSig = sig;
+        }
+    }
+
+    public class TransactionOutput<PubKeyHashType> : SHAREDDATA where PubKeyHashType : HASHBASE
+    {
+        public TransactionOutput() : base(null) { }
+
+        public TransactionOutput(PubKeyHashType _receiverPubKeyHash, CurrencyUnit _amount)
+            : base(null)
+        {
+            receiverPubKeyHash = _receiverPubKeyHash;
+            amount = _amount;
+        }
+
+        public PubKeyHashType receiverPubKeyHash { get; private set; }
+        public CurrencyUnit amount { get; private set; }
+
+        protected override Func<ReaderWriter, IEnumerable<MainDataInfomation>> StreamInfo
+        {
+            get
+            {
+                return (msrw) => new MainDataInfomation[]{
+                    new MainDataInfomation(typeof(PubKeyHashType), null, () => receiverPubKeyHash, (o) => receiverPubKeyHash = (PubKeyHashType)o),
+                    new MainDataInfomation(typeof(long), () => amount.rawAmount, (o) => amount = new CurrencyUnit((long)o)),
+                };
+            }
+        }
+
+        public Func<ReaderWriter, IEnumerable<MainDataInfomation>> StreamInfoToSign
+        {
+            get
+            {
+                return (msrw) => new MainDataInfomation[]{
+                    new MainDataInfomation(typeof(PubKeyHashType), null, () => receiverPubKeyHash, (o) => { throw new NotSupportedException("tx_out_si_to_sign"); }),
+                    new MainDataInfomation(typeof(long), () => amount.rawAmount, (o) => { throw new NotSupportedException("tx_out_si_to_sign"); }),
+                };
+            }
+        }
+
+        public Func<ReaderWriter, IEnumerable<MainDataInfomation>> StreamInfoToSignPrev
+        {
+            get
+            {
+                return (msrw) => new MainDataInfomation[]{
+                    new MainDataInfomation(typeof(PubKeyHashType), null, () => receiverPubKeyHash, (o) => { throw new NotSupportedException("tx_out_si_to_sign_prev"); }),
+                };
+            }
+        }
+    }
+
     public abstract class Transaction<TxidHashType, PubKeyHashType, PubKeyType> : TXBLOCKBASE<TxidHashType>
         where TxidHashType : HASHBASE
         where PubKeyHashType : HASHBASE
@@ -5947,119 +6115,6 @@ namespace CREA2014
                 totalOutpus += outputs[i].amount.rawAmount;
 
             return new CurrencyUnit(totalPrevOutputs - totalOutpus);
-        }
-    }
-
-    public class TransactionInput<TxidHashType, PubKeyType> : SHAREDDATA
-        where TxidHashType : HASHBASE
-        where PubKeyType : DSAPUBKEYBASE
-    {
-        public TransactionInput() : base(null) { }
-
-        public TransactionInput(long _prevTxBlockIndex, int _prevTxIndex, int _prevTxOutputIndex, PubKeyType _senderPubKey)
-            : base(null)
-        {
-            prevTxBlockIndex = _prevTxBlockIndex;
-            prevTxIndex = _prevTxIndex;
-            //prevTxHash = _prevTxHash;
-            prevTxOutputIndex = _prevTxOutputIndex;
-            senderPubKey = _senderPubKey;
-            //amount = _amount;
-        }
-
-        public static readonly int senderSigLength = 64;
-
-        public long prevTxBlockIndex { get; private set; }
-        public int prevTxIndex { get; private set; }
-        //public TxidHashType prevTxHash { get; private set; }
-        public int prevTxOutputIndex { get; private set; }
-        public byte[] senderSig { get; private set; }
-        public PubKeyType senderPubKey { get; private set; }
-        //public CurrencyUnit amount { get; private set; }
-
-        protected override Func<ReaderWriter, IEnumerable<MainDataInfomation>> StreamInfo
-        {
-            get
-            {
-                return (msrw) => new MainDataInfomation[]{
-                    new MainDataInfomation(typeof(long), () => prevTxBlockIndex, (o) => prevTxBlockIndex = (long)o),
-                    new MainDataInfomation(typeof(int), () => prevTxIndex, (o) => prevTxIndex = (int)o),
-                    //new MainDataInfomation(typeof(TxidHashType), null, () => prevTxHash, (o) => prevTxHash = (TxidHashType)o),
-                    new MainDataInfomation(typeof(int), () => prevTxOutputIndex, (o) => prevTxOutputIndex = (int)o),
-                    new MainDataInfomation(typeof(byte[]), senderSigLength, () => senderSig, (o) => senderSig = (byte[])o),
-                    new MainDataInfomation(typeof(PubKeyType), null, () => senderPubKey, (o) => senderPubKey = (PubKeyType)o),
-                    //new MainDataInfomation(typeof(long), () => amount.rawAmount, (o) => amount = new CurrencyUnit((long)o)),
-                };
-            }
-        }
-
-        public Func<ReaderWriter, IEnumerable<MainDataInfomation>> StreamInfoToSign
-        {
-            get
-            {
-                return (msrw) => new MainDataInfomation[]{
-                    new MainDataInfomation(typeof(long), () => prevTxBlockIndex, (o) => { throw new NotSupportedException("tx_in_si_to_sign"); }),
-                    new MainDataInfomation(typeof(int), () => prevTxIndex, (o) => { throw new NotSupportedException("tx_in_si_to_sign"); }),
-                    //new MainDataInfomation(typeof(TxidHashType), null, () => prevTxHash, (o) => { throw new NotSupportedException("tx_in_si_to_sign"); }),
-                    new MainDataInfomation(typeof(int), () => prevTxOutputIndex, (o) => { throw new NotSupportedException("tx_in_si_to_sign"); }),
-                    //new MainDataInfomation(typeof(long), () => amount.rawAmount, (o) => { throw new NotSupportedException("tx_out_si_to_sign"); }),
-                };
-            }
-        }
-
-        public void SetSenderSig(byte[] sig)
-        {
-            if (sig.Length != senderSigLength)
-                throw new ArgumentException("tx_in_sender_sig_length");
-
-            senderSig = sig;
-        }
-    }
-
-    public class TransactionOutput<PubKeyHashType> : SHAREDDATA where PubKeyHashType : HASHBASE
-    {
-        public TransactionOutput() : base(null) { }
-
-        public TransactionOutput(PubKeyHashType _receiverPubKeyHash, CurrencyUnit _amount)
-            : base(null)
-        {
-            receiverPubKeyHash = _receiverPubKeyHash;
-            amount = _amount;
-        }
-
-        public PubKeyHashType receiverPubKeyHash { get; private set; }
-        public CurrencyUnit amount { get; private set; }
-
-        protected override Func<ReaderWriter, IEnumerable<MainDataInfomation>> StreamInfo
-        {
-            get
-            {
-                return (msrw) => new MainDataInfomation[]{
-                    new MainDataInfomation(typeof(PubKeyHashType), null, () => receiverPubKeyHash, (o) => receiverPubKeyHash = (PubKeyHashType)o),
-                    new MainDataInfomation(typeof(long), () => amount.rawAmount, (o) => amount = new CurrencyUnit((long)o)),
-                };
-            }
-        }
-
-        public Func<ReaderWriter, IEnumerable<MainDataInfomation>> StreamInfoToSign
-        {
-            get
-            {
-                return (msrw) => new MainDataInfomation[]{
-                    new MainDataInfomation(typeof(PubKeyHashType), null, () => receiverPubKeyHash, (o) => { throw new NotSupportedException("tx_out_si_to_sign"); }),
-                    new MainDataInfomation(typeof(long), () => amount.rawAmount, (o) => { throw new NotSupportedException("tx_out_si_to_sign"); }),
-                };
-            }
-        }
-
-        public Func<ReaderWriter, IEnumerable<MainDataInfomation>> StreamInfoToSignPrev
-        {
-            get
-            {
-                return (msrw) => new MainDataInfomation[]{
-                    new MainDataInfomation(typeof(PubKeyHashType), null, () => receiverPubKeyHash, (o) => { throw new NotSupportedException("tx_out_si_to_sign_prev"); }),
-                };
-            }
         }
     }
 

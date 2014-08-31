@@ -694,3 +694,66 @@ namespace CREA2014
         }
     }
 }
+
+namespace New
+{
+    using CREA2014;
+
+    public class TransactionInput<TxidHashType, PubKeyType> : SHAREDDATA
+        where TxidHashType : HASHBASE
+        where PubKeyType : DSAPUBKEYBASE
+    {
+        public TransactionInput() : base(null) { }
+
+        public TransactionInput(long _prevTxBlockIndex, int _prevTxIndex, int _prevTxOutputIndex, PubKeyType _senderPubKey)
+            : base(null)
+        {
+            prevTxBlockIndex = _prevTxBlockIndex;
+            prevTxIndex = _prevTxIndex;
+            prevTxOutputIndex = _prevTxOutputIndex;
+            senderPubKey = _senderPubKey;
+        }
+
+        public static readonly int senderSigLength = 64;
+
+        public long prevTxBlockIndex { get; private set; }
+        public int prevTxIndex { get; private set; }
+        public int prevTxOutputIndex { get; private set; }
+        public byte[] senderSig { get; private set; }
+        public PubKeyType senderPubKey { get; private set; }
+
+        protected override Func<ReaderWriter, IEnumerable<MainDataInfomation>> StreamInfo
+        {
+            get
+            {
+                return (msrw) => new MainDataInfomation[]{
+                    new MainDataInfomation(typeof(long), () => prevTxBlockIndex, (o) => prevTxBlockIndex = (long)o),
+                    new MainDataInfomation(typeof(int), () => prevTxIndex, (o) => prevTxIndex = (int)o),
+                    new MainDataInfomation(typeof(int), () => prevTxOutputIndex, (o) => prevTxOutputIndex = (int)o),
+                    new MainDataInfomation(typeof(byte[]), senderSigLength, () => senderSig, (o) => senderSig = (byte[])o),
+                    new MainDataInfomation(typeof(PubKeyType), null, () => senderPubKey, (o) => senderPubKey = (PubKeyType)o),
+                };
+            }
+        }
+
+        public Func<ReaderWriter, IEnumerable<MainDataInfomation>> StreamInfoToSign
+        {
+            get
+            {
+                return (msrw) => new MainDataInfomation[]{
+                    new MainDataInfomation(typeof(long), () => prevTxBlockIndex, (o) => { throw new NotSupportedException("tx_in_si_to_sign"); }),
+                    new MainDataInfomation(typeof(int), () => prevTxIndex, (o) => { throw new NotSupportedException("tx_in_si_to_sign"); }),
+                    new MainDataInfomation(typeof(int), () => prevTxOutputIndex, (o) => { throw new NotSupportedException("tx_in_si_to_sign"); }),
+                };
+            }
+        }
+
+        public void SetSenderSig(byte[] sig)
+        {
+            if (sig.Length != senderSigLength)
+                throw new ArgumentException("tx_in_sender_sig_length");
+
+            senderSig = sig;
+        }
+    }
+}

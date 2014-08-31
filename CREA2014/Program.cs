@@ -3556,6 +3556,8 @@ namespace CREA2014
             List<UnhandledExceptionEventHandler> unhandledExceptionEventHandlers = new List<UnhandledExceptionEventHandler>();
             unhandledExceptionEventHandlers.Add((sender, e) =>
             {
+                //2014/08/27
+                //C#でeがExceptionでないことはあり得ないと思われる
                 Exception ex = e.ExceptionObject as Exception;
                 if (ex != null)
                     _OnException(ex, ExceptionKind.unhandled);
@@ -3570,6 +3572,9 @@ namespace CREA2014
             AppDomain.CurrentDomain.FirstChanceException += (sender, e) =>
             {
             };
+
+            //<未実装>各種統計情報の取得
+            AppDomain.MonitoringIsEnabled = true;
 
             Thread.CurrentThread.CurrentCulture = new CultureInfo(psettings.Culture);
             Thread.CurrentThread.CurrentUICulture = new CultureInfo(psettings.Culture);
@@ -3648,18 +3653,23 @@ namespace CREA2014
                     _FeatureControl("FEATURE_XMLHTTP", 1);
                 }
 
-                //Test test = new Test(logger, _OnException);
+                TestApplication testApplication;
+#if TEST
+                testApplication = new CreaNetworkLocalTestApplication(logger);
+#else
+                testApplication = null;
+#endif
 
-                core = new Core(basepath);
-                core.StartSystem();
+                if (testApplication == null || testApplication.IsUseCore)
+                {
+                    core = new Core(basepath);
+                    core.StartSystem();
+                }
 
                 App app = new App();
 
                 List<DispatcherUnhandledExceptionEventHandler> dispatcherUnhandledExceptionEventHandlers = new List<DispatcherUnhandledExceptionEventHandler>();
-                dispatcherUnhandledExceptionEventHandlers.Add((sender, e) =>
-                {
-                    _OnException(e.Exception, ExceptionKind.wpf);
-                });
+                dispatcherUnhandledExceptionEventHandlers.Add((sender, e) => _OnException(e.Exception, ExceptionKind.wpf));
 
                 app.DispatcherUnhandledException += (sender, e) =>
                 {
@@ -3668,13 +3678,20 @@ namespace CREA2014
                 };
                 app.Startup += (sender, e) =>
                 {
-                    MainWindow mw = new MainWindow(core, logger, psettings, pstatus, appname, version, appnameWithVersion, lisenceTextFilename, assembly, basepath, _OnException, _UpVersion, unhandledExceptionEventHandlers, dispatcherUnhandledExceptionEventHandlers);
-                    mw.Show();
+                    if (testApplication == null)
+                    {
+                        MainWindow mw = new MainWindow(core, logger, psettings, pstatus, appname, version, appnameWithVersion, lisenceTextFilename, assembly, basepath, _OnException, _UpVersion, unhandledExceptionEventHandlers, dispatcherUnhandledExceptionEventHandlers);
+                        mw.Show();
+                    }
+                    else
+                        testApplication.Execute();
                 };
                 app.InitializeComponent();
                 app.Run();
 
-                core.EndSystem();
+                if (testApplication == null || testApplication.IsUseCore)
+                    core.EndSystem();
+
                 psettings.Save();
 
                 File.WriteAllBytes(pstatusFilepath, pstatus.ToBinary());
@@ -3683,23 +3700,23 @@ namespace CREA2014
             }
             else
             {
-                Process prevProcess = null;
+                Process preveousProcess = null;
                 Process currentProcess = Process.GetCurrentProcess();
                 Process[] allProcesses = Process.GetProcessesByName(currentProcess.ProcessName);
 
                 foreach (var p in allProcesses)
                     if (p.Id != currentProcess.Id && string.Compare(p.MainModule.FileName, currentProcess.MainModule.FileName, true) == 0)
                     {
-                        prevProcess = p;
+                        preveousProcess = p;
                         break;
                     }
 
-                if (prevProcess != null && prevProcess.MainWindowHandle != IntPtr.Zero)
+                if (preveousProcess != null && preveousProcess.MainWindowHandle != IntPtr.Zero)
                 {
-                    if (API.IsIconic(prevProcess.MainWindowHandle))
-                        API.ShowWindowAsync(prevProcess.MainWindowHandle, API.SW_RESTORE);
+                    if (API.IsIconic(preveousProcess.MainWindowHandle))
+                        API.ShowWindowAsync(preveousProcess.MainWindowHandle, API.SW_RESTORE);
 
-                    API.SetForegroundWindow(prevProcess.MainWindowHandle);
+                    API.SetForegroundWindow(preveousProcess.MainWindowHandle);
                 }
                 else
                     throw new ApplicationException("already_starting");
@@ -3710,29 +3727,4 @@ namespace CREA2014
     }
 
     #endregion
-
-    public class Test
-    {
-        private readonly Program.Logger logger;
-        private readonly Action<Exception, Program.ExceptionKind> OnException;
-        private readonly bool isTest = true;
-
-        public Test(Program.Logger _logger, Action<Exception, Program.ExceptionKind> _OnException)
-        {
-            if (!isTest)
-                return;
-
-            logger = _logger;
-            OnException = _OnException;
-
-            CreaNetworkLocalTest();
-
-            Environment.Exit(0);
-        }
-
-        private void CreaNetworkLocalTest()
-        {
-            CreaNetworkLocalTest cnlt = new CreaNetworkLocalTest(logger, OnException);
-        }
-    }
 }
