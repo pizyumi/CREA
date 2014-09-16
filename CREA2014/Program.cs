@@ -1181,6 +1181,11 @@ namespace CREA2014
     public abstract class DATA { }
     public abstract class INTERNALDATA : DATA { }
     //2014/06/10 配列が上手く読み書きできないバグを修正
+    //2014/08/31
+    //バージョンが保存されるかどうかを設定できるように変更
+    //バージョンが保存されている場合にはそのバージョンを採用し、StreamInfomationのバージョンは無視する
+    //<未改良>最終的にはStreamInfomationでバージョン指定が必要なのはバージョンありだが、
+    //バージョンが保存されない場合（外部からバージョンを指定してやる必要がある場合）のみにすべき
     public abstract class STREAMDATA<T> : DATA where T : STREAMDATA<T>.StreamInfomation
     {
         public abstract class STREAMWRITER
@@ -1230,7 +1235,7 @@ namespace CREA2014
             private readonly STREAMREADER reader;
             private readonly Mode mode;
 
-            public byte[] ReadOrWrite(byte[] bytes, int length)
+            public byte[] ReadOrWrite(byte[] bytes, int? length)
             {
                 if (mode == Mode.read)
                     return reader.ReadBytes(length);
@@ -1370,7 +1375,7 @@ namespace CREA2014
                     if (!sd.IsVersioned)
                         throw new NotSupportedException("stream_info_version");
                     else
-                        return (int)version;
+                        return version.Value;
                 }
             }
         }
@@ -1405,7 +1410,8 @@ namespace CREA2014
                 {
                     SHAREDDATA sd = o as SHAREDDATA;
 
-                    writer.WriteSHAREDDATA(sd, sd.IsVersioned ? (int?)si.Version : null);
+                    //外部からバージョンを渡さなければならない場合にのみバージョンを渡す
+                    writer.WriteSHAREDDATA(sd, sd.IsVersioned && !sd.IsVersionSaved ? (int?)si.Version : null);
                 }
                 else
                     throw new NotSupportedException("sd_write_not_supported");
@@ -1454,7 +1460,12 @@ namespace CREA2014
                 else if (type == typeof(string))
                     return reader.ReadString();
                 else if (type.IsSubclassOf(typeof(SHAREDDATA)))
-                    return reader.ReadSHAREDDATA(type, (Activator.CreateInstance(type) as SHAREDDATA).IsVersioned ? (int?)si.Version : null);
+                {
+                    SHAREDDATA sd = Activator.CreateInstance(type) as SHAREDDATA;
+
+                    //外部からバージョンを渡さなければならない場合にのみバージョンを渡す
+                    return reader.ReadSHAREDDATA(type, sd.IsVersioned && !sd.IsVersionSaved ? (int?)si.Version : null);
+                }
                 else
                     throw new NotSupportedException("sd_read_not_supported");
             };
@@ -1482,70 +1493,32 @@ namespace CREA2014
         {
             private readonly IChannel ca;
 
-            public CommunicationApparatusWriter(IChannel _ca)
-            {
-                ca = _ca;
-            }
+            public CommunicationApparatusWriter(IChannel _ca) { ca = _ca; }
 
-            public override void WriteBytes(byte[] data, int? length)
-            {
-                ca.WriteBytes(data);
-            }
+            public override void WriteBytes(byte[] data, int? length) { ca.WriteBytes(data); }
 
-            public override void WriteBool(bool data)
-            {
-                ca.WriteBytes(BitConverter.GetBytes(data));
-            }
+            public override void WriteBool(bool data) { ca.WriteBytes(BitConverter.GetBytes(data)); }
 
-            public override void WriteInt(int data)
-            {
-                ca.WriteBytes(BitConverter.GetBytes(data));
-            }
+            public override void WriteInt(int data) { ca.WriteBytes(BitConverter.GetBytes(data)); }
 
-            public override void WriteUint(uint data)
-            {
-                ca.WriteBytes(BitConverter.GetBytes(data));
-            }
+            public override void WriteUint(uint data) { ca.WriteBytes(BitConverter.GetBytes(data)); }
 
-            public override void WriteFloat(float data)
-            {
-                ca.WriteBytes(BitConverter.GetBytes(data));
-            }
+            public override void WriteFloat(float data) { ca.WriteBytes(BitConverter.GetBytes(data)); }
 
-            public override void WriteLong(long data)
-            {
-                ca.WriteBytes(BitConverter.GetBytes(data));
-            }
+            public override void WriteLong(long data) { ca.WriteBytes(BitConverter.GetBytes(data)); }
 
-            public override void WriteUlong(ulong data)
-            {
-                ca.WriteBytes(BitConverter.GetBytes(data));
-            }
+            public override void WriteUlong(ulong data) { ca.WriteBytes(BitConverter.GetBytes(data)); }
 
-            public override void WriteDouble(double data)
-            {
-                ca.WriteBytes(BitConverter.GetBytes(data));
-            }
+            public override void WriteDouble(double data) { ca.WriteBytes(BitConverter.GetBytes(data)); }
 
-            public override void WriteDateTime(DateTime data)
-            {
-                ca.WriteBytes(BitConverter.GetBytes((data).ToBinary()));
-            }
+            public override void WriteDateTime(DateTime data) { ca.WriteBytes(BitConverter.GetBytes((data).ToBinary())); }
 
-            public override void WriteString(string data)
-            {
-                ca.WriteBytes(Encoding.UTF8.GetBytes(data));
-            }
+            public override void WriteString(string data) { ca.WriteBytes(Encoding.UTF8.GetBytes(data)); }
 
             public override void WriteSHAREDDATA(SHAREDDATA sd, int? version)
             {
-                if (sd.IsVersioned)
-                {
-                    if (version == null)
-                        throw new ArgumentException("write_sd_version_null");
-
-                    sd.Version = (int)version;
-                }
+                if (sd.IsVersioned && !sd.IsVersionSaved && sd.Version != version)
+                    throw new ArgumentException("write_sd_version_mismatch");
 
                 ca.WriteBytes(sd.ToBinary());
             }
@@ -1555,70 +1528,37 @@ namespace CREA2014
         {
             private readonly IChannel ca;
 
-            public CommunicationApparatusReader(IChannel _ca)
-            {
-                ca = _ca;
-            }
+            public CommunicationApparatusReader(IChannel _ca) { ca = _ca; }
 
-            public override byte[] ReadBytes(int? length)
-            {
-                return ca.ReadBytes();
-            }
+            public override byte[] ReadBytes(int? length) { return ca.ReadBytes(); }
 
-            public override bool ReadBool()
-            {
-                return BitConverter.ToBoolean(ca.ReadBytes(), 0);
-            }
+            public override bool ReadBool() { return BitConverter.ToBoolean(ca.ReadBytes(), 0); }
 
-            public override int ReadInt()
-            {
-                return BitConverter.ToInt32(ca.ReadBytes(), 0);
-            }
+            public override int ReadInt() { return BitConverter.ToInt32(ca.ReadBytes(), 0); }
 
-            public override uint ReadUint()
-            {
-                return BitConverter.ToUInt32(ca.ReadBytes(), 0);
-            }
+            public override uint ReadUint() { return BitConverter.ToUInt32(ca.ReadBytes(), 0); }
 
-            public override float ReadFloat()
-            {
-                return BitConverter.ToSingle(ca.ReadBytes(), 0);
-            }
+            public override float ReadFloat() { return BitConverter.ToSingle(ca.ReadBytes(), 0); }
 
-            public override long ReadLong()
-            {
-                return BitConverter.ToInt64(ca.ReadBytes(), 0);
-            }
+            public override long ReadLong() { return BitConverter.ToInt64(ca.ReadBytes(), 0); }
 
-            public override ulong ReadUlong()
-            {
-                return BitConverter.ToUInt64(ca.ReadBytes(), 0);
-            }
+            public override ulong ReadUlong() { return BitConverter.ToUInt64(ca.ReadBytes(), 0); }
 
-            public override double ReadDouble()
-            {
-                return BitConverter.ToDouble(ca.ReadBytes(), 0);
-            }
+            public override double ReadDouble() { return BitConverter.ToDouble(ca.ReadBytes(), 0); }
 
-            public override DateTime ReadDateTime()
-            {
-                return DateTime.FromBinary(BitConverter.ToInt64(ca.ReadBytes(), 0));
-            }
+            public override DateTime ReadDateTime() { return DateTime.FromBinary(BitConverter.ToInt64(ca.ReadBytes(), 0)); }
 
-            public override string ReadString()
-            {
-                return Encoding.UTF8.GetString(ca.ReadBytes());
-            }
+            public override string ReadString() { return Encoding.UTF8.GetString(ca.ReadBytes()); }
 
             public override SHAREDDATA ReadSHAREDDATA(Type type, int? version)
             {
                 SHAREDDATA sd = Activator.CreateInstance(type) as SHAREDDATA;
-                if (sd.IsVersioned)
+                if (sd.IsVersioned && sd.IsVersionSaved)
                 {
                     if (version == null)
                         throw new ArgumentException("read_sd_version_null");
 
-                    sd.Version = (int)version;
+                    sd.Version = version.Value;
                 }
                 sd.FromBinary(ca.ReadBytes());
 
@@ -1628,23 +1568,11 @@ namespace CREA2014
 
         public class ProtocolInfomation : StreamInfomation
         {
-            public ProtocolInfomation(Type _type, int? _version, int? _length, Func<object> _sender, Action<object> _receiver, Direction _forClient)
-                : base(_type, _version, _length, _sender, _receiver)
-            {
-                ForClient = _forClient;
-            }
+            public ProtocolInfomation(Type _type, int? _version, int? _length, Func<object> _sender, Action<object> _receiver, Direction _forClient) : base(_type, _version, _length, _sender, _receiver) { ForClient = _forClient; }
 
-            public ProtocolInfomation(Type _type, int? _lengthOrVersion, Func<object> _sender, Action<object> _receiver, Direction _forClient)
-                : base(_type, _lengthOrVersion, _sender, _receiver)
-            {
-                ForClient = _forClient;
-            }
+            public ProtocolInfomation(Type _type, int? _lengthOrVersion, Func<object> _sender, Action<object> _receiver, Direction _forClient) : base(_type, _lengthOrVersion, _sender, _receiver) { ForClient = _forClient; }
 
-            public ProtocolInfomation(Type _type, Func<object> _sender, Action<object> _receiver, Direction _forClient)
-                : base(_type, _sender, _receiver)
-            {
-                ForClient = _forClient;
-            }
+            public ProtocolInfomation(Type _type, Func<object> _sender, Action<object> _receiver, Direction _forClient) : base(_type, _sender, _receiver) { ForClient = _forClient; }
 
             public enum Direction { write, read }
 
@@ -1718,16 +1646,11 @@ namespace CREA2014
 
             public override void WriteSHAREDDATA(SHAREDDATA data, int? version)
             {
-                if (data.IsVersioned)
-                {
-                    if (version == null)
-                        throw new ArgumentException("write_sd_version_null");
-
-                    data.Version = (int)version;
-                }
+                if (data.IsVersioned && !data.IsVersionSaved && data.Version != version)
+                    throw new ArgumentException("write_sd_version_mismatch");
 
                 byte[] bytes = data.ToBinary();
-                if (data.LengthOfMain == null)
+                if (data.LengthAll == null)
                     stream.Write(BitConverter.GetBytes(bytes.Length), 0, 4);
                 stream.Write(bytes, 0, bytes.Length);
             }
@@ -1748,8 +1671,8 @@ namespace CREA2014
                     length = BitConverter.ToInt32(lengthBytes, 0);
                 }
 
-                byte[] bytes = new byte[(int)length];
-                stream.Read(bytes, 0, (int)length);
+                byte[] bytes = new byte[length.Value];
+                stream.Read(bytes, 0, length.Value);
                 return bytes;
             }
 
@@ -1823,15 +1746,15 @@ namespace CREA2014
             public override SHAREDDATA ReadSHAREDDATA(Type type, int? version)
             {
                 SHAREDDATA sd = Activator.CreateInstance(type) as SHAREDDATA;
-                if (sd.IsVersioned)
+                if (sd.IsVersioned && !sd.IsVersionSaved)
                 {
                     if (version == null)
                         throw new ArgumentException("read_sd_version_null");
 
-                    sd.Version = (int)version;
+                    sd.Version = version.Value;
                 }
 
-                int? length = sd.LengthOfAll;
+                int? length = sd.LengthAll;
                 if (length == null)
                 {
                     byte[] lengthBytes = new byte[4];
@@ -1839,8 +1762,8 @@ namespace CREA2014
                     length = BitConverter.ToInt32(lengthBytes, 0);
                 }
 
-                byte[] bytes = new byte[(int)length];
-                stream.Read(bytes, 0, (int)length);
+                byte[] bytes = new byte[length.Value];
+                stream.Read(bytes, 0, length.Value);
 
                 sd.FromBinary(bytes);
 
@@ -1871,6 +1794,8 @@ namespace CREA2014
         }
 
         public virtual bool IsVersioned { get { return false; } }
+
+        public virtual bool IsVersionSaved { get { return true; } }
 
         public virtual bool IsCorruptionChecked { get { return false; } }
 
@@ -1922,16 +1847,17 @@ namespace CREA2014
             }
         }
 
-        public int? LengthOfAll
+        public int? LengthAll
         {
             get
             {
-                int? length = LengthOfMain;
+                int? length = LengthMain;
+                //公開鍵や署名は可変長である
                 if (length == null || IsSigned)
                     return null;
                 else
                 {
-                    if (IsVersioned)
+                    if (IsVersioned && IsVersionSaved)
                         length += 4;
                     if (IsCorruptionChecked)
                         length += 4;
@@ -1940,7 +1866,7 @@ namespace CREA2014
             }
         }
 
-        public int? LengthOfMain
+        public int? LengthMain
         {
             get
             {
@@ -1955,28 +1881,13 @@ namespace CREA2014
                     else if (type == typeof(string))
                         return null;
                     else if (type.IsSubclassOf(typeof(SHAREDDATA)))
-                    {
-                        SHAREDDATA sd = Activator.CreateInstance(type) as SHAREDDATA;
-                        if (sd.IsVersioned)
-                            sd.version = mdi.Version;
-
-                        if (sd.LengthOfMain == null)
-                            return null;
-                        else
-                        {
-                            int innerLength = 0;
-
-                            if (sd.IsVersioned)
-                                innerLength += 4;
-                            if (sd.IsCorruptionChecked)
-                                innerLength += 4;
-
-                            return innerLength + (int)sd.LengthOfMain;
-                        }
-                    }
+                        return (Activator.CreateInstance(type) as SHAREDDATA).LengthAll;
                     else
                         throw new NotSupportedException("sd_length_not_supported");
                 };
+
+                if (IsVersioned && IsVersionSaved)
+                    return null;
 
                 int length = 0;
                 try
@@ -1991,7 +1902,7 @@ namespace CREA2014
                                 if (innerLength == null)
                                     return null;
                                 else
-                                    length += (int)mdi.Length * (int)innerLength;
+                                    length += mdi.Length.Value * innerLength.Value;
                             }
                         else
                         {
@@ -1999,7 +1910,7 @@ namespace CREA2014
                             if (innerLength == null)
                                 return null;
                             else
-                                length += (int)innerLength;
+                                length += innerLength.Value;
                         }
                 }
                 catch (ReaderWriter.CantReadOrWriteException)
@@ -2025,14 +1936,16 @@ namespace CREA2014
 
         public byte[] ToBinaryMainData() { return ToBinaryMainData(StreamInfo); }
 
+        //バージョンに関してはバージョンを保存する構成になっている場合には設定されているバージョンを書き込むだけである
+        //バージョンの妥当性は不可知である
         protected byte[] ToBinary(Func<ReaderWriter, IEnumerable<MainDataInfomation>> si)
         {
             byte[] mainDataBytes = ToBinaryMainData(si);
 
             using (MemoryStream ms = new MemoryStream())
             {
-                if (IsVersioned)
-                    ms.Write(BitConverter.GetBytes((int)version), 0, 4);
+                if (IsVersioned && IsVersionSaved)
+                    ms.Write(BitConverter.GetBytes(version.Value), 0, 4);
                 //破損検査のためのデータ（主データのSha256ハッシュ値の先頭4バイト）
                 if (IsCorruptionChecked)
                     ms.Write(mainDataBytes.ComputeSha256(), 0, 4);
@@ -2066,12 +1979,14 @@ namespace CREA2014
 
         public byte[] ToBinary() { return ToBinary(StreamInfo); }
 
+        //バージョンに関してはバージョンを保存する構成になっている場合には格納されているバージョンを読み取って設定するだけである
+        //バージョンの妥当性には不可知である
         public void FromBinary(byte[] binary)
         {
             byte[] mainDataBytes;
             using (MemoryStream ms = new MemoryStream(binary))
             {
-                if (IsVersioned)
+                if (IsVersioned && IsVersionSaved)
                 {
                     byte[] versionBytes = new byte[4];
                     ms.Read(versionBytes, 0, 4);
@@ -2125,6 +2040,14 @@ namespace CREA2014
         public static T FromBinary<T>(byte[] binary) where T : SHAREDDATA
         {
             T sd = Activator.CreateInstance(typeof(T)) as T;
+            sd.FromBinary(binary);
+            return sd;
+        }
+
+        public static T FromBinary<T>(byte[] binary, int version) where T : SHAREDDATA
+        {
+            T sd = Activator.CreateInstance(typeof(T)) as T;
+            sd.Version = version;
             sd.FromBinary(binary);
             return sd;
         }
@@ -2372,6 +2295,10 @@ namespace CREA2014
                 {
                     try
                     {
+                        //2014/09/15
+                        //もしこの前後に処理を追加するのならその処理で例外が発生した場合の対処のために
+                        //TaskErroredのようなイベントを発生させるようにするか、
+                        //例外対処処理を渡せるようにすべきかもしれない
                         task.Action();
                     }
                     catch (Exception ex)

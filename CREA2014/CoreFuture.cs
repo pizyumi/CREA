@@ -361,7 +361,7 @@ namespace CREA2014
                 DiffuseSimulation ds = new DiffuseSimulation();
                 Dictionary<ushort, int> nodes = new Dictionary<ushort, int>();
                 for (int i = 0; i < ds.numberOfNodes; i++)
-                    nodes.Add(ds.nodeInfos[i].PortNumber, i);
+                    nodes.Add(ds.nodeInfos[i].portNumber, i);
 
                 Background = Brushes.Black;
 
@@ -405,7 +405,7 @@ namespace CREA2014
                     nodeBorders[i].Child = nodeSp;
 
                     TextBlock tbPortNumber = new TextBlock();
-                    tbPortNumber.Text = "ポート番号：" + ds.nodeInfos[i].PortNumber.ToString();
+                    tbPortNumber.Text = "ポート番号：" + ds.nodeInfos[i].portNumber.ToString();
                     tbPortNumber.Foreground = Brushes.White;
                     nodeSp.Children.Add(tbPortNumber);
 
@@ -480,12 +480,12 @@ namespace CREA2014
     {
         public DiffuseSimulation()
         {
-            nodeInfos = new NodeInformation<Sha256Hash>[numberOfNodes];
+            nodeInfos = new NodeInformation[numberOfNodes];
             for (int i = 0; i < numberOfNodes; i++)
-                nodeInfos[i] = new NodeInformation<Sha256Hash>(IPAddress.Loopback, (ushort)(startPortNumber + i), Network.localtest, string.Empty);
+                nodeInfos[i] = new NodeInformation(IPAddress.Loopback, (ushort)(startPortNumber + i), Network.localtest, string.Empty);
 
             for (int i = 0; i < numberOfNodes; i++)
-                portNumberToIndex.Add(nodeInfos[i].PortNumber, i);
+                portNumberToIndex.Add(nodeInfos[i].portNumber, i);
 
             sn = new SimulationNetwork();
             sss = new SimulationSocket[numberOfNodes];
@@ -495,14 +495,14 @@ namespace CREA2014
             for (int i = 0; i < numberOfNodes; i++)
             {
                 sss[i] = new SimulationSocket(sn);
-                sss[i].Bind(new IPEndPoint(IPAddress.Any, nodeInfos[i].PortNumber));
+                sss[i].Bind(new IPEndPoint(IPAddress.Any, nodeInfos[i].portNumber));
                 sss[i].Listen(100);
 
-                cremlias[i] = new Cremlia(new CremliaIdFactory<Sha256Hash>(), new CremliaDatabaseIo(), new CremliaNetworkIoSimulation(sss[i]), new CremliaNodeInfomation<Sha256Hash>(nodeInfos[i]));
+                cremlias[i] = new Cremlia(new CremliaIdFactory<Sha256Hash>(), new CremliaDatabaseIo(), new CremliaNetworkIoSimulation(sss[i]), new CremliaNodeInfomationSha256(nodeInfos[i]));
                 int[] randomNums = numberOfNodes.RandomNums();
                 for (int j = 0; j < numberOfNodes; j++)
                     if (randomNums[j] != i)
-                        cremlias[i].UpdateNodeStateWhenJoin(new CremliaNodeInfomation<Sha256Hash>(nodeInfos[randomNums[j]]));
+                        cremlias[i].UpdateNodeStateWhenJoin(new CremliaNodeInfomationSha256(nodeInfos[randomNums[j]]));
 
                 int index = i;
 
@@ -522,7 +522,7 @@ namespace CREA2014
 
                         this.StartTask(string.Empty, string.Empty, () =>
                         {
-                            NodeInformation<Sha256Hash> ni = SHAREDDATA.FromBinary<NodeInformation<Sha256Hash>>(ss.Read());
+                            NodeInformation ni = SHAREDDATA.FromBinary<NodeInformation>(ss.Read());
                             byte[] data = ss.Read();
                             ss.Close();
 
@@ -548,7 +548,7 @@ namespace CREA2014
                                     ss2.Connect(IPAddress.Loopback, (ushort)(startPortNumber + nodes[j]));
 
                                     connections.Add(ss2.localPortNumber, (ushort)(startPortNumber + nodes[j]));
-                                    connections.Add(ss2.remotePortNumber, nodeInfos[index].PortNumber);
+                                    connections.Add(ss2.remotePortNumber, nodeInfos[index].portNumber);
 
                                     ss2.Write(nodeInfos[index].ToBinary());
                                     ss2.Write(new byte[1024]);
@@ -569,7 +569,7 @@ namespace CREA2014
             return nodes;
         }
 
-        private int[] SelectNodes2(int myNodeIndex, NodeInformation<Sha256Hash> prevNodeInfo)
+        private int[] SelectNodes2(int myNodeIndex, NodeInformation prevNodeInfo)
         {
             if (prevNodeInfo == null)
             {
@@ -578,7 +578,7 @@ namespace CREA2014
                 {
                     ICremliaNodeInfomation[] nodeInfos1 = cremlias[myNodeIndex].GetKbuckets(i);
                     if (nodeInfos1.Length != 0)
-                        nodes.Add(portNumberToIndex[(nodeInfos1[nodeInfos1.Length.RandomNum()] as CremliaNodeInfomation<Sha256Hash>).nodeInfo.PortNumber]);
+                        nodes.Add(portNumberToIndex[(nodeInfos1[nodeInfos1.Length.RandomNum()] as CremliaNodeInfomationSha256).nodeInfo.portNumber]);
                 }
                 return nodes.ToArray();
             }
@@ -589,7 +589,7 @@ namespace CREA2014
                 {
                     ICremliaNodeInfomation[] nodeInfos1 = cremlias[myNodeIndex].GetKbuckets(i);
                     if (nodeInfos1.Length != 0)
-                        nodes.Add(portNumberToIndex[(nodeInfos1[nodeInfos1.Length.RandomNum()] as CremliaNodeInfomation<Sha256Hash>).nodeInfo.PortNumber]);
+                        nodes.Add(portNumberToIndex[(nodeInfos1[nodeInfos1.Length.RandomNum()] as CremliaNodeInfomationSha256).nodeInfo.portNumber]);
                 }
                 return nodes.ToArray();
             }
@@ -598,7 +598,7 @@ namespace CREA2014
             cremlias[myNodeIndex].GetNeighborNodesTable(new CremliaId<Sha256Hash>(nodeInfos[myNodeIndex].Id), findTable);
             int[] neighborNodes = new int[3];
             for (int i = 0; i < 3; i++)
-                neighborNodes[i] = portNumberToIndex[(findTable[findTable.Keys[i]] as CremliaNodeInfomation<Sha256Hash>).nodeInfo.PortNumber];
+                neighborNodes[i] = portNumberToIndex[(findTable[findTable.Keys[i]] as CremliaNodeInfomationSha256).nodeInfo.portNumber];
             return neighborNodes;
         }
 
@@ -633,7 +633,7 @@ namespace CREA2014
         public readonly int connectWait = 50;
         public readonly int verifyWait = 70;
 
-        public readonly NodeInformation<Sha256Hash>[] nodeInfos;
+        public readonly NodeInformation[] nodeInfos;
         public readonly SimulationNetwork sn;
         public readonly SimulationSocket[] sss;
         public readonly Cremlia[] cremlias;
@@ -699,61 +699,543 @@ namespace New
 {
     using CREA2014;
 
-    public class TransactionInput<TxidHashType, PubKeyType> : SHAREDDATA
-        where TxidHashType : HASHBASE
-        where PubKeyType : DSAPUBKEYBASE
+    public class TransactionInput : SHAREDDATA
     {
-        public TransactionInput() : base(null) { }
+        public TransactionInput() : base(0) { }
 
-        public TransactionInput(long _prevTxBlockIndex, int _prevTxIndex, int _prevTxOutputIndex, PubKeyType _senderPubKey)
-            : base(null)
+        public void LoadVersion0(long _prevTxBlockIndex, int _prevTxIndex, int _prevTxOutputIndex, Ecdsa256PubKey _senderPubKey)
+        {
+            Version = 0;
+
+            LoadCommon(_prevTxBlockIndex, _prevTxIndex, _prevTxOutputIndex);
+
+            ecdsa256PubKey = _senderPubKey;
+        }
+
+        public void LoadVersion1(long _prevTxBlockIndex, int _prevTxIndex, int _prevTxOutputIndex)
+        {
+            Version = 1;
+
+            LoadCommon(_prevTxBlockIndex, _prevTxIndex, _prevTxOutputIndex);
+        }
+
+        private void LoadCommon(long _prevTxBlockIndex, int _prevTxIndex, int _prevTxOutputIndex)
         {
             prevTxBlockIndex = _prevTxBlockIndex;
             prevTxIndex = _prevTxIndex;
             prevTxOutputIndex = _prevTxOutputIndex;
-            senderPubKey = _senderPubKey;
         }
 
-        public static readonly int senderSigLength = 64;
+        private long prevTxBlockIndex;
+        private int prevTxIndex;
+        private int prevTxOutputIndex;
+        private Ecdsa256Signature ecdsa256Signature;
+        private Secp256k1Signature secp256k1Signature;
+        private Ecdsa256PubKey ecdsa256PubKey;
 
-        public long prevTxBlockIndex { get; private set; }
-        public int prevTxIndex { get; private set; }
-        public int prevTxOutputIndex { get; private set; }
-        public byte[] senderSig { get; private set; }
-        public PubKeyType senderPubKey { get; private set; }
+        public long PrevTxBlockIndex { get { return prevTxBlockIndex; } }
+        public int PrevTxIndex { get { return prevTxIndex; } }
+        public int PrevTxOutputIndex { get { return prevTxOutputIndex; } }
+        public Ecdsa256Signature Ecdsa256Signature
+        {
+            get
+            {
+                if (Version != 0)
+                    throw new NotSupportedException();
+                return ecdsa256Signature;
+            }
+        }
+        public Secp256k1Signature Secp256k1Signature
+        {
+            get
+            {
+                if (Version != 1)
+                    throw new NotSupportedException();
+                return secp256k1Signature;
+            }
+        }
+        public Ecdsa256PubKey Ecdsa256PubKey
+        {
+            get
+            {
+                if (Version != 0)
+                    throw new NotSupportedException();
+                return ecdsa256PubKey;
+            }
+        }
+
+        public DSASIGNATUREBASE SenderSignature
+        {
+            get
+            {
+                if (Version == 0)
+                    return ecdsa256Signature;
+                else if (Version == 1)
+                    return secp256k1Signature;
+                else
+                    throw new NotSupportedException();
+            }
+        }
+        public DSAPUBKEYBASE SenderPubKey
+        {
+            get
+            {
+                if (Version == 0)
+                    return ecdsa256PubKey;
+                //Secp256k1の場合、署名だけではなく署名対象のデータもなければ公開鍵を復元できない
+                else if (Version == 1)
+                    throw new InvalidOperationException();
+                else
+                    throw new NotSupportedException();
+            }
+        }
 
         protected override Func<ReaderWriter, IEnumerable<MainDataInfomation>> StreamInfo
         {
             get
             {
-                return (msrw) => new MainDataInfomation[]{
-                    new MainDataInfomation(typeof(long), () => prevTxBlockIndex, (o) => prevTxBlockIndex = (long)o),
-                    new MainDataInfomation(typeof(int), () => prevTxIndex, (o) => prevTxIndex = (int)o),
-                    new MainDataInfomation(typeof(int), () => prevTxOutputIndex, (o) => prevTxOutputIndex = (int)o),
-                    new MainDataInfomation(typeof(byte[]), senderSigLength, () => senderSig, (o) => senderSig = (byte[])o),
-                    new MainDataInfomation(typeof(PubKeyType), null, () => senderPubKey, (o) => senderPubKey = (PubKeyType)o),
-                };
+                if (Version == 0)
+                    return (msrw) => new MainDataInfomation[]{
+                        new MainDataInfomation(typeof(long), () => prevTxBlockIndex, (o) => prevTxBlockIndex = (long)o),
+                        new MainDataInfomation(typeof(int), () => prevTxIndex, (o) => prevTxIndex = (int)o),
+                        new MainDataInfomation(typeof(int), () => prevTxOutputIndex, (o) => prevTxOutputIndex = (int)o),
+                        new MainDataInfomation(typeof(Ecdsa256Signature), null, () => ecdsa256Signature, (o) => ecdsa256Signature = (Ecdsa256Signature)o),
+                        new MainDataInfomation(typeof(Ecdsa256PubKey), null, () => ecdsa256PubKey, (o) => ecdsa256PubKey = (Ecdsa256PubKey)o),
+                    };
+                else if (Version == 1)
+                    return (msrw) => new MainDataInfomation[]{
+                        new MainDataInfomation(typeof(long), () => prevTxBlockIndex, (o) => prevTxBlockIndex = (long)o),
+                        new MainDataInfomation(typeof(int), () => prevTxIndex, (o) => prevTxIndex = (int)o),
+                        new MainDataInfomation(typeof(int), () => prevTxOutputIndex, (o) => prevTxOutputIndex = (int)o),
+                        new MainDataInfomation(typeof(Secp256k1Signature), null, () => secp256k1Signature, (o) => secp256k1Signature = (Secp256k1Signature)o),
+                    };
+                else
+                    throw new NotSupportedException();
             }
         }
+        public override bool IsVersioned { get { return true; } }
+        public override bool IsVersionSaved { get { return false; } }
 
         public Func<ReaderWriter, IEnumerable<MainDataInfomation>> StreamInfoToSign
         {
             get
             {
-                return (msrw) => new MainDataInfomation[]{
-                    new MainDataInfomation(typeof(long), () => prevTxBlockIndex, (o) => { throw new NotSupportedException("tx_in_si_to_sign"); }),
-                    new MainDataInfomation(typeof(int), () => prevTxIndex, (o) => { throw new NotSupportedException("tx_in_si_to_sign"); }),
-                    new MainDataInfomation(typeof(int), () => prevTxOutputIndex, (o) => { throw new NotSupportedException("tx_in_si_to_sign"); }),
-                };
+                if (Version == 0 || Version == 1)
+                    return (msrw) => new MainDataInfomation[]{
+                        new MainDataInfomation(typeof(long), () => prevTxBlockIndex, (o) => { throw new NotSupportedException(); }),
+                        new MainDataInfomation(typeof(int), () => prevTxIndex, (o) => { throw new NotSupportedException(); }),
+                        new MainDataInfomation(typeof(int), () => prevTxOutputIndex, (o) => { throw new NotSupportedException(); }),
+                    };
+                else
+                    throw new NotSupportedException();
             }
         }
 
-        public void SetSenderSig(byte[] sig)
+        public void SetSenderSig(DSASIGNATUREBASE signature)
         {
-            if (sig.Length != senderSigLength)
-                throw new ArgumentException("tx_in_sender_sig_length");
+            if (Version == 0)
+            {
+                if (!(signature is Ecdsa256Signature))
+                    throw new ArgumentException();
+                ecdsa256Signature = signature as Ecdsa256Signature;
+            }
+            else if (Version == 1)
+            {
+                if (!(signature is Secp256k1Signature))
+                    throw new ArgumentException();
+                secp256k1Signature = signature as Secp256k1Signature;
+            }
+            else
+                throw new NotSupportedException();
+        }
+    }
 
-            senderSig = sig;
+    public class TransactionOutput : SHAREDDATA
+    {
+        public TransactionOutput() : base(0) { }
+
+        public void LoadVersion0(Sha256Ripemd160Hash _receiverPubKeyHash, CurrencyUnit _amount)
+        {
+            Version = 0;
+
+            receiverPubKeyHash = _receiverPubKeyHash;
+            amount = _amount;
+        }
+
+        private Sha256Ripemd160Hash receiverPubKeyHash;
+        private CurrencyUnit amount;
+
+        public Sha256Ripemd160Hash Sha256Ripemd160Hash { get { return receiverPubKeyHash; } }
+        public CurrencyUnit Amount { get { return amount; } }
+
+        public HASHBASE ReceiverPubKeyHash { get { return receiverPubKeyHash; } }
+
+        protected override Func<ReaderWriter, IEnumerable<MainDataInfomation>> StreamInfo
+        {
+            get
+            {
+                if (Version == 0)
+                    return (msrw) => new MainDataInfomation[]{
+                        new MainDataInfomation(typeof(Sha256Ripemd160Hash), null, () => receiverPubKeyHash, (o) => receiverPubKeyHash = (Sha256Ripemd160Hash)o),
+                        new MainDataInfomation(typeof(long), () => amount.rawAmount, (o) => amount = new CurrencyUnit((long)o)),
+                    };
+                else
+                    throw new NotSupportedException();
+            }
+        }
+        public override bool IsVersioned { get { return true; } }
+        public override bool IsVersionSaved { get { return false; } }
+
+        public Func<ReaderWriter, IEnumerable<MainDataInfomation>> StreamInfoToSign
+        {
+            get
+            {
+                if (Version == 0)
+                    return (msrw) => new MainDataInfomation[]{
+                        new MainDataInfomation(typeof(Sha256Ripemd160Hash), null, () => receiverPubKeyHash, (o) => { throw new NotSupportedException(); }),
+                        new MainDataInfomation(typeof(long), () => amount.rawAmount, (o) => { throw new NotSupportedException(); }),
+                };
+                else
+                    throw new NotSupportedException();
+            }
+        }
+
+        public Func<ReaderWriter, IEnumerable<MainDataInfomation>> StreamInfoToSignPrev
+        {
+            get
+            {
+                if (Version == 0)
+                    return (msrw) => new MainDataInfomation[]{
+                        new MainDataInfomation(typeof(Sha256Ripemd160Hash), null, () => receiverPubKeyHash, (o) => { throw new NotSupportedException(); }),
+                };
+                else
+                    throw new NotSupportedException();
+            }
+        }
+    }
+
+    public abstract class Transaction : SHAREDDATA
+    {
+        public Transaction() : base(0) { idCache = new CachedData<Sha256Sha256Hash>(() => new Sha256Sha256Hash(ToBinary())); }
+
+        public virtual void LoadVersion0(TransactionOutput[] _txOutputs)
+        {
+            Version = 0;
+
+            LoadCommon(_txOutputs);
+        }
+
+        public virtual void LoadVersion1(TransactionOutput[] _txOutputs)
+        {
+            Version = 1;
+
+            LoadCommon(_txOutputs);
+        }
+
+        private void LoadCommon(TransactionOutput[] _txOutputs)
+        {
+            if (_txOutputs.Length == 0)
+                throw new ArgumentException();
+
+            txOutputs = _txOutputs;
+        }
+
+        private static readonly CurrencyUnit dustTxoutput = new Yumina(0.1m);
+        private static readonly int maxTxInputs = 100;
+        private static readonly int maxTxOutputs = 10;
+
+        private TransactionOutput[] _txOutputs;
+        private TransactionOutput[] txOutputs
+        {
+            get { return _txOutputs; }
+            set
+            {
+                if (value != _txOutputs)
+                {
+                    _txOutputs = value;
+                    idCache.IsModified = true;
+                }
+            }
+        }
+
+        public virtual TransactionInput[] TxInputs { get { return new TransactionInput[] { }; } }
+        public virtual TransactionOutput[] TxOutputs { get { return txOutputs; } }
+
+        protected CachedData<Sha256Sha256Hash> idCache;
+        public virtual Sha256Sha256Hash Id { get { return idCache.Data; } }
+
+        protected override Func<ReaderWriter, IEnumerable<MainDataInfomation>> StreamInfo
+        {
+            get
+            {
+                if (Version == 0 || Version == 1)
+                    return (msrw) => new MainDataInfomation[]{
+                        new MainDataInfomation(typeof(TransactionOutput[]), 0, null, () => txOutputs, (o) => txOutputs = (TransactionOutput[])o),
+                    };
+                else
+                    throw new NotSupportedException();
+            }
+        }
+        public override bool IsVersioned { get { return true; } }
+        public override bool IsCorruptionChecked
+        {
+            get
+            {
+                if (Version == 0 || Version == 1)
+                    return true;
+                else
+                    throw new NotSupportedException();
+            }
+        }
+
+        public virtual bool Verify()
+        {
+            if (Version == 0 || Version == 1)
+                return VerifyNotExistDustTxOutput() && VerifyNumberOfTxInputs() && VerifyNumberOfTxOutputs();
+            else
+                throw new NotSupportedException();
+        }
+
+        public bool VerifyNotExistDustTxOutput()
+        {
+            if (Version == 0 || Version == 1)
+                return txOutputs.All((elem) => elem.Amount.rawAmount >= dustTxoutput.rawAmount);
+            else
+                throw new NotSupportedException();
+        }
+
+        public bool VerifyNumberOfTxInputs()
+        {
+            if (Version == 0 || Version == 1)
+                return TxInputs.Length <= maxTxInputs;
+            else
+                throw new NotSupportedException();
+        }
+
+        public bool VerifyNumberOfTxOutputs()
+        {
+            if (Version == 0 || Version == 1)
+                return TxOutputs.Length <= maxTxOutputs;
+            else
+                throw new NotSupportedException();
+        }
+    }
+
+    public class CoinbaseTransaction : Transaction
+    {
+        public CoinbaseTransaction() : base() { }
+
+        public override void LoadVersion0(TransactionOutput[] _txOutputs) { base.LoadVersion0(_txOutputs); }
+
+        public override void LoadVersion1(TransactionOutput[] _txOutputs) { throw new NotSupportedException(); }
+
+        protected override Func<ReaderWriter, IEnumerable<MainDataInfomation>> StreamInfo
+        {
+            get
+            {
+                if (Version == 0)
+                    return base.StreamInfo;
+                else
+                    throw new NotSupportedException();
+            }
+        }
+    }
+
+    public class TransferTransaction : Transaction
+    {
+        public TransferTransaction() : base() { }
+
+        public override void LoadVersion0(TransactionOutput[] _txOutputs) { throw new NotSupportedException(); }
+
+        public virtual void LoadVersion0(TransactionInput[] _txInputs, TransactionOutput[] _txOutputs)
+        {
+            foreach (var txInput in _txInputs)
+                if (txInput.Version != 0)
+                    throw new ArgumentException();
+
+            base.LoadVersion0(_txOutputs);
+
+            LoadCommon(_txInputs);
+        }
+
+        public override void LoadVersion1(TransactionOutput[] _txOutputs) { throw new NotSupportedException(); }
+
+        public virtual void LoadVersion1(TransactionInput[] _txInputs, TransactionOutput[] _txOutputs)
+        {
+            foreach (var txInput in _txInputs)
+                if (txInput.Version != 1)
+                    throw new ArgumentException();
+
+            base.LoadVersion1(_txOutputs);
+
+            LoadCommon(_txInputs);
+        }
+
+        private void LoadCommon(TransactionInput[] _txInputs)
+        {
+            if (_txInputs.Length == 0)
+                throw new ArgumentException();
+
+            txInputs = _txInputs;
+        }
+
+        private TransactionInput[] _txInputs;
+        public TransactionInput[] txInputs
+        {
+            get { return _txInputs; }
+            set
+            {
+                if (value != _txInputs)
+                {
+                    _txInputs = value;
+                    idCache.IsModified = true;
+                }
+            }
+        }
+
+        protected override Func<ReaderWriter, IEnumerable<MainDataInfomation>> StreamInfo
+        {
+            get
+            {
+                if (Version == 0)
+                    return (msrw) => base.StreamInfo(msrw).Concat(new MainDataInfomation[]{
+                        new MainDataInfomation(typeof(TransactionInput[]), 0, null, () => txInputs, (o) => txInputs = (TransactionInput[])o),
+                    });
+                else if (Version == 1)
+                    return (msrw) => base.StreamInfo(msrw).Concat(new MainDataInfomation[]{
+                        new MainDataInfomation(typeof(TransactionInput[]), 1, null, () => txInputs, (o) => txInputs = (TransactionInput[])o),
+                    });
+                else
+                    throw new NotSupportedException();
+            }
+        }
+
+        private Func<ReaderWriter, IEnumerable<MainDataInfomation>> StreamInfoToSign(TransactionOutput[] prevTxOutputs) { return (msrw) => StreamInfoToSignInner(prevTxOutputs); }
+        private IEnumerable<MainDataInfomation> StreamInfoToSignInner(TransactionOutput[] prevTxOutputs)
+        {
+            if (Version == 0 || Version == 1)
+            {
+                for (int i = 0; i < txInputs.Length; i++)
+                {
+                    foreach (var mdi in txInputs[i].StreamInfoToSign(null))
+                        yield return mdi;
+                    foreach (var mdi in prevTxOutputs[i].StreamInfoToSignPrev(null))
+                        yield return mdi;
+                }
+                for (int i = 0; i < TxOutputs.Length; i++)
+                    foreach (var mdi in TxOutputs[i].StreamInfoToSign(null))
+                        yield return mdi;
+            }
+            else
+                throw new NotSupportedException();
+        }
+
+        public byte[] GetBytesToSign(TransactionOutput[] prevTxOutputs)
+        {
+            if (prevTxOutputs.Length != txInputs.Length)
+                throw new ArgumentException();
+
+            return ToBinaryMainData(StreamInfoToSign(prevTxOutputs));
+        }
+
+        public void Sign(TransactionOutput[] prevTxOutputs, DSAPRIVKEYBASE[] privKeys)
+        {
+            if (prevTxOutputs.Length != txInputs.Length)
+                throw new ArgumentException();
+            if (privKeys.Length != txInputs.Length)
+                throw new ArgumentException();
+
+            byte[] bytesToSign = GetBytesToSign(prevTxOutputs);
+
+            for (int i = 0; i < txInputs.Length; i++)
+                txInputs[i].SetSenderSig(privKeys[i].Sign(bytesToSign));
+
+            //取引入力の内容が変更された
+            idCache.IsModified = true;
+        }
+
+        public override bool Verify() { throw new NotSupportedException(); }
+
+        public virtual bool Verify(TransactionOutput[] prevTxOutputs)
+        {
+            if (prevTxOutputs.Length != txInputs.Length)
+                throw new ArgumentException();
+
+            if (Version == 0 || Version == 1)
+                return base.Verify() && VerifySignature(prevTxOutputs) && VerifyPubKey(prevTxOutputs) && VerifyAmount(prevTxOutputs);
+            else
+                throw new NotSupportedException();
+        }
+
+        public bool VerifySignature(TransactionOutput[] prevTxOutputs)
+        {
+            if (prevTxOutputs.Length != txInputs.Length)
+                throw new ArgumentException();
+
+            byte[] bytesToSign = GetBytesToSign(prevTxOutputs);
+
+            if (Version == 0)
+            {
+                for (int i = 0; i < txInputs.Length; i++)
+                    if (!txInputs[i].Ecdsa256PubKey.Verify(bytesToSign, txInputs[i].SenderSignature.signature))
+                        return false;
+            }
+            else if (Version == 1)
+            {
+                for (int i = 0; i < txInputs.Length; i++)
+                    if (!Secp256k1Utility.Recover<Sha256Hash>(bytesToSign, txInputs[i].SenderSignature.signature).Verify(bytesToSign, txInputs[i].SenderSignature.signature))
+                        return false;
+            }
+            else
+                throw new NotSupportedException();
+            return true;
+        }
+
+        public bool VerifyPubKey(TransactionOutput[] prevTxOutputs)
+        {
+            if (prevTxOutputs.Length != txInputs.Length)
+                throw new ArgumentException();
+
+            if (Version == 0)
+            {
+                for (int i = 0; i < txInputs.Length; i++)
+                    if (!(Activator.CreateInstance(typeof(Sha256Ripemd160Hash), txInputs[i].Ecdsa256PubKey.pubKey) as Sha256Ripemd160Hash).Equals(prevTxOutputs[i].ReceiverPubKeyHash))
+                        return false;
+            }
+            else if (Version == 1)
+            {
+                byte[] bytesToSign = GetBytesToSign(prevTxOutputs);
+
+                for (int i = 0; i < txInputs.Length; i++)
+                    if (!(Activator.CreateInstance(typeof(Sha256Ripemd160Hash), Secp256k1Utility.Recover<Sha256Hash>(bytesToSign, txInputs[i].Secp256k1Signature.signature).pubKey) as Sha256Ripemd160Hash).Equals(prevTxOutputs[i].ReceiverPubKeyHash))
+                        return false;
+            }
+            else
+                throw new NotSupportedException();
+            return true;
+        }
+
+        public bool VerifyAmount(TransactionOutput[] prevTxOutputs)
+        {
+            if (prevTxOutputs.Length != txInputs.Length)
+                throw new ArgumentException();
+
+            return GetFee(prevTxOutputs).rawAmount >= 0;
+        }
+
+        public CurrencyUnit GetFee(TransactionOutput[] prevTxOutputs)
+        {
+            if (prevTxOutputs.Length != txInputs.Length)
+                throw new ArgumentException();
+
+            long totalPrevOutputs = 0;
+            for (int i = 0; i < prevTxOutputs.Length; i++)
+                totalPrevOutputs += prevTxOutputs[i].Amount.rawAmount;
+            long totalOutpus = 0;
+            for (int i = 0; i < TxOutputs.Length; i++)
+                totalOutpus += TxOutputs[i].Amount.rawAmount;
+
+            return new CurrencyUnit(totalPrevOutputs - totalOutpus);
         }
     }
 }
