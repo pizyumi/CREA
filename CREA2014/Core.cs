@@ -44,6 +44,7 @@ namespace CREA2014
         private static readonly Action Instantiate = OneTime.GetOneTime();
 
         private static readonly string databaseDirectory = "database";
+        private static readonly string p2pDirectory = "p2p";
 
         private AccountHoldersDatabase ahDatabase;
         private BlockChainDatabase bcDatabase;
@@ -257,12 +258,10 @@ namespace CREA2014
 
     //<未実装>IPv6対応
     //<要検討>idをGuidにすべきかもしれない
-    //<未実装>SocketChannelで例外が発生した場合の子スレッドの終了
     public class SocketChannel : IChannel
     {
         public SocketChannel(ISocket _isocket, INetworkStream _ins, RijndaelManaged _rm, ChannelDirection _direction, DateTime _connectionTime)
         {
-            //<未実装>IPv6対応
             if (_isocket.AddressFamily != AddressFamily.InterNetwork)
                 throw new NotSupportedException("not_supported_socket");
 
@@ -364,8 +363,10 @@ namespace CREA2014
                     ins.Close();
                     isocket.Close();
                 }
-
-                string.Join(":", ChannelAddressText, "write_thread_exit").ConsoleWriteLine();
+                finally
+                {
+                    string.Join(":", ChannelAddressText, "write_thread_exit").ConsoleWriteLine();
+                }
             });
 
             this.StartTask("socket_channel_read", "socket_channel_read", () =>
@@ -493,8 +494,10 @@ namespace CREA2014
                     ins.Close();
                     isocket.Close();
                 }
-
-                string.Join(":", ChannelAddressText, "read_thread_exit").ConsoleWriteLine();
+                finally
+                {
+                    string.Join(":", ChannelAddressText, "read_thread_exit").ConsoleWriteLine();
+                }
             });
         }
 
@@ -537,15 +540,8 @@ namespace CREA2014
         public event EventHandler Failed = delegate { };
         public event EventHandler<SessionChannel> Sessioned = delegate { };
 
-        public class TimeoutException : Exception
-        {
-            public TimeoutException(string _message) : base(_message) { }
-        }
-
-        public class ClosedException : Exception
-        {
-            public ClosedException(string _message) : base(_message) { }
-        }
+        public class TimeoutException : Exception { public TimeoutException(string _message) : base(_message) { } }
+        public class ClosedException : Exception { public ClosedException(string _message) : base(_message) { } }
 
         public class WriteItem
         {
@@ -1598,6 +1594,8 @@ namespace CREA2014
 
     public enum MessageName
     {
+        nodeInfos = 1,
+
         inv = 10,
         getdata = 11,
         tx = 12,
@@ -1615,25 +1613,23 @@ namespace CREA2014
         IdsAndValues = 108,
     }
 
-    public class Message<U> : SHAREDDATA where U : HASHBASE
+    public class Message : SHAREDDATA
     {
         public Message() : this(null) { }
 
-        public Message(MessageBase _messageBase)
-            : base(0)
-        {
-            messageBase = _messageBase;
-        }
+        public Message(MessageBase _messageBase) : base(0) { messageBase = _messageBase; }
 
         public MessageBase messageBase { get; private set; }
 
-        public MessageName name
+        public MessageName Name
         {
             get
             {
-                if (messageBase is Inv<U>)
+                if (messageBase is NodeInfos)
+                    return MessageName.nodeInfos;
+                else if (messageBase is Inv)
                     return MessageName.inv;
-                else if (messageBase is Getdata<U>)
+                else if (messageBase is Getdata)
                     return MessageName.getdata;
                 else if (messageBase is TxTest)
                     return MessageName.tx;
@@ -1642,22 +1638,21 @@ namespace CREA2014
             }
         }
 
-        protected override Func<ReaderWriter, IEnumerable<MainDataInfomation>> StreamInfo
-        {
-            get { return (msrw) => StreamInfoInner(msrw); }
-        }
+        protected override Func<ReaderWriter, IEnumerable<MainDataInfomation>> StreamInfo { get { return (msrw) => StreamInfoInner(msrw); } }
         private IEnumerable<MainDataInfomation> StreamInfoInner(ReaderWriter msrw)
         {
             if (Version == 0)
             {
                 MessageName mn;
-                yield return new MainDataInfomation(typeof(int), () => (int)name, (o) =>
+                yield return new MainDataInfomation(typeof(int), () => (int)Name, (o) =>
                 {
                     mn = (MessageName)o;
-                    if (mn == MessageName.inv)
-                        messageBase = new Inv<U>();
+                    if (mn == MessageName.nodeInfos)
+                        messageBase = new NodeInfos();
+                    else if (mn == MessageName.inv)
+                        messageBase = new Inv();
                     else if (mn == MessageName.getdata)
-                        messageBase = new Getdata<U>();
+                        messageBase = new Getdata();
                     else if (mn == MessageName.tx)
                         messageBase = new TxTest();
                     else
@@ -1670,11 +1665,7 @@ namespace CREA2014
                 throw new NotSupportedException("message_main_data_info");
         }
 
-        public override bool IsVersioned
-        {
-            get { return true; }
-        }
-
+        public override bool IsVersioned { get { return true; } }
         public override bool IsCorruptionChecked
         {
             get
@@ -1693,40 +1684,67 @@ namespace CREA2014
 
         public MessageBase(int? _version) : base(_version) { }
 
-        public Func<ReaderWriter, IEnumerable<MainDataInfomation>> PublicStreamInfo
+        public Func<ReaderWriter, IEnumerable<MainDataInfomation>> PublicStreamInfo { get { return StreamInfo; } }
+    }
+
+    public class NodeInfos : MessageBase
+    {
+        public NodeInfos() { }
+
+        public NodeInfos(NodeInformation[] _nodeInfos) : base(0) { nodeInfos = _nodeInfos; }
+
+        public NodeInformation[] nodeInfos { get; private set; }
+
+        protected override Func<ReaderWriter, IEnumerable<MainDataInfomation>> StreamInfo
         {
-            get { return StreamInfo; }
+            get
+            {
+                if (Version == 0)
+                    return (msrw) => new MainDataInfomation[]{
+                        new MainDataInfomation(typeof(NodeInformation[]), 0, null, () => nodeInfos, (o) => nodeInfos = (NodeInformation[])o),
+                    };
+                else
+                    throw new NotSupportedException("node_infos_main_data_info");
+            }
+        }
+
+        public override bool IsVersioned { get { return true; } }
+        public override bool IsCorruptionChecked
+        {
+            get
+            {
+                if (Version <= 0)
+                    return false;
+                else
+                    throw new NotSupportedException("node_infos_check");
+            }
         }
     }
 
-    public abstract class MessageHash<U> : MessageBase where U : HASHBASE
+    public abstract class MessageHash<HashType> : MessageBase where HashType : HASHBASE
     {
-        public MessageHash(U _hash) : this(null, _hash) { }
+        public MessageHash(HashType _hash) : this(null, _hash) { }
 
-        public MessageHash(int? _version, U _hash)
-            : base(_version)
-        {
-            hash = _hash;
-        }
+        public MessageHash(int? _version, HashType _hash) : base(_version) { hash = _hash; }
 
-        public U hash { get; private set; }
+        public HashType hash { get; private set; }
 
         protected override Func<ReaderWriter, IEnumerable<MainDataInfomation>> StreamInfo
         {
             get
             {
                 return (msrw) => new MainDataInfomation[]{
-                    new MainDataInfomation(typeof(U), null, () => hash, (o) => hash = (U)o),
+                    new MainDataInfomation(typeof(HashType), null, () => hash, (o) => hash = (HashType)o),
                 };
             }
         }
     }
 
-    public class Inv<U> : MessageHash<U> where U : HASHBASE
+    public class Inv : MessageHash<Sha256Sha256Hash>
     {
-        public Inv() : this(Activator.CreateInstance(typeof(U)) as U) { }
+        public Inv() : this(new Sha256Sha256Hash()) { }
 
-        public Inv(U _hash) : base(0, _hash) { }
+        public Inv(Sha256Sha256Hash _hash) : base(0, _hash) { }
 
         protected override Func<ReaderWriter, IEnumerable<MainDataInfomation>> StreamInfo
         {
@@ -1739,11 +1757,7 @@ namespace CREA2014
             }
         }
 
-        public override bool IsVersioned
-        {
-            get { return true; }
-        }
-
+        public override bool IsVersioned { get { return true; } }
         public override bool IsCorruptionChecked
         {
             get
@@ -1756,11 +1770,11 @@ namespace CREA2014
         }
     }
 
-    public class Getdata<U> : MessageHash<U> where U : HASHBASE
+    public class Getdata : MessageHash<Sha256Sha256Hash>
     {
-        public Getdata() : this(Activator.CreateInstance(typeof(U)) as U) { }
+        public Getdata() : this(new Sha256Sha256Hash()) { }
 
-        public Getdata(U _hash) : base(0, _hash) { }
+        public Getdata(Sha256Sha256Hash _hash) : base(0, _hash) { }
 
         protected override Func<ReaderWriter, IEnumerable<MainDataInfomation>> StreamInfo
         {
@@ -1773,11 +1787,7 @@ namespace CREA2014
             }
         }
 
-        public override bool IsVersioned
-        {
-            get { return true; }
-        }
-
+        public override bool IsVersioned { get { return true; } }
         public override bool IsCorruptionChecked
         {
             get
@@ -2529,19 +2539,97 @@ namespace CREA2014
         }
     }
 
+    public abstract class CreaNode : CREANODEBASE
+    {
+        public CreaNode(ushort _portNumber, int _creaVersion, string _appnameWithVersion, FirstNodeInfosDatabase _fnisDatabase)
+            : base(_portNumber, _creaVersion, _appnameWithVersion)
+        {
+            fnisDatabase = _fnisDatabase;
+
+            fnis = new List<FirstNodeInformation>();
+        }
+
+        private readonly FirstNodeInfosDatabase fnisDatabase;
+        private readonly List<FirstNodeInformation> fnis;
+
+        private static readonly string fnisRegistryURL = "http://www.pizyumi.com/nodes.aspx?add=";
+
+        protected override Network Network
+        {
+            get
+            {
+#if TEST
+                return Network.globaltest;
+#else
+                return Network.global;
+#endif
+            }
+        }
+
+        protected override IPAddress GetIpAddress()
+        {
+            UPnPWanService upnpWanService = UPnPWanService.FindUPnPWanService();
+            if (upnpWanService == null)
+                return null;
+            return upnpWanService.GetExternalIPAddress();
+        }
+
+        protected override string GetPrivateRsaParameters()
+        {
+            using (RSACryptoServiceProvider rsacsp = new RSACryptoServiceProvider(2048))
+                return rsacsp.ToXmlString(true);
+        }
+
+        protected override void NotifyFirstNodeInfo()
+        {
+            HttpWebRequest hwreq = WebRequest.Create(fnisRegistryURL + firstNodeInfo.Hex) as HttpWebRequest;
+            using (HttpWebResponse hwres = hwreq.GetResponse() as HttpWebResponse)
+            using (Stream stream = hwres.GetResponseStream())
+            using (StreamReader sr = new StreamReader(stream, Encoding.UTF8))
+                AddFirstNodeInfos(sr.ReadToEnd().Split(new string[] { Environment.NewLine }, StringSplitOptions.RemoveEmptyEntries));
+        }
+
+        protected override FirstNodeInformation[] GetFirstNodeInfos()
+        {
+            AddFirstNodeInfos(fnisDatabase.GetFirstNodeInfosData());
+
+            return fnis.ToArray();
+        }
+
+        private void AddFirstNodeInfos(string[] nodes)
+        {
+            foreach (string node in nodes)
+            {
+                FirstNodeInformation fni = null;
+                try
+                {
+                    fni = new FirstNodeInformation(node);
+                }
+                catch { }
+
+                if (fni != null && !fnis.Contains(fni))
+                    fnis.Add(fni);
+            }
+        }
+    }
+
     #region 試験用
 
-    public abstract class CreaNodeLocalTest2<U> : CREANODEBASE
-        where U : HASHBASE
+    public abstract class CreaNodeLocalTest2 : CREANODEBASE
     {
         public CreaNodeLocalTest2(ushort _portNumber, int _creaVersion, string _appnameWithVersion) : base(_portNumber, _creaVersion, _appnameWithVersion) { }
 
-        private static readonly object fnisLock = new object();
-        private static readonly List<FirstNodeInformation> fnis = new List<FirstNodeInformation>();
+        private readonly List<FirstNodeInformation> fnis = new List<FirstNodeInformation>();
+
         private static readonly string testPrivateRsaParameters;
 
+        private static readonly int fnisRegistryPortNumber = 12345;
+        private static readonly string fnisRegistryURL = "http://localhost:" + fnisRegistryPortNumber.ToString() + "/nodes?add=";
+        private static readonly string fnisRegistryFileName = "nodes.txt";
+        private static readonly int fnisRegistryMaxNodes = 128;
+
         //試験用
-        private readonly Dictionary<U, byte[]> txtests = new Dictionary<U, byte[]>();
+        private readonly Dictionary<Sha256Sha256Hash, byte[]> txtests = new Dictionary<Sha256Sha256Hash, byte[]>();
         private readonly object txtestsLock = new object();
 
         public event EventHandler<NodeInformation> TxtestReceived = delegate { };
@@ -2551,6 +2639,62 @@ namespace CREA2014
         {
             using (RSACryptoServiceProvider rsacsp = new RSACryptoServiceProvider(2048))
                 testPrivateRsaParameters = rsacsp.ToXmlString(true);
+
+            HttpListener hl = new HttpListener();
+            hl.Prefixes.Add("http://*:" + fnisRegistryPortNumber.ToString() + "/");
+            try
+            {
+                hl.Start();
+            }
+            catch (HttpListenerException ex)
+            {
+                throw new HttpListenerException(ex.ErrorCode, "require_administrator");
+            }
+
+            object dummy = new object();
+            dummy.StartTask("fnisRegistry", "fnisRegistry", () =>
+            {
+                while (true)
+                {
+                    HttpListenerContext hlc = null;
+
+                    try
+                    {
+                        hlc = hl.GetContext();
+                    }
+                    catch (HttpListenerException)
+                    {
+                        hl.Close();
+                        break;
+                    }
+
+                    //<未実装>ノード情報をデコードして同じノード情報は弾いた方が良いかもしれない
+                    using (HttpListenerResponse hlres = hlc.Response)
+                        if (hlc.Request.Url.OriginalString.StartsWith(fnisRegistryURL))
+                        {
+                            string queryAdd = hlc.Request.Url.OriginalString.Substring(fnisRegistryURL.Length);
+                            if (queryAdd.Contains("&"))
+                                throw new InvalidOperationException("fnis_registry_query");
+
+                            List<string> nodes = File.Exists(fnisRegistryFileName) ? File.ReadAllLines(fnisRegistryFileName).ToList() : new List<string>();
+
+                            if (nodes.Contains(queryAdd))
+                                nodes.Remove(queryAdd);
+
+                            nodes.Insert(0, queryAdd);
+
+                            while (nodes.Count > fnisRegistryMaxNodes)
+                                nodes.RemoveAt(nodes.Count - 1);
+
+                            File.WriteAllLines(fnisRegistryFileName, nodes);
+
+                            byte[] bytes = Encoding.UTF8.GetBytes(string.Join(Environment.NewLine, nodes));
+                            hlres.OutputStream.Write(bytes, 0, bytes.Length);
+                        }
+                        else
+                            throw new InvalidOperationException("fnis_registry_invalid_url");
+                }
+            });
         }
 
         protected override Network Network { get { return Network.localtest; } }
@@ -2561,26 +2705,34 @@ namespace CREA2014
 
         protected override void NotifyFirstNodeInfo()
         {
-            lock (fnisLock)
+            HttpWebRequest hwreq = WebRequest.Create(fnisRegistryURL + firstNodeInfo.Hex) as HttpWebRequest;
+            using (HttpWebResponse hwres = hwreq.GetResponse() as HttpWebResponse)
+            using (Stream stream = hwres.GetResponseStream())
+            using (StreamReader sr = new StreamReader(stream, Encoding.UTF8))
             {
-                while (fnis.Count >= 20)
-                    fnis.RemoveAt(fnis.Count - 1);
-                fnis.Insert(0, firstNodeInfo);
+                foreach (string node in sr.ReadToEnd().Split(new string[] { Environment.NewLine }, StringSplitOptions.RemoveEmptyEntries))
+                {
+                    FirstNodeInformation fni = null;
+                    try
+                    {
+                        fni = new FirstNodeInformation(node);
+                    }
+                    catch { }
+
+                    if (fni != null && !fnis.Contains(fni))
+                        fnis.Add(fni);
+                }
             }
         }
 
-        protected override FirstNodeInformation[] GetFirstNodeInfos()
-        {
-            lock (fnisLock)
-                return fnis.ToArray();
-        }
+        protected override FirstNodeInformation[] GetFirstNodeInfos() { return fnis.ToArray(); }
 
         protected override void InboundProtocol(IChannel sc, Action<string> _ConsoleWriteLine)
         {
-            Message<U> message = SHAREDDATA.FromBinary<Message<U>>(sc.ReadBytes());
-            if (message.name == MessageName.inv)
+            Message message = SHAREDDATA.FromBinary<Message>(sc.ReadBytes());
+            if (message.Name == MessageName.inv)
             {
-                Inv<U> inv = message.messageBase as Inv<U>;
+                Inv inv = message.messageBase as Inv;
                 bool isNew = !txtests.Keys.Contains(inv.hash);
                 sc.WriteBytes(BitConverter.GetBytes(isNew));
                 if (isNew)
@@ -2611,10 +2763,10 @@ namespace CREA2014
 
         protected override void OutboundProtocol(MessageBase[] messages, IChannel sc, Action<string> _ConsoleWriteLine)
         {
-            Message<U> message = new Message<U>(messages[0]);
+            Message message = new Message(messages[0]);
 
             sc.WriteBytes(message.ToBinary());
-            if (message.name == MessageName.inv)
+            if (message.Name == MessageName.inv)
             {
                 bool isNew = BitConverter.ToBoolean(sc.ReadBytes(), 0);
                 if (isNew)
@@ -2625,12 +2777,12 @@ namespace CREA2014
         }
 
         //試験用
-        public void DiffuseInv(TxTest txtest, Inv<U> inv)
+        public void DiffuseInv(TxTest txtest, Inv inv)
         {
             if (txtest == null && inv == null)
             {
                 txtest = new TxTest();
-                inv = new Inv<U>(Activator.CreateInstance(typeof(U), txtest.data) as U);
+                inv = new Inv(new Sha256Sha256Hash(txtest.data));
 
                 lock (txtestsLock)
                     txtests.Add(inv.hash, txtest.data);
@@ -2642,8 +2794,7 @@ namespace CREA2014
         }
     }
 
-    public class CreaNodeLocalTestNotContinue2<U> : CreaNodeLocalTest2<U>
-        where U : HASHBASE
+    public class CreaNodeLocalTestNotContinue2 : CreaNodeLocalTest2
     {
         public CreaNodeLocalTestNotContinue2(ushort _portNumber, int _creaVersion, string _appnameWithVersion) : base(_portNumber, _creaVersion, _appnameWithVersion) { }
 
@@ -2679,8 +2830,7 @@ namespace CREA2014
         protected override void KeepConnections() { }
     }
 
-    public class CreaNodeLocalTestContinue2<U> : CreaNodeLocalTest2<U>
-        where U : HASHBASE
+    public class CreaNodeLocalTestContinue2 : CreaNodeLocalTest2
     {
         public CreaNodeLocalTestContinue2(ushort _portNumber, int _creaVersion, string _appnameWithVersion) : base(_portNumber, _creaVersion, _appnameWithVersion) { }
 
@@ -2883,6 +3033,7 @@ namespace CREA2014
             }
         }
 
+        //<未実装>別スレッドで常時動かすべき？
         protected override void KeepConnections()
         {
             if (firstNodeInfos.Length == 0)
@@ -2952,7 +3103,18 @@ namespace CREA2014
         {
             public TestWindow(Program.Logger _logger)
             {
-                StackPanel sp = null;
+                StackPanel sp1 = null;
+                StackPanel sp2 = null;
+
+                EventHandler<Program.LogData> _LoggerLogAdded = (sender, e) => ((Action)(() =>
+                {
+                    TextBlock tb = new TextBlock();
+                    tb.Text = e.Text;
+                    tb.Foreground = e.Kind == Program.LogData.LogKind.error ? Brushes.Red : Brushes.White;
+                    tb.Margin = new Thickness(0.0, 10.0, 0.0, 10.0);
+
+                    sp2.Children.Add(tb);
+                })).BeginExecuteInUIThread();
 
                 Loaded += (sender, e) =>
                 {
@@ -2967,7 +3129,7 @@ namespace CREA2014
                     sv1.SetValue(Grid.RowProperty, 0);
                     sv1.SetValue(Grid.ColumnProperty, 0);
 
-                    StackPanel sp1 = sp = new StackPanel();
+                    sp1 = new StackPanel();
                     sp1.Background = Brushes.Black;
 
                     ScrollViewer sv2 = new ScrollViewer();
@@ -2976,7 +3138,7 @@ namespace CREA2014
                     sv2.SetValue(Grid.RowProperty, 1);
                     sv2.SetValue(Grid.ColumnProperty, 0);
 
-                    StackPanel sp2 = new StackPanel();
+                    sp2 = new StackPanel();
                     sp2.Background = Brushes.Black;
 
                     sv1.Content = sp1;
@@ -2989,15 +3151,7 @@ namespace CREA2014
 
                     Console.SetOut(new TextBlockStreamWriter(sp1));
 
-                    _logger.LogAdded += (sender2, e2) => ((Action)(() =>
-                    {
-                        TextBlock tb = new TextBlock();
-                        tb.Text = e2.Text;
-                        tb.Foreground = e2.Kind == Program.LogData.LogKind.error ? Brushes.Red : Brushes.White;
-                        tb.Margin = new Thickness(0.0, 10.0, 0.0, 10.0);
-
-                        sp2.Children.Add(tb);
-                    })).BeginExecuteInUIThread();
+                    _logger.LogAdded += _LoggerLogAdded;
 
                     //SimulationWindow sw = new SimulationWindow();
                     //sw.ShowDialog();
@@ -3010,8 +3164,10 @@ namespace CREA2014
 
                 Closed += (sender, e) =>
                 {
+                    _logger.LogAdded -= _LoggerLogAdded;
+
                     string fileText = string.Empty;
-                    foreach (var child in sp.Children)
+                    foreach (var child in sp1.Children)
                         fileText += (child as TextBlock).Text + Environment.NewLine;
 
                     File.AppendAllText(Path.Combine(new FileInfo(Assembly.GetEntryAssembly().Location).DirectoryName, "LogTest.txt"), fileText);
@@ -3024,10 +3180,10 @@ namespace CREA2014
                 int counter = 0;
 
                 int numOfNodes = 5;
-                CreaNodeLocalTestContinue2<Sha256Hash>[] cnlts = new CreaNodeLocalTestContinue2<Sha256Hash>[numOfNodes];
+                CreaNodeLocalTestContinue2[] cnlts = new CreaNodeLocalTestContinue2[numOfNodes];
                 for (int i = 0; i < numOfNodes; i++)
                 {
-                    cnlts[i] = new CreaNodeLocalTestContinue2<Sha256Hash>((ushort)(7777 + i), 0, "test");
+                    cnlts[i] = new CreaNodeLocalTestContinue2((ushort)(7777 + i), 0, "test");
                     cnlts[i].TxtestReceived += (sender2, e2) =>
                     {
                         counter++;
@@ -3050,11 +3206,11 @@ namespace CREA2014
 
             private void Test2NodesInv2()
             {
-                CreaNodeLocalTestContinue2<Sha256Hash> cnlt1 = new CreaNodeLocalTestContinue2<Sha256Hash>(7777, 0, "test");
+                CreaNodeLocalTestContinue2 cnlt1 = new CreaNodeLocalTestContinue2(7777, 0, "test");
                 cnlt1.Start();
                 while (!cnlt1.isStartCompleted)
                     Thread.Sleep(100);
-                CreaNodeLocalTestContinue2<Sha256Hash> cnlt2 = new CreaNodeLocalTestContinue2<Sha256Hash>(7778, 0, "test");
+                CreaNodeLocalTestContinue2 cnlt2 = new CreaNodeLocalTestContinue2(7778, 0, "test");
                 cnlt2.Start();
                 while (!cnlt2.isStartCompleted)
                     Thread.Sleep(100);
@@ -8395,6 +8551,17 @@ namespace CREA2014
         }
 
         private string GetPath() { return Path.Combine(pathBase, filenameBase); }
+    }
+
+    public class FirstNodeInfosDatabase : SimpleDatabase
+    {
+        public FirstNodeInfosDatabase(string _pathBase) : base(_pathBase) { }
+
+        protected override string filenameBase { get { return "nodes.txt"; } }
+
+        public string[] GetFirstNodeInfosData() { return Encoding.UTF8.GetString(GetData()).Split(new string[] { Environment.NewLine }, StringSplitOptions.RemoveEmptyEntries); }
+
+        public void UpdateFirstNodeInfosData(string[] nodes) { UpdateData(Encoding.UTF8.GetBytes(string.Join(Environment.NewLine, nodes))); }
     }
 
     public class AccountHoldersDatabase : SimpleDatabase
