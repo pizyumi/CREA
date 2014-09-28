@@ -3209,14 +3209,16 @@ namespace CREA2014
 
         protected override bool IsAlreadyConnected(NodeInformation nodeInfo)
         {
-            for (int i = 0; i < outboundConnections.Length; i++)
-                lock (outboundConnectionsLock[i])
-                    if (outboundConnections[i].Where((elem) => elem.nodeInfo.Equals(nodeInfo)).FirstOrDefault() != null)
+            int distanceLevel = GetDistanceLevel(nodeInfo);
+
+            if (outboundConnections[distanceLevel].Count > 0)
+                lock (outboundConnectionsLock[distanceLevel])
+                    if (outboundConnections[distanceLevel].Where((elem) => elem.nodeInfo.Equals(nodeInfo)).FirstOrDefault() != null)
                         return true;
 
-            for (int i = 0; i < inboundConnections.Length; i++)
-                lock (inboundConnectionsLock[i])
-                    if (inboundConnections[i].Where((elem) => elem.nodeInfo.Equals(nodeInfo)).FirstOrDefault() != null)
+            if (inboundConnections[distanceLevel].Count > 0)
+                lock (inboundConnectionsLock[distanceLevel])
+                    if (inboundConnections[distanceLevel].Where((elem) => elem.nodeInfo.Equals(nodeInfo)).FirstOrDefault() != null)
                         return true;
 
             return false;
@@ -3234,17 +3236,17 @@ namespace CREA2014
 
         protected override bool IsListenerCanContinue(NodeInformation nodeInfo)
         {
-            throw new NotImplementedException();
+            return GetDistanceLevel(nodeInfo).Operate((distanceLevel) => distanceLevel != -1 && inboundConnections[distanceLevel].Count < inboundConnectionsMax);
         }
 
         protected override bool IsWantToContinue(NodeInformation nodeInfo)
         {
-            throw new NotImplementedException();
+            return GetDistanceLevel(nodeInfo).Operate((distanceLevel) => distanceLevel != -1 && inboundConnections[distanceLevel].Count < inboundConnectionsMax);
         }
 
         protected override bool IsClientCanContinue(NodeInformation nodeInfo)
         {
-            throw new NotImplementedException();
+            return GetDistanceLevel(nodeInfo).Operate((distanceLevel) => distanceLevel != -1 && outboundConnections[distanceLevel].Count < outboundConnectionsMax);
         }
 
         protected override void InboundContinue(NodeInformation nodeInfo, SocketChannel sc, Action<string> _ConsoleWriteLine)
@@ -3259,12 +3261,81 @@ namespace CREA2014
 
         protected override MessageBase[] Request(NodeInformation nodeinfo, params MessageBase[] messages)
         {
-            throw new NotImplementedException();
+            int distanceLevel = GetDistanceLevel(nodeInfo);
+
+            Connection connection = null;
+            if (outboundConnections[distanceLevel].Count > 0)
+                lock (outboundConnectionsLock[distanceLevel])
+                    connection = outboundConnections[distanceLevel].Where((elem) => elem.nodeInfo.Equals(nodeinfo)).FirstOrDefault();
+            if (connection == null)
+                if (inboundConnections[distanceLevel].Count > 0)
+                    lock (inboundConnectionsLock[distanceLevel])
+                        connection = inboundConnections[distanceLevel].Where((elem) => elem.nodeInfo.Equals(nodeinfo)).FirstOrDefault();
+
+            if (connection == null)
+                return Connect(nodeinfo, true, () => { }, messages);
+
+            SessionChannel sc2 = null;
+            try
+            {
+                sc2 = connection.sc.NewSession();
+
+                connection._ConsoleWriteLine("新しいセッション");
+
+                return OutboundProtocol(messages, sc2, connection._ConsoleWriteLine);
+            }
+            catch (Exception ex)
+            {
+                this.RaiseError("outbound_session", 5, ex);
+            }
+            finally
+            {
+                if (sc2 != null)
+                {
+                    sc2.Close();
+
+                    connection._ConsoleWriteLine("セッション終わり");
+                }
+            }
+
+            return null;
         }
 
         protected override void Diffuse(params MessageBase[] messages)
         {
-            throw new NotImplementedException();
+            List<Connection> connections = new List<Connection>();
+            for (int i = 0; i < NodeIdSizeBit; i++)
+            {
+                if (outboundConnections[i].Count > 0)
+                    lock (outboundConnectionsLock[i])
+                        connections.AddRange(outboundConnections[i]);
+                if (inboundConnections[i].Count > 0)
+                    lock (inboundConnectionsLock[i])
+                        connections.AddRange(inboundConnections[i]);
+            }
+
+            foreach (Connection connection in connections)
+            {
+                SessionChannel sc2 = null;
+                try
+                {
+                    sc2 = connection.sc.NewSession();
+
+                    connection._ConsoleWriteLine("新しいセッション");
+
+                    OutboundProtocol(messages, sc2, connection._ConsoleWriteLine);
+                }
+                catch (Exception ex)
+                {
+                    this.RaiseError("diffuse", 5, ex);
+                }
+                finally
+                {
+                    sc2.Close();
+
+                    connection._ConsoleWriteLine("セッション終わり");
+                }
+            }
         }
 
         //<未実装>別スレッドで常時動かすべき？
