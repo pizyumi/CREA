@@ -498,7 +498,7 @@ namespace CREA2014
                 sss[i].Bind(new IPEndPoint(IPAddress.Any, nodeInfos[i].portNumber));
                 sss[i].Listen(100);
 
-                cremlias[i] = new Cremlia(new CremliaIdFactory<Sha256Hash>(), new CremliaDatabaseIo(), new CremliaNetworkIoSimulation(sss[i]), new CremliaNodeInfomationSha256(nodeInfos[i]));
+                cremlias[i] = new Cremlia(new CremliaIdFactorySha256(), new CremliaDatabaseIo(), new CremliaNetworkIoSimulation(sss[i]), new CremliaNodeInfomationSha256(nodeInfos[i]));
                 int[] randomNums = numberOfNodes.RandomNums();
                 for (int j = 0; j < numberOfNodes; j++)
                     if (randomNums[j] != i)

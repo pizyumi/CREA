@@ -1530,7 +1530,14 @@ namespace CREA2014
                     e.Close();
                 }
             };
-            roc.Failed += (sender, e) => RegisterResult(aiteIpAddress, false);
+            roc.Failed += (sender, e) =>
+            {
+                RegisterResult(aiteIpAddress, false);
+
+                //2014/09/27
+                //失敗が確定しているのに30秒も待機すべきではないだろう
+                are.Set();
+            };
             roc.RequestConnection();
 
             if (are.WaitOne(30000))
@@ -1594,7 +1601,8 @@ namespace CREA2014
 
     public enum MessageName
     {
-        nodeInfos = 1,
+        reqNodeInofs = 1,
+        resNodeInfos = 2,
 
         inv = 10,
         getdata = 11,
@@ -1625,8 +1633,10 @@ namespace CREA2014
         {
             get
             {
-                if (messageBase is NodeInfos)
-                    return MessageName.nodeInfos;
+                if (messageBase is ReqNodeInfos)
+                    return MessageName.reqNodeInofs;
+                else if (messageBase is ResNodeInfos)
+                    return MessageName.resNodeInfos;
                 else if (messageBase is Inv)
                     return MessageName.inv;
                 else if (messageBase is Getdata)
@@ -1647,8 +1657,10 @@ namespace CREA2014
                 yield return new MainDataInfomation(typeof(int), () => (int)Name, (o) =>
                 {
                     mn = (MessageName)o;
-                    if (mn == MessageName.nodeInfos)
-                        messageBase = new NodeInfos();
+                    if (mn == MessageName.reqNodeInofs)
+                        messageBase = new ReqNodeInfos();
+                    else if (mn == MessageName.resNodeInfos)
+                        messageBase = new ResNodeInfos();
                     else if (mn == MessageName.inv)
                         messageBase = new Inv();
                     else if (mn == MessageName.getdata)
@@ -1687,11 +1699,39 @@ namespace CREA2014
         public Func<ReaderWriter, IEnumerable<MainDataInfomation>> PublicStreamInfo { get { return StreamInfo; } }
     }
 
-    public class NodeInfos : MessageBase
+    public class ReqNodeInfos : MessageBase
     {
-        public NodeInfos() { }
+        public ReqNodeInfos() : base(0) { }
 
-        public NodeInfos(NodeInformation[] _nodeInfos) : base(0) { nodeInfos = _nodeInfos; }
+        protected override Func<ReaderWriter, IEnumerable<MainDataInfomation>> StreamInfo
+        {
+            get
+            {
+                if (Version == 0)
+                    return (msrw) => new MainDataInfomation[] { };
+                else
+                    throw new NotSupportedException("node_infos_main_data_info");
+            }
+        }
+
+        public override bool IsVersioned { get { return true; } }
+        public override bool IsCorruptionChecked
+        {
+            get
+            {
+                if (Version <= 0)
+                    return false;
+                else
+                    throw new NotSupportedException("node_infos_check");
+            }
+        }
+    }
+
+    public class ResNodeInfos : MessageBase
+    {
+        public ResNodeInfos() { }
+
+        public ResNodeInfos(NodeInformation[] _nodeInfos) : base(0) { nodeInfos = _nodeInfos; }
 
         public NodeInformation[] nodeInfos { get; private set; }
 
@@ -2334,15 +2374,19 @@ namespace CREA2014
 
         protected abstract bool IsAlreadyConnected(NodeInformation nodeInfo);
         protected abstract void UpdateNodeState(NodeInformation nodeInfo, bool isSucceeded);
+        protected abstract void UpdateNodeState(IPAddress ipAddress, ushort portNumber, bool isSucceeded);
         protected abstract bool IsListenerCanContinue(NodeInformation nodeInfo);
         protected abstract bool IsWantToContinue(NodeInformation nodeInfo);
         protected abstract bool IsClientCanContinue(NodeInformation nodeInfo);
         protected abstract void InboundProtocol(IChannel sc, Action<string> _ConsoleWriteLine);
-        protected abstract void OutboundProtocol(MessageBase[] messages, IChannel sc, Action<string> _ConsoleWriteLine);
+        protected abstract MessageBase[] OutboundProtocol(MessageBase[] messages, IChannel sc, Action<string> _ConsoleWriteLine);
         protected abstract void InboundContinue(NodeInformation nodeInfo, SocketChannel sc, Action<string> _ConsoleWriteLine);
         protected abstract void OutboundContinue(NodeInformation nodeInfo, SocketChannel sc, Action<string> _ConsoleWriteLine);
-        protected abstract void Request(NodeInformation nodeinfo, params MessageBase[] messages);
+        protected abstract MessageBase[] Request(NodeInformation nodeinfo, params MessageBase[] messages);
         protected abstract void Diffuse(params MessageBase[] messages);
+
+        public int NodeIdSizeByte { get { return nodeInfo.Id.SizeByte; } }
+        public int NodeIdSizeBit { get { return nodeInfo.Id.SizeBit; } }
 
         protected override void CreateNodeInfo()
         {
@@ -2373,19 +2417,17 @@ namespace CREA2014
             if (aiteNodeInfo == null)
                 aiteNodeInfo = header.nodeInfo;
 
-            if ((!headerResponse.isSameNetwork).RaiseNotification(GetType(), "aite_wrong_network", 5, aiteNodeInfo.ipAddress.ToString(), aiteNodeInfo.portNumber.ToString()))
-            {
-                sc.Close();
-
-                return;
-            }
-            if (headerResponse.isAlreadyConnected.RaiseNotification(GetType(), "aite_already_connected", 5, aiteNodeInfo.ipAddress.ToString(), aiteNodeInfo.portNumber.ToString()))
-            {
-                sc.Close();
-
-                return;
-            }
+            bool isWrongNetwork = (!headerResponse.isSameNetwork).RaiseNotification(GetType(), "aite_wrong_network", 5, aiteNodeInfo.ipAddress.ToString(), aiteNodeInfo.portNumber.ToString());
+            bool isAlreadyConnected = headerResponse.isAlreadyConnected.RaiseNotification(GetType(), "aite_already_connected", 5, aiteNodeInfo.ipAddress.ToString(), aiteNodeInfo.portNumber.ToString());
             //<未実装>不良ノードは拒否する？
+            if (isWrongNetwork || isAlreadyConnected)
+            {
+                sc.Close();
+
+                UpdateNodeState(aiteNodeInfo, false);
+
+                return;
+            }
 
             UpdateNodeState(aiteNodeInfo, true);
 
@@ -2442,8 +2484,36 @@ namespace CREA2014
                 throw new NotSupportedException("not_supported_protocol_ver");
         }
 
+        protected MessageBase[] Connect(NodeInformation aiteNodeInfo, bool isTemporary, Action _Continued, params MessageBase[] reqMessages)
+        {
+            try
+            {
+                return ConnectInner(aiteNodeInfo.ipAddress, aiteNodeInfo.portNumber, isTemporary, _Continued, reqMessages);
+            }
+            catch
+            {
+                UpdateNodeState(aiteNodeInfo, false);
+
+                return null;
+            }
+        }
+
+        protected MessageBase[] Connect(IPAddress aiteIpAddress, ushort aitePortNumber, bool isTemporary, Action _Continued, params MessageBase[] reqMessages)
+        {
+            try
+            {
+                return ConnectInner(aiteIpAddress, aitePortNumber, isTemporary, _Continued, reqMessages);
+            }
+            catch
+            {
+                UpdateNodeState(aiteIpAddress, aitePortNumber, false);
+
+                return null;
+            }
+        }
+
         //このメソッドのどこかで（例外を含む全ての場合において）SocketChannelのCloseが呼び出されるようにしなければならない
-        protected void Connect(IPAddress aiteIpAddress, ushort aitePortNumber, bool isTemporary, Action _Continued, params MessageBase[] messages)
+        private MessageBase[] ConnectInner(IPAddress aiteIpAddress, ushort aitePortNumber, bool isTemporary, Action _Continued, params MessageBase[] reqMessages)
         {
             SocketChannel sc = Connect(aiteIpAddress, aitePortNumber);
 
@@ -2453,18 +2523,17 @@ namespace CREA2014
                 sc.WriteBytes(new Header(nodeInfo, creaVersion, protocolVersion, appnameWithVersion, isTemporary).ToBinary());
                 HeaderResponse headerResponse = SHAREDDATA.FromBinary<HeaderResponse>(sc.ReadBytes());
 
-                if ((!headerResponse.isSameNetwork).RaiseNotification(GetType(), "wrong_network", 5, aiteIpAddress.ToString(), aitePortNumber.ToString()))
+                bool isWrongNetwork = (!headerResponse.isSameNetwork).RaiseNotification(GetType(), "wrong_network", 5, aiteIpAddress.ToString(), aitePortNumber.ToString());
+                bool isAlreadyConnected = headerResponse.isAlreadyConnected.RaiseNotification(GetType(), "already_connected", 5, aiteIpAddress.ToString(), aitePortNumber.ToString());
+                if (isWrongNetwork || isAlreadyConnected)
                 {
                     sc.Close();
 
-                    return;
-                }
-                if (headerResponse.isAlreadyConnected.RaiseNotification(GetType(), "already_connected", 5, aiteIpAddress.ToString(), aitePortNumber.ToString()))
-                {
-                    sc.Close();
+                    UpdateNodeState(headerResponse.nodeInfo, false);
 
-                    return;
+                    return null;
                 }
+
                 if (headerResponse.correctNodeInfo != null)
                 {
                     //<未実装>ノード情報のIPアドレスが間違っている疑いがある場合の処理
@@ -2488,7 +2557,7 @@ namespace CREA2014
 
                     if (isTemporary)
                     {
-                        OutboundProtocol(messages, sc, _ConsoleWriteLine);
+                        MessageBase[] resMessages = OutboundProtocol(reqMessages, sc, _ConsoleWriteLine);
 
                         if (IsContinue)
                         {
@@ -2512,6 +2581,8 @@ namespace CREA2014
                         }
                         else
                             sc.Close();
+
+                        return resMessages;
                     }
                     else if (IsContinue)
                     {
@@ -2536,6 +2607,8 @@ namespace CREA2014
             {
                 sc.Close();
             }
+
+            return null;
         }
     }
 
@@ -2615,9 +2688,9 @@ namespace CREA2014
 
     #region 試験用
 
-    public abstract class CreaNodeLocalTest2 : CREANODEBASE
+    public abstract class CreaNodeLocalTest : CREANODEBASE
     {
-        public CreaNodeLocalTest2(ushort _portNumber, int _creaVersion, string _appnameWithVersion) : base(_portNumber, _creaVersion, _appnameWithVersion) { }
+        public CreaNodeLocalTest(ushort _portNumber, int _creaVersion, string _appnameWithVersion) : base(_portNumber, _creaVersion, _appnameWithVersion) { }
 
         private readonly List<FirstNodeInformation> fnis = new List<FirstNodeInformation>();
 
@@ -2635,7 +2708,9 @@ namespace CREA2014
         public event EventHandler<NodeInformation> TxtestReceived = delegate { };
         public event EventHandler<NodeInformation> TxtestAlreadyExisted = delegate { };
 
-        static CreaNodeLocalTest2()
+        protected abstract NodeInformation[] GetNodeInfos();
+
+        static CreaNodeLocalTest()
         {
             using (RSACryptoServiceProvider rsacsp = new RSACryptoServiceProvider(2048))
                 testPrivateRsaParameters = rsacsp.ToXmlString(true);
@@ -2730,7 +2805,9 @@ namespace CREA2014
         protected override void InboundProtocol(IChannel sc, Action<string> _ConsoleWriteLine)
         {
             Message message = SHAREDDATA.FromBinary<Message>(sc.ReadBytes());
-            if (message.Name == MessageName.inv)
+            if (message.Name == MessageName.reqNodeInofs)
+                sc.WriteBytes(new Message(new ResNodeInfos(GetNodeInfos())).ToBinary());
+            else if (message.Name == MessageName.inv)
             {
                 Inv inv = message.messageBase as Inv;
                 bool isNew = !txtests.Keys.Contains(inv.hash);
@@ -2761,16 +2838,24 @@ namespace CREA2014
                 throw new NotSupportedException("protocol_not_supported");
         }
 
-        protected override void OutboundProtocol(MessageBase[] messages, IChannel sc, Action<string> _ConsoleWriteLine)
+        protected override MessageBase[] OutboundProtocol(MessageBase[] messages, IChannel sc, Action<string> _ConsoleWriteLine)
         {
             Message message = new Message(messages[0]);
 
             sc.WriteBytes(message.ToBinary());
-            if (message.Name == MessageName.inv)
+            if (message.Name == MessageName.reqNodeInofs)
+            {
+                Message resNodeInfosMessage = SHAREDDATA.FromBinary<Message>(sc.ReadBytes());
+                if (resNodeInfosMessage.Name != MessageName.resNodeInfos)
+                    throw new InvalidOperationException();
+                return new MessageBase[] { resNodeInfosMessage.messageBase };
+            }
+            else if (message.Name == MessageName.inv)
             {
                 bool isNew = BitConverter.ToBoolean(sc.ReadBytes(), 0);
                 if (isNew)
                     sc.WriteBytes(messages[1].ToBinary());
+                return null;
             }
             else
                 throw new NotSupportedException("protocol_not_supported");
@@ -2794,15 +2879,17 @@ namespace CREA2014
         }
     }
 
-    public class CreaNodeLocalTestNotContinue2 : CreaNodeLocalTest2
+    public class CreaNodeLocalTestNotContinue : CreaNodeLocalTest
     {
-        public CreaNodeLocalTestNotContinue2(ushort _portNumber, int _creaVersion, string _appnameWithVersion) : base(_portNumber, _creaVersion, _appnameWithVersion) { }
+        public CreaNodeLocalTestNotContinue(ushort _portNumber, int _creaVersion, string _appnameWithVersion) : base(_portNumber, _creaVersion, _appnameWithVersion) { }
 
         protected override bool IsContinue { get { return false; } }
 
         protected override bool IsAlreadyConnected(NodeInformation nodeInfo) { return false; }
 
         protected override void UpdateNodeState(NodeInformation nodeInfo, bool isSucceeded) { }
+
+        protected override void UpdateNodeState(IPAddress ipAddress, ushort portNumber, bool isSucceeded) { }
 
         protected override bool IsListenerCanContinue(NodeInformation nodeInfo) { return false; }
 
@@ -2816,9 +2903,9 @@ namespace CREA2014
         //このメソッドのどこかで（例外を除く全ての場合において）SocketChannelのCloseが呼び出されるようにしなければならない
         protected override void OutboundContinue(NodeInformation nodeInfo, SocketChannel sc, Action<string> _ConsoleWriteLine) { sc.Close(); }
 
-        protected override void Request(NodeInformation nodeinfo, params MessageBase[] messages)
+        protected override MessageBase[] Request(NodeInformation nodeinfo, params MessageBase[] messages)
         {
-            Connect(nodeinfo.ipAddress, nodeinfo.portNumber, true, () => { }, messages);
+            return Connect(nodeinfo, true, () => { }, messages);
         }
 
         protected override void Diffuse(params MessageBase[] messages)
@@ -2828,11 +2915,13 @@ namespace CREA2014
         }
 
         protected override void KeepConnections() { }
+
+        protected override NodeInformation[] GetNodeInfos() { return new NodeInformation[] { }; }
     }
 
-    public class CreaNodeLocalTestContinue2 : CreaNodeLocalTest2
+    public class CreaNodeLocalTestContinue : CreaNodeLocalTest
     {
-        public CreaNodeLocalTestContinue2(ushort _portNumber, int _creaVersion, string _appnameWithVersion) : base(_portNumber, _creaVersion, _appnameWithVersion) { }
+        public CreaNodeLocalTestContinue(ushort _portNumber, int _creaVersion, string _appnameWithVersion) : base(_portNumber, _creaVersion, _appnameWithVersion) { }
 
         private static readonly int maxInboundConnection = 16;
         private static readonly int maxOutboundConnection = 8;
@@ -2868,6 +2957,8 @@ namespace CREA2014
         }
 
         protected override void UpdateNodeState(NodeInformation nodeInfo, bool isSucceeded) { }
+
+        protected override void UpdateNodeState(IPAddress ipAddress, ushort portNumber, bool isSucceeded) { }
 
         protected override bool IsListenerCanContinue(NodeInformation nodeInfo)
         {
@@ -2952,7 +3043,7 @@ namespace CREA2014
             };
         }
 
-        protected override void Request(NodeInformation nodeinfo, params MessageBase[] messages)
+        protected override MessageBase[] Request(NodeInformation nodeinfo, params MessageBase[] messages)
         {
             Connection connection = null;
 
@@ -2972,11 +3063,13 @@ namespace CREA2014
 
                     connection._ConsoleWriteLine("新しいセッション");
 
-                    OutboundProtocol(messages, sc2, connection._ConsoleWriteLine);
+                    return OutboundProtocol(messages, sc2, connection._ConsoleWriteLine);
                 }
                 catch (Exception ex)
                 {
                     this.RaiseError("outbound_session", 5, ex);
+
+                    return null;
                 }
                 finally
                 {
@@ -2989,14 +3082,7 @@ namespace CREA2014
                 }
             }
             else
-                try
-                {
-                    Connect(nodeInfo.ipAddress, nodeInfo.portNumber, true, () => { }, messages);
-                }
-                catch (Exception ex)
-                {
-                    this.RaiseError("outbound_session", 5, ex);
-                }
+                return Connect(nodeinfo, true, () => { }, messages);
         }
 
         protected override void Diffuse(params MessageBase[] messages)
@@ -3048,25 +3134,230 @@ namespace CREA2014
                     lock (clientNodesLock)
                         count = clientNodes.Count;
 
-                    AutoResetEvent are = new AutoResetEvent(false);
-
                     if (count < maxOutboundConnection)
-                        try
-                        {
-                            Connect(firstNodeInfos[i].ipAddress, firstNodeInfos[i].portNumber, false, () => are.Set());
-                        }
-                        catch (Exception ex)
-                        {
-                            this.RaiseError("keep_conn", 5, ex);
-
-                            are.Set();
-                        }
-
-                    are.WaitOne();
+                        Connect(firstNodeInfos[i].ipAddress, firstNodeInfos[i].portNumber, false, () => { });
                 }
 
                 this.RaiseNotification("keep_conn_completed", 5);
             }
+        }
+
+        protected override NodeInformation[] GetNodeInfos() { return new NodeInformation[] { }; }
+    }
+
+    public class CreaNodeLocalTestContinueDHT : CreaNodeLocalTest
+    {
+        public CreaNodeLocalTestContinueDHT(ushort _portNumber, int _creaVersion, string _appnameWithVersion)
+            : base(_portNumber, _creaVersion, _appnameWithVersion)
+        {
+            kbuckets = new List<NodeInformation>[NodeIdSizeBit];
+            kbucketsLocks = new object[NodeIdSizeBit];
+
+            outboundConnections = new List<Connection>[NodeIdSizeBit];
+            outboundConnectionsLock = new object[NodeIdSizeBit];
+            inboundConnections = new List<Connection>[NodeIdSizeBit];
+            inboundConnectionsLock = new object[NodeIdSizeBit];
+
+            for (int i = 0; i < NodeIdSizeBit; i++)
+            {
+                kbuckets[i] = new List<NodeInformation>();
+                kbucketsLocks[i] = new object();
+
+                outboundConnections[i] = new List<Connection>();
+                outboundConnectionsLock[i] = new object();
+                inboundConnections[i] = new List<Connection>();
+                inboundConnectionsLock[i] = new object();
+            }
+        }
+
+        private readonly object[] kbucketsLocks;
+        private readonly List<NodeInformation>[] kbuckets;
+
+        private readonly object[] outboundConnectionsLock;
+        private readonly List<Connection>[] outboundConnections;
+        private readonly object[] inboundConnectionsLock;
+        private readonly List<Connection>[] inboundConnections;
+
+        private static readonly int keepConnectionNodeInfosMin = 4;
+        private static readonly int outboundConnectionsMax = 2;
+        private static readonly int inboundConnectionsMax = 4;
+
+        public class Connection
+        {
+            public Connection(NodeInformation _nodeInfo, SocketChannel _sc, Action<string> __ConsoleWriteLine)
+            {
+                nodeInfo = _nodeInfo;
+                sc = _sc;
+                _ConsoleWriteLine = __ConsoleWriteLine;
+            }
+
+            public readonly NodeInformation nodeInfo;
+            public readonly SocketChannel sc;
+            public readonly Action<string> _ConsoleWriteLine;
+        }
+
+        protected override NodeInformation[] GetNodeInfos()
+        {
+            List<NodeInformation> nodeInfos = new List<NodeInformation>();
+            for (int i = 0; i < NodeIdSizeBit; i++)
+                lock (kbucketsLocks[i])
+                    nodeInfos.AddRange(kbuckets[i]);
+            return nodeInfos.ToArray();
+        }
+
+        protected override bool IsContinue { get { return true; } }
+
+        protected override bool IsAlreadyConnected(NodeInformation nodeInfo)
+        {
+            for (int i = 0; i < outboundConnections.Length; i++)
+                lock (outboundConnectionsLock[i])
+                    if (outboundConnections[i].Where((elem) => elem.nodeInfo.Equals(nodeInfo)).FirstOrDefault() != null)
+                        return true;
+
+            for (int i = 0; i < inboundConnections.Length; i++)
+                lock (inboundConnectionsLock[i])
+                    if (inboundConnections[i].Where((elem) => elem.nodeInfo.Equals(nodeInfo)).FirstOrDefault() != null)
+                        return true;
+
+            return false;
+        }
+
+        protected override void UpdateNodeState(NodeInformation nodeInfo, bool isSucceeded)
+        {
+            throw new NotImplementedException();
+        }
+
+        protected override void UpdateNodeState(IPAddress ipAddress, ushort portNumber, bool isSucceeded)
+        {
+            throw new NotImplementedException();
+        }
+
+        protected override bool IsListenerCanContinue(NodeInformation nodeInfo)
+        {
+            throw new NotImplementedException();
+        }
+
+        protected override bool IsWantToContinue(NodeInformation nodeInfo)
+        {
+            throw new NotImplementedException();
+        }
+
+        protected override bool IsClientCanContinue(NodeInformation nodeInfo)
+        {
+            throw new NotImplementedException();
+        }
+
+        protected override void InboundContinue(NodeInformation nodeInfo, SocketChannel sc, Action<string> _ConsoleWriteLine)
+        {
+            throw new NotImplementedException();
+        }
+
+        protected override void OutboundContinue(NodeInformation nodeInfo, SocketChannel sc, Action<string> _ConsoleWriteLine)
+        {
+            throw new NotImplementedException();
+        }
+
+        protected override MessageBase[] Request(NodeInformation nodeinfo, params MessageBase[] messages)
+        {
+            throw new NotImplementedException();
+        }
+
+        protected override void Diffuse(params MessageBase[] messages)
+        {
+            throw new NotImplementedException();
+        }
+
+        //<未実装>別スレッドで常時動かすべき？
+        protected override void KeepConnections()
+        {
+            if (firstNodeInfos.Length == 0)
+            {
+                //<未実装>初期ノード情報がない場合の処理
+                //選択肢1 -> 10分くらい待って再度初期ノード情報取得
+                //選択肢2 -> 使用者に任せる（使用者によって手動で初期ノード情報が追加された時に常時接続再実行）
+            }
+            else
+            {
+                List<NodeInformation> nodeInfos = new List<NodeInformation>();
+                for (int i = 0; i < firstNodeInfos.Length && nodeInfos.Count < keepConnectionNodeInfosMin; i++)
+                {
+                    MessageBase[] resMessages = Connect(firstNodeInfos[i].ipAddress, firstNodeInfos[i].portNumber, true, () => { }, new ReqNodeInfos());
+                    ResNodeInfos resNodeInfos;
+                    if (resMessages != null && resMessages.Length == 1 && (resNodeInfos = resMessages[0] as ResNodeInfos) != null)
+                        //<要検討>更新時間順に並び替えるべき？
+                        nodeInfos.AddRange(resNodeInfos.nodeInfos);
+                }
+                if (nodeInfos.Count == 0)
+                {
+                    //<未実装>初期ノードからノード情報を取得できなかった場合の処理
+                    //選択肢1 -> 10分くらい待って再度ノード情報取得
+                    //選択肢2 -> 使用者に任せる（使用者によって手動で初期ノード情報が追加された時に常時接続再実行）
+                }
+
+                foreach (var nodeInfo in nodeInfos)
+                {
+                    int distanceLevel = GetDistanceLevel(nodeInfo);
+                    if (distanceLevel != -1)
+                        lock (kbucketsLocks[distanceLevel])
+                            kbuckets[distanceLevel].Add(nodeInfo);
+                }
+
+                for (int i = 0; i < NodeIdSizeByte; i++)
+                {
+                    if (kbuckets[i].Count == 0 || outboundConnections[i].Count >= outboundConnectionsMax)
+                        continue;
+
+                    lock (kbucketsLocks[i])
+                        nodeInfos = kbuckets[i];
+
+                    foreach (var nodeInfo in nodeInfos)
+                        while (outboundConnections[i].Count < outboundConnectionsMax)
+                            Connect(nodeInfo, false, () => { });
+                }
+
+                this.RaiseNotification("keep_conn_completed", 5);
+            }
+        }
+
+        public class DistanceParameter
+        {
+            public DistanceParameter(int _hashByteMin, int _hashByteMax, int _minus)
+            {
+                hashByteMin = _hashByteMin;
+                hashByteMax = _hashByteMax;
+                minus = _minus;
+            }
+
+            public int hashByteMin { get; private set; }
+            public int hashByteMax { get; private set; }
+            public int minus { get; private set; }
+        }
+
+        private static readonly DistanceParameter[] distanceParameters = new DistanceParameter[]{
+            new DistanceParameter(0, 0, 8), 
+            new DistanceParameter(1, 1, 7), 
+            new DistanceParameter(2, 3, 6), 
+            new DistanceParameter(4, 7, 5), 
+            new DistanceParameter(8, 15, 4), 
+            new DistanceParameter(16, 31, 3), 
+            new DistanceParameter(32, 63, 2), 
+            new DistanceParameter(64, 127, 1), 
+            new DistanceParameter(128, 255, 0), 
+        };
+
+        private int GetDistanceLevel(NodeInformation nodeInfo2)
+        {
+            Sha256Hash xor = nodeInfo.Id.XOR(nodeInfo2.Id);
+
+            int distanceLevel = NodeIdSizeBit - 1;
+
+            int? minus = null;
+            for (int i = 0, j = 0; i < NodeIdSizeByte && (!minus.HasValue || minus.Value == 8); i++)
+                for (j = 0, minus = null; j < distanceParameters.Length && minus == null; j++)
+                    if (xor.hash[i] >= distanceParameters[j].hashByteMin && xor.hash[i] <= distanceParameters[j].hashByteMax)
+                        distanceLevel -= (minus = distanceParameters[j].minus).Value;
+
+            return distanceLevel;
         }
     }
 
@@ -3180,10 +3471,10 @@ namespace CREA2014
                 int counter = 0;
 
                 int numOfNodes = 5;
-                CreaNodeLocalTestContinue2[] cnlts = new CreaNodeLocalTestContinue2[numOfNodes];
+                CreaNodeLocalTestContinue[] cnlts = new CreaNodeLocalTestContinue[numOfNodes];
                 for (int i = 0; i < numOfNodes; i++)
                 {
-                    cnlts[i] = new CreaNodeLocalTestContinue2((ushort)(7777 + i), 0, "test");
+                    cnlts[i] = new CreaNodeLocalTestContinue((ushort)(7777 + i), 0, "test");
                     cnlts[i].TxtestReceived += (sender2, e2) =>
                     {
                         counter++;
@@ -3206,11 +3497,11 @@ namespace CREA2014
 
             private void Test2NodesInv2()
             {
-                CreaNodeLocalTestContinue2 cnlt1 = new CreaNodeLocalTestContinue2(7777, 0, "test");
+                CreaNodeLocalTestContinue cnlt1 = new CreaNodeLocalTestContinue(7777, 0, "test");
                 cnlt1.Start();
                 while (!cnlt1.isStartCompleted)
                     Thread.Sleep(100);
-                CreaNodeLocalTestContinue2 cnlt2 = new CreaNodeLocalTestContinue2(7778, 0, "test");
+                CreaNodeLocalTestContinue cnlt2 = new CreaNodeLocalTestContinue(7778, 0, "test");
                 cnlt2.Start();
                 while (!cnlt2.isStartCompleted)
                     Thread.Sleep(100);
@@ -3445,33 +3736,24 @@ namespace CREA2014
 
     #region Cremlia実装
 
-    public class CremliaIdFactory<T> : ICremliaIdFactory where T : HASHBASE
+    public abstract class CremliaIdFactory<T> : ICremliaIdFactory where T : HASHBASE
     {
-        public CremliaIdFactory() { }
-
-        public ICremliaId Create() { return new CremliaId<T>(); }
+        public virtual ICremliaId Create() { return new CremliaId<T>(); }
     }
+
+    public class CremliaIdFactorySha256 : CremliaIdFactory<Sha256Hash> { }
 
     public class CremliaId<T> : ICremliaId, IComparable<CremliaId<T>>, IEquatable<CremliaId<T>>, IComparable where T : HASHBASE
     {
         public CremliaId() : this(Activator.CreateInstance(typeof(T)) as T) { }
 
-        public CremliaId(T _hash)
-        {
-            hash = _hash;
-        }
+        public CremliaId(T _hash) { hash = _hash; }
 
         public readonly T hash;
 
-        public int Size
-        {
-            get { return hash.SizeBit; }
-        }
+        public int Size { get { return hash.SizeBit; } }
 
-        public byte[] Bytes
-        {
-            get { return hash.hash; }
-        }
+        public byte[] Bytes { get { return hash.hash; } }
 
         public void FromBytes(byte[] bytes)
         {
@@ -3510,63 +3792,42 @@ namespace CREA2014
         public override string ToString() { return hash.ToString(); }
     }
 
-    public abstract class CremliaNodeInfomation2<T> : ICremliaNodeInfomation, IEquatable<CremliaNodeInfomation2<T>> where T : HASHBASE
+    public class CremliaIdSha256 : CremliaId<Sha256Hash> { }
+
+    public abstract class CremliaNodeInfomation<T> : ICremliaNodeInfomation, IEquatable<CremliaNodeInfomation<T>> where T : HASHBASE
     {
         public abstract ICremliaId Id { get; }
 
-        public abstract bool Equals(CremliaNodeInfomation2<T> other);
+        public virtual bool Equals(CremliaNodeInfomation<T> other) { return Id.Equals(other.Id); }
     }
 
-    public class CremliaNodeInfomationSha256 : CremliaNodeInfomation2<Sha256Hash>
+    public class CremliaNodeInfomationSha256 : CremliaNodeInfomation<Sha256Hash>
     {
-        public CremliaNodeInfomationSha256(NodeInformation _nodeInfo)
-        {
-            nodeInfo = _nodeInfo;
-        }
+        public CremliaNodeInfomationSha256(NodeInformation _nodeInfo) { nodeInfo = _nodeInfo; }
 
         public readonly NodeInformation nodeInfo;
 
-        public override ICremliaId Id
-        {
-            get { return new CremliaId<Sha256Hash>(nodeInfo.Id); }
-        }
+        public override ICremliaId Id { get { return new CremliaId<Sha256Hash>(nodeInfo.Id); } }
 
         public override bool Equals(object obj) { return (obj as CremliaNodeInfomationSha256).Operate((o) => o != null && Equals(o)); }
 
         public override int GetHashCode() { return Id.GetHashCode(); }
 
         public override string ToString() { return Id.ToString(); }
-
-        public override bool Equals(CremliaNodeInfomation2<Sha256Hash> other) { return Id.Equals(other.Id); }
     }
 
     public class CremliaDatabaseIo : ICremliaDatabaseIo
     {
         private int tExpire;
-        public int TExpire
-        {
-            set { tExpire = value; }
-        }
+        public int TExpire { set { tExpire = value; } }
 
-        public byte[] Get(ICremliaId id)
-        {
-            throw new NotImplementedException();
-        }
+        public byte[] Get(ICremliaId id) { throw new NotImplementedException(); }
 
-        public Tuple<ICremliaId, byte[]>[] GetOriginals()
-        {
-            throw new NotImplementedException();
-        }
+        public Tuple<ICremliaId, byte[]>[] GetOriginals() { throw new NotImplementedException(); }
 
-        public Tuple<ICremliaId, byte[]>[] GetCharges()
-        {
-            throw new NotImplementedException();
-        }
+        public Tuple<ICremliaId, byte[]>[] GetCharges() { throw new NotImplementedException(); }
 
-        public void Set(ICremliaId id, byte[] data, bool isOriginal, bool isCache)
-        {
-            throw new NotImplementedException();
-        }
+        public void Set(ICremliaId id, byte[] data, bool isOriginal, bool isCache) { throw new NotImplementedException(); }
     }
 
     #endregion
@@ -4140,6 +4401,16 @@ namespace CREA2014
                             return;
         }
 
+        public ICremliaNodeInfomation[] GetKbuckets()
+        {
+            List<ICremliaNodeInfomation> nodeInfos = new List<ICremliaNodeInfomation>();
+            for (int i = 0; i < kbuckets.Length; i++)
+                lock (kbuckets[i])
+                    for (int j = 0; j < kbuckets[i].Count; j++)
+                        nodeInfos.Add(kbuckets[i][j]);
+            return nodeInfos.ToArray();
+        }
+
         public ICremliaNodeInfomation[] GetKbuckets(int distanceLevel)
         {
             List<ICremliaNodeInfomation> nodeInfos = new List<ICremliaNodeInfomation>();
@@ -4244,40 +4515,28 @@ namespace CREA2014
 
     public class FindNodesReqMessage : CremliaMessageBase
     {
-        public FindNodesReqMessage(ICremliaId _id)
-        {
-            id = _id;
-        }
+        public FindNodesReqMessage(ICremliaId _id) { id = _id; }
 
         public readonly ICremliaId id;
     }
 
     public class NeighborNodesMessage : CremliaMessageBase
     {
-        public NeighborNodesMessage(ICremliaNodeInfomation[] _nodeInfos)
-        {
-            nodeInfos = _nodeInfos;
-        }
+        public NeighborNodesMessage(ICremliaNodeInfomation[] _nodeInfos) { nodeInfos = _nodeInfos; }
 
         public readonly ICremliaNodeInfomation[] nodeInfos;
     }
 
     public class FindValueReqMessage : CremliaMessageBase
     {
-        public FindValueReqMessage(ICremliaId _id)
-        {
-            id = _id;
-        }
+        public FindValueReqMessage(ICremliaId _id) { id = _id; }
 
         public readonly ICremliaId id;
     }
 
     public class ValueMessage : CremliaMessageBase
     {
-        public ValueMessage(byte[] _data)
-        {
-            data = _data;
-        }
+        public ValueMessage(byte[] _data) { data = _data; }
 
         public readonly byte[] data;
     }
@@ -4286,10 +4545,7 @@ namespace CREA2014
 
     public class IdsAndValuesMessage : CremliaMessageBase
     {
-        public IdsAndValuesMessage(Tuple<ICremliaId, byte[]>[] _idsAndValues)
-        {
-            idsAndValues = _idsAndValues;
-        }
+        public IdsAndValuesMessage(Tuple<ICremliaId, byte[]>[] _idsAndValues) { idsAndValues = _idsAndValues; }
 
         public readonly Tuple<ICremliaId, byte[]>[] idsAndValues;
     }
@@ -4339,6 +4595,14 @@ namespace CREA2014
         protected abstract byte[] ComputeHash(byte[] data);
 
         public int SizeByte { get { return SizeBit / 8; } }
+
+        public T XOR<T>(T other) where T : HASHBASE
+        {
+            byte[] xorBytes = new byte[SizeByte];
+            for (int i = 0; i < SizeByte; i++)
+                xorBytes[i] = (byte)(hash[i] ^ other.hash[i]);
+            return HASHBASE.FromHash<T>(xorBytes);
+        }
 
         public void FromHash(byte[] _hash)
         {

@@ -2307,6 +2307,14 @@ namespace CREA2014
                     }
                     finally
                     {
+                        lock (tasksLock)
+                        {
+                            TaskStatus status = tasks.Where((e) => e.Data == task).FirstOrDefault();
+                            if (status == null)
+                                throw new InvalidOperationException("task_not_found");
+                            tasks.Remove(status);
+                        }
+
                         TaskEnded(this, EventArgs.Empty);
                     }
                 });
@@ -3286,18 +3294,18 @@ namespace CREA2014
 
             logMessages = new Dictionary<string, Func<string[], string>>() {
                 {"exist_same_name_account_holder", (args) => "同名の口座名義人が存在します。".Multilanguage(93)},
-                {"outbound_chennel", (args) => "エラーが発生しました。".Multilanguage(94)},
-                {"inbound_channel", (args) => "エラーが発生しました。".Multilanguage(95)},
-                {"inbound_channels", (args) => "エラーが発生しました。".Multilanguage(113)},
-                {"socket_channel_write", (args) => "エラーが発生しました。".Multilanguage(114)},
-                {"socket_channel_read", (args) => "エラーが発生しました。".Multilanguage(115)},
-                {"ric", (args) => "エラーが発生しました。".Multilanguage(121)},
-                {"roc", (args) => "エラーが発生しました。".Multilanguage(122)},
-                {"inbound_session", (args) => "エラーが発生しました。".Multilanguage(123)},
-                {"outbound_session", (args) => "エラーが発生しました。".Multilanguage(124)},
-                {"diffuse", (args) => "エラーが発生しました。".Multilanguage(125)},
-                {"keep_conn", (args) => "エラーが発生しました。".Multilanguage(126)},
-                {"task", (args) => "エラーが発生しました。".Multilanguage(96)},
+                {"outbound_chennel", (args) => "エラーが発生しました：outbound_chennel".Multilanguage(94)},
+                {"inbound_channel", (args) => "エラーが発生しました：inbound_channel".Multilanguage(95)},
+                {"inbound_channels", (args) => "エラーが発生しました：inbound_channels".Multilanguage(113)},
+                {"socket_channel_write", (args) => "エラーが発生しました：socket_channel_write".Multilanguage(114)},
+                {"socket_channel_read", (args) => "エラーが発生しました：socket_channel_read".Multilanguage(115)},
+                {"ric", (args) => "エラーが発生しました：ric".Multilanguage(121)},
+                {"roc", (args) => "エラーが発生しました：roc".Multilanguage(122)},
+                {"inbound_session", (args) => "エラーが発生しました：inbound_session".Multilanguage(123)},
+                {"outbound_session", (args) => "エラーが発生しました：outbound_session".Multilanguage(124)},
+                {"diffuse", (args) => "エラーが発生しました：diffuse".Multilanguage(125)},
+                {"keep_conn", (args) => "エラーが発生しました：keep_conn".Multilanguage(126)},
+                {"task", (args) => "エラーが発生しました：task".Multilanguage(96)},
                 {"task_aborted", (args) => "作業が強制終了されました。".Multilanguage(97)},
                 {"all_tasks_aborted", (args) => "全ての作業が強制終了されました。".Multilanguage(98)},
                 {"upnp_not_found", (args) => "UPnPによるグローバルIPアドレスの取得に失敗しました。サーバは起動されませんでした。".Multilanguage(99)},
