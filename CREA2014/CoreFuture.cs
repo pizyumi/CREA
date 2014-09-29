@@ -1238,4 +1238,11 @@ namespace New
             return new CurrencyUnit(totalPrevOutputs - totalOutpus);
         }
     }
+
+    public abstract class Block : SHAREDDATA
+    {
+        protected CachedData<Sha256Sha256Hash> idCache;
+        protected virtual Func<X15Hash> IdGenerator { get { return () => new X15Hash(ToBinary()); } }
+        public virtual Sha256Sha256Hash Id { get { return idCache.Data; } }
+    }
 }

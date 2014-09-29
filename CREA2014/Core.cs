@@ -3251,12 +3251,71 @@ namespace CREA2014
 
         protected override void InboundContinue(NodeInformation nodeInfo, SocketChannel sc, Action<string> _ConsoleWriteLine)
         {
-            throw new NotImplementedException();
+            Connection connection = new Connection(nodeInfo, sc, _ConsoleWriteLine);
+            int distanceLevel = GetDistanceLevel(nodeInfo);
+
+            lock (inboundConnectionsLock[distanceLevel])
+                inboundConnections[distanceLevel].Add(connection);
+
+            sc.Closed += (sender, e) =>
+            {
+                lock (inboundConnectionsLock[distanceLevel])
+                    inboundConnections[distanceLevel].Remove(connection);
+            };
+            sc.Failed += (sender, e) =>
+            {
+                lock (inboundConnectionsLock[distanceLevel])
+                    inboundConnections[distanceLevel].Remove(connection);
+            };
+
+            Continue(nodeInfo, sc, _ConsoleWriteLine);
         }
 
         protected override void OutboundContinue(NodeInformation nodeInfo, SocketChannel sc, Action<string> _ConsoleWriteLine)
         {
-            throw new NotImplementedException();
+            Connection connection = new Connection(nodeInfo, sc, _ConsoleWriteLine);
+            int distanceLevel = GetDistanceLevel(nodeInfo);
+
+            lock (outboundConnectionsLock[distanceLevel])
+                outboundConnections[distanceLevel].Add(connection);
+
+            sc.Closed += (sender, e) =>
+            {
+                lock (outboundConnectionsLock[distanceLevel])
+                    outboundConnections[distanceLevel].Remove(connection);
+            };
+            sc.Failed += (sender, e) =>
+            {
+                lock (outboundConnectionsLock[distanceLevel])
+                    outboundConnections[distanceLevel].Remove(connection);
+            };
+
+            Continue(nodeInfo, sc, _ConsoleWriteLine);
+        }
+
+        private void Continue(NodeInformation nodeInfo, SocketChannel sc, Action<string> _ConsoleWriteLine)
+        {
+            _ConsoleWriteLine("常時接続");
+
+            sc.Sessioned += (sender, e) =>
+            {
+                try
+                {
+                    _ConsoleWriteLine("新しいセッション");
+
+                    InboundProtocol(e, _ConsoleWriteLine);
+                }
+                catch (Exception ex)
+                {
+                    this.RaiseError("inbound_session", 5, ex);
+                }
+                finally
+                {
+                    e.Close();
+
+                    _ConsoleWriteLine("セッション終わり");
+                }
+            };
         }
 
         protected override MessageBase[] Request(NodeInformation nodeinfo, params MessageBase[] messages)
