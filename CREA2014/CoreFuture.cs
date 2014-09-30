@@ -1241,8 +1241,37 @@ namespace New
 
     public abstract class Block : SHAREDDATA
     {
-        protected CachedData<Sha256Sha256Hash> idCache;
+        public Block(int? _version) : base(_version) { idCache = new CachedData<X15Hash>(IdGenerator); }
+
+        protected CachedData<X15Hash> idCache;
         protected virtual Func<X15Hash> IdGenerator { get { return () => new X15Hash(ToBinary()); } }
-        public virtual Sha256Sha256Hash Id { get { return idCache.Data; } }
+        public virtual X15Hash Id { get { return idCache.Data; } }
+
+        public virtual bool Verify() { return true; }
+    }
+
+    public class GenesisBlock : Block
+    {
+        public GenesisBlock() : base(null) { }
+
+        public readonly string genesisWord = "Bitstamp 2014/05/25 BTC/USD High 586.34 BTC to the moooooooon!!";
+
+        protected override Func<ReaderWriter, IEnumerable<MainDataInfomation>> StreamInfo
+        {
+            get
+            {
+                return (msrw) => new MainDataInfomation[]{
+                    new MainDataInfomation(typeof(string), () => genesisWord, (o) => { throw new NotSupportedException("genesis_block_cant_read"); }),
+                };
+            }
+        }
+    }
+
+    public abstract class TransactionalBlock : Block
+    {
+        static TransactionalBlock()
+        {
+
+        }
     }
 }
