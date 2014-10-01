@@ -1271,7 +1271,37 @@ namespace New
     {
         static TransactionalBlock()
         {
-
+            rewards = new CurrencyUnit[numberOfCycles];
+            rewards[0] = initialReward;
+            for (int i = 1; i < numberOfCycles; i++)
+                rewards[i] = new Creacoin(rewards[i - 1].Amount * rewardReductionRate);
         }
+
+        public TransactionalBlock() : base(0) { }
+
+        private static readonly long blockGenerationInterval = 60; //[sec]
+        private static readonly long cycle = 60 * 60 * 24 * 365; //[sec]=1[year]
+        private static readonly int numberOfCycles = 8;
+        private static readonly long rewardlessStart = cycle * numberOfCycles; //[sec]=8[year]
+        private static readonly decimal rewardReductionRate = 0.8m;
+        private static readonly CurrencyUnit initialReward = new Creacoin(1.0m); //[CREA/sec]
+        private static readonly CurrencyUnit[] rewards; //[CREA/sec]
+        private static readonly decimal foundationShare = 0.1m;
+        private static readonly long foundationInterval = 60 * 60 * 24; //[block]
+
+        private static readonly long numberOfTimestamps = 11;
+        private static readonly long targetTimespan = blockGenerationInterval * 1; //[sec]
+
+        private static readonly Difficulty<X15Hash> minDifficulty = new Difficulty<X15Hash>(HASHBASE.FromHash<X15Hash>(new byte[] { 0, 127, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255 }));
+
+#if TEST
+        public static readonly Sha256Ripemd160Hash foundationPubKeyHash = new Sha256Ripemd160Hash(new byte[] { 69, 67, 83, 49, 32, 0, 0, 0, 16, 31, 116, 194, 127, 71, 154, 183, 50, 198, 23, 17, 129, 220, 25, 98, 4, 30, 93, 45, 53, 252, 176, 145, 108, 20, 226, 233, 36, 7, 35, 198, 98, 239, 109, 66, 206, 41, 162, 179, 255, 189, 126, 72, 97, 140, 165, 139, 118, 107, 137, 103, 76, 238, 125, 62, 163, 205, 108, 62, 189, 240, 124, 71 });
+#else
+        public static readonly Sha256Ripemd160Hash foundationPubKeyHash = null;
+#endif
+
+        public BlockHeader<BlockidHashType, TxidHashType> header { get; private set; }
+        public CoinbaseTransaction coinbaseTxToMiner { get; private set; }
+        public TransferTransaction[] transferTxs { get; private set; }
     }
 }
