@@ -1271,9 +1271,9 @@ namespace CREA2014
                 Type elementType = _type.GetElementType();
                 if (!elementType.IsSubclassOf(typeof(SHAREDDATA)))
                     throw new ArgumentException("stream_info_not_sd_array");
-                else if (elementType.IsAbstract)
+                if (elementType.IsAbstract)
                     throw new ArgumentException("stream_info_sd_array_abstract");
-                else if (elementType.IsArray)
+                if (elementType.IsArray)
                     throw new ArgumentException("stream_info_array_of_array");
 
                 SHAREDDATA sd = Activator.CreateInstance(elementType) as SHAREDDATA;
@@ -1296,12 +1296,12 @@ namespace CREA2014
                     Type elementType = _type.GetElementType();
                     if (elementType.IsSubclassOf(typeof(SHAREDDATA)))
                         throw new ArgumentException("stream_info_sd_array");
-                    else if (elementType.IsAbstract)
+                    if (elementType.IsAbstract)
                         throw new ArgumentException("stream_info_array_abstract");
-                    else if (elementType.IsArray)
+                    if (elementType.IsArray)
                         throw new ArgumentException("stream_info_array_of_array");
-                    else
-                        length = _lengthOrVersion;
+
+                    length = _lengthOrVersion;
                 }
                 else if (_type.IsSubclassOf(typeof(SHAREDDATA)))
                 {
@@ -1327,9 +1327,9 @@ namespace CREA2014
             {
                 if (_type.IsArray)
                     throw new ArgumentException("stream_info_array");
-                else if (_type.IsSubclassOf(typeof(SHAREDDATA)))
+                if (_type.IsSubclassOf(typeof(SHAREDDATA)))
                     throw new ArgumentException("stream_info_sd");
-                else if (_type.IsAbstract)
+                if (_type.IsAbstract)
                     throw new ArgumentException("stream_info_abstract");
 
                 Type = _type;
@@ -1374,8 +1374,8 @@ namespace CREA2014
 
                     if (!sd.IsVersioned)
                         throw new NotSupportedException("stream_info_version");
-                    else
-                        return version.Value;
+
+                    return version.Value;
                 }
             }
         }
@@ -1425,12 +1425,12 @@ namespace CREA2014
                 writer.WriteBytes((byte[])obj, si.Length);
             else if (si.Type.IsArray)
             {
-                Array objs = obj as Array;
+                Array os = obj as Array;
                 Type elementType = si.Type.GetElementType();
 
                 if (si.Length == null)
-                    writer.WriteInt(objs.Length);
-                foreach (var innerObj in objs)
+                    writer.WriteInt(os.Length);
+                foreach (var innerObj in os)
                     _Write(elementType, innerObj);
             }
             else
@@ -1476,6 +1476,7 @@ namespace CREA2014
             {
                 Type elementType = si.Type.GetElementType();
                 Array os = Array.CreateInstance(elementType, si.Length == null ? reader.ReadInt() : (int)si.Length) as Array;
+
                 for (int i = 0; i < os.Length; i++)
                     os.SetValue(_Read(elementType), i);
 
@@ -1635,7 +1636,7 @@ namespace CREA2014
 
             public override void WriteDouble(double data) { stream.Write(BitConverter.GetBytes(data), 0, 8); }
 
-            public override void WriteDateTime(DateTime data) { stream.Write(BitConverter.GetBytes((data).ToBinary()), 0, 8); }
+            public override void WriteDateTime(DateTime data) { WriteLong(data.ToBinary()); }
 
             public override void WriteString(string data)
             {
@@ -1725,12 +1726,7 @@ namespace CREA2014
                 return BitConverter.ToDouble(bytes, 0);
             }
 
-            public override DateTime ReadDateTime()
-            {
-                byte[] bytes = new byte[8];
-                stream.Read(bytes, 0, 8);
-                return DateTime.FromBinary(BitConverter.ToInt64(bytes, 0));
-            }
+            public override DateTime ReadDateTime() { return DateTime.FromBinary(ReadLong()); }
 
             public override string ReadString()
             {
@@ -1835,15 +1831,15 @@ namespace CREA2014
             {
                 if (!IsVersioned)
                     throw new NotSupportedException("sd_version");
-                else
-                    return (int)version;
+
+                return version.Value;
             }
             set
             {
                 if (!IsVersioned)
                     throw new NotSupportedException("sd_version");
-                else
-                    version = value;
+
+                version = value;
             }
         }
 
