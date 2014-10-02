@@ -59,22 +59,25 @@
     <SignAssembly>true</SignAssembly>
   </PropertyGroup>
   <PropertyGroup>
-    <AssemblyOriginatorKeyFile>yuminyan2.pfx</AssemblyOriginatorKeyFile>
+    <AssemblyOriginatorKeyFile>yuminyan3.snk</AssemblyOriginatorKeyFile>
+  </PropertyGroup>
+  <PropertyGroup>
+    <DelaySign>false</DelaySign>
   </PropertyGroup>
   <ItemGroup>
     <Reference Include="HashLib, Version=2.1.0.0, Culture=neutral, processorArchitecture=x86">
       <SpecificVersion>False</SpecificVersion>
-      <HintPath>..\..\..\..\プログラミング関係\HashLib 2.1\HashLib 2.1\HashLib\bin\x86\Debug\HashLib.dll</HintPath>
+      <HintPath>Component\HashLib.dll</HintPath>
     </Reference>
     <Reference Include="SuperSocket.SocketBase">
-      <HintPath>..\..\..\..\プログラミング関係\SuperWebSocket(0.8).Binaries\Net45\Release\SuperSocket.SocketBase.dll</HintPath>
+      <HintPath>Component\SuperSocket.SocketBase.dll</HintPath>
     </Reference>
     <Reference Include="SuperSocket.SocketEngine">
-      <HintPath>..\..\..\..\プログラミング関係\SuperWebSocket(0.8).Binaries\Net45\Release\SuperSocket.SocketEngine.dll</HintPath>
+      <HintPath>Component\SuperSocket.SocketEngine.dll</HintPath>
     </Reference>
     <Reference Include="SuperWebSocket, Version=0.8.0.0, Culture=neutral, PublicKeyToken=7ba53b9a7cef5d1c, processorArchitecture=MSIL">
       <SpecificVersion>False</SpecificVersion>
-      <HintPath>..\..\..\..\プログラミング関係\SuperWebSocket(0.8).Binaries\Net45\Release\SuperWebSocket.dll</HintPath>
+      <HintPath>Component\SuperWebSocket.dll</HintPath>
     </Reference>
     <Reference Include="System" />
     <Reference Include="System.Configuration" />
@@ -186,6 +189,7 @@
     </None>
     <AppDesigner Include="Properties\" />
     <None Include="yuminyan2.pfx" />
+    <None Include="yuminyan3.snk" />
     <Resource Include="Resources\Ubuntu-Regular.ttf" />
     <Resource Include="Resources\Audiowide-Regular.ttf" />
   </ItemGroup>

@@ -1380,8 +1380,6 @@ namespace CREA2014
             }
         }
 
-        public STREAMDATA() { }
-
         protected abstract Func<ReaderWriter, IEnumerable<T>> StreamInfo { get; }
 
         protected void Write(STREAMWRITER writer, StreamInfomation si)
@@ -1475,7 +1473,7 @@ namespace CREA2014
             else if (si.Type.IsArray)
             {
                 Type elementType = si.Type.GetElementType();
-                Array os = Array.CreateInstance(elementType, si.Length == null ? reader.ReadInt() : (int)si.Length) as Array;
+                Array os = Array.CreateInstance(elementType, si.Length == null ? reader.ReadInt() : si.Length.Value) as Array;
 
                 for (int i = 0; i < os.Length; i++)
                     os.SetValue(_Read(elementType), i);
