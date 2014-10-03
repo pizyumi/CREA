@@ -797,489 +797,6 @@ namespace New
     using System.IO;
 
 
-    public interface IAccount
-    {
-        string iName { get; }
-        string iDescription { get; }
-        string iAddress { get; }
-        CurrencyUnit iUsableAmount { get; }
-        CurrencyUnit iUnusableAmount { get; }
-        CurrencyUnit iAmount { get; }
-    }
-
-    public interface IAccountHolder
-    {
-        IAccount[] iAccounts { get; }
-
-        event EventHandler<IAccount> iAccountAdded;
-        event EventHandler<IAccount> iAccountRemoved;
-        event EventHandler iAccountHolderChanged;
-
-        void iAddAccount(IAccount iAccount);
-        void iRemoveAccount(IAccount iAccount);
-    }
-
-    public interface IAnonymousAccountHolder : IAccountHolder { }
-
-    public interface IPseudonymousAccountHolder : IAccountHolder
-    {
-        string iName { get; }
-        string iSign { get; }
-    }
-
-    public interface IAccountHolders
-    {
-        IAnonymousAccountHolder iAnonymousAccountHolder { get; }
-        IPseudonymousAccountHolder[] iPseudonymousAccountHolders { get; }
-
-        event EventHandler<IAccountHolder> iAccountHolderAdded;
-        event EventHandler<IAccountHolder> iAccountHolderRemoved;
-        event EventHandler iAccountHoldersChanged;
-
-        void iAddAccountHolder(IPseudonymousAccountHolder iPseudonymousAccountHolder);
-        void iDeleteAccountHolder(IPseudonymousAccountHolder iPseudonymousAccountHolder);
-    }
-
-    public interface IAccountHoldersFactory
-    {
-        IAccount CreateAccount(string name, string description);
-        IPseudonymousAccountHolder CreatePseudonymousAccountHolder(string name);
-    }
-
-    public class Account : SHAREDDATA, IAccount
-    {
-        public Account() : base(0) { }
-
-        public void LoadVersion0(string _name, string _description)
-        {
-            Version = 0;
-
-            LoadCommon(_name, _description);
-
-            ecdsa256KeyPair = new Ecdsa256KeyPair(true);
-        }
-
-        public void LoadVersion1(string _name, string _description)
-        {
-            Version = 1;
-
-            LoadCommon(_name, _description);
-
-            secp256k1KeyPair = new Secp256k1KeyPair<Sha256Hash>(true);
-        }
-
-        private void LoadCommon(string _name, string _description)
-        {
-            name = _name;
-            description = _description;
-        }
-
-        private string name;
-        private string description;
-        private Ecdsa256KeyPair ecdsa256KeyPair;
-        private Secp256k1KeyPair<Sha256Hash> secp256k1KeyPair;
-
-        public string Name
-        {
-            get { return name; }
-            set
-            {
-                if (name != value)
-                    this.ExecuteBeforeEvent(() => name = value, AccountChanged);
-            }
-        }
-        public string Description
-        {
-            get { return description; }
-            set
-            {
-                if (description != value)
-                    this.ExecuteBeforeEvent(() => description = value, AccountChanged);
-            }
-        }
-        public Ecdsa256KeyPair Ecdsa256KeyPair
-        {
-            get
-            {
-                if (Version != 0)
-                    throw new NotSupportedException();
-                return ecdsa256KeyPair;
-            }
-        }
-        public Secp256k1KeyPair<Sha256Hash> Secp256k1KeyPair
-        {
-            get
-            {
-                if (Version != 1)
-                    throw new NotSupportedException();
-                return secp256k1KeyPair;
-            }
-        }
-
-        public AccountAddress Address
-        {
-            get
-            {
-                if (Version == 0)
-                    return new AccountAddress(ecdsa256KeyPair.pubKey.pubKey);
-                else if (Version == 1)
-                    return new AccountAddress(ecdsa256KeyPair.pubKey.pubKey);
-                else
-                    throw new NotSupportedException();
-            }
-        }
-        public string AddressBase58
-        {
-            get
-            {
-                if (Version != 0 && Version != 1)
-                    throw new NotSupportedException();
-                return Address.Base58;
-            }
-        }
-
-        public CurrencyUnit usableAmount { get; private set; }
-        public CurrencyUnit unusableAmount { get; private set; }
-
-        public CurrencyUnit Amount { get { return new CurrencyUnit(usableAmount.rawAmount + unusableAmount.rawAmount); } }
-
-        public class AccountAddress
-        {
-            public AccountAddress(byte[] _publicKey) { hash = new Sha256Ripemd160Hash(_publicKey); }
-
-            public AccountAddress(Sha256Ripemd160Hash _hash) { hash = _hash; }
-
-            public AccountAddress(string _base58) { base58 = _base58; }
-
-            private Sha256Ripemd160Hash hash;
-            public Sha256Ripemd160Hash Hash
-            {
-                get
-                {
-                    if (hash != null)
-                        return hash;
-                    else
-                    {
-                        byte[] mergedMergedBytes = Base58Encoding.Decode(base58);
-
-                        byte[] mergedBytes = new byte[mergedMergedBytes.Length - 4];
-                        Array.Copy(mergedMergedBytes, 0, mergedBytes, 0, mergedBytes.Length);
-                        byte[] checkBytes = new byte[4];
-                        Array.Copy(mergedMergedBytes, mergedBytes.Length, checkBytes, 0, 4);
-
-                        int check1 = BitConverter.ToInt32(checkBytes, 0);
-                        int check2 = BitConverter.ToInt32(mergedBytes.ComputeSha256().ComputeSha256(), 0);
-                        if (check1 != check2)
-                            throw new InvalidDataException("base58_check");
-
-                        byte[] identifierBytes = new byte[3];
-                        Array.Copy(mergedBytes, 0, identifierBytes, 0, identifierBytes.Length);
-                        byte[] hashBytes = new byte[mergedBytes.Length - identifierBytes.Length];
-                        Array.Copy(mergedBytes, identifierBytes.Length, hashBytes, 0, hashBytes.Length);
-
-                        //base58表現の先頭がCREAになるようなバイト配列を使っている
-                        byte[] correctIdentifierBytes = new byte[] { 84, 122, 143 };
-
-                        if (!identifierBytes.BytesEquals(correctIdentifierBytes))
-                            throw new InvalidDataException("base58_identifier");
-
-                        return hash = HASHBASE.FromHash<Sha256Ripemd160Hash>(hashBytes);
-                    }
-                }
-                set
-                {
-                    hash = value;
-                    base58 = null;
-                }
-            }
-
-            private string base58;
-            public string Base58
-            {
-                get
-                {
-                    if (base58 != null)
-                        return base58;
-                    else
-                    {
-                        //base58表現の先頭がCREAになるようなバイト配列を使っている
-                        byte[] identifierBytes = new byte[] { 84, 122, 143 };
-                        byte[] hashBytes = hash.hash;
-
-                        byte[] mergedBytes = new byte[identifierBytes.Length + hashBytes.Length];
-                        Array.Copy(identifierBytes, 0, mergedBytes, 0, identifierBytes.Length);
-                        Array.Copy(hashBytes, 0, mergedBytes, identifierBytes.Length, hashBytes.Length);
-
-                        //先頭4バイトしか使用しない
-                        byte[] checkBytes = mergedBytes.ComputeSha256().ComputeSha256();
-
-                        byte[] mergedMergedBytes = new byte[mergedBytes.Length + 4];
-                        Array.Copy(mergedBytes, 0, mergedMergedBytes, 0, mergedBytes.Length);
-                        Array.Copy(checkBytes, 0, mergedMergedBytes, mergedBytes.Length, 4);
-
-                        return base58 = Base58Encoding.Encode(mergedMergedBytes);
-                    }
-                }
-                set
-                {
-                    base58 = value;
-                    hash = null;
-                }
-            }
-
-            public override string ToString() { return Base58; }
-        }
-
-        protected override Func<ReaderWriter, IEnumerable<MainDataInfomation>> StreamInfo
-        {
-            get
-            {
-                if (Version == 0)
-                    return (msrw) => new MainDataInfomation[]{
-                        new MainDataInfomation(typeof(string), () => name, (o) => name = (string)o),
-                        new MainDataInfomation(typeof(string), () => description, (o) => description = (string)o),
-                        new MainDataInfomation(typeof(Ecdsa256KeyPair), null, () => ecdsa256KeyPair, (o) => ecdsa256KeyPair = (Ecdsa256KeyPair)o),
-                    };
-                else if (Version == 1)
-                    return (msrw) => new MainDataInfomation[]{
-                        new MainDataInfomation(typeof(string), () => name, (o) => name = (string)o),
-                        new MainDataInfomation(typeof(string), () => description, (o) => description = (string)o),
-                        new MainDataInfomation(typeof(Secp256k1KeyPair<Sha256Hash>), null, () => secp256k1KeyPair, (o) => secp256k1KeyPair = (Secp256k1KeyPair<Sha256Hash>)o),
-                    };
-                else
-                    throw new NotSupportedException("account_main_data_info");
-            }
-        }
-        public override bool IsVersioned { get { return true; } }
-        public override bool IsCorruptionChecked
-        {
-            get
-            {
-                if (Version == 0 || Version == 1)
-                    return true;
-                else
-                    throw new NotSupportedException("account_check");
-            }
-        }
-
-        public event EventHandler AccountChanged = delegate { };
-
-        public void ChangeUsableAmount(CurrencyUnit newUsableAmount)
-        {
-            if (usableAmount.Amount != newUsableAmount.Amount)
-                this.ExecuteBeforeEvent(() => usableAmount = newUsableAmount, AccountChanged);
-        }
-
-        public void ChangeUnusableAmount(CurrencyUnit newUnusableAmount)
-        {
-            if (unusableAmount.Amount != newUnusableAmount.Amount)
-                this.ExecuteBeforeEvent(() => unusableAmount = newUnusableAmount, AccountChanged);
-        }
-
-        public void ChangeAmount(CurrencyUnit newUsableAmount, CurrencyUnit newUnusableAmount)
-        {
-            bool flag1 = usableAmount.Amount != newUsableAmount.Amount;
-            bool flag2 = unusableAmount.Amount != newUnusableAmount.Amount;
-
-            if (flag1)
-                usableAmount = newUsableAmount;
-            if (flag2)
-                unusableAmount = newUnusableAmount;
-
-            if (flag1 || flag2)
-                AccountChanged(this, EventArgs.Empty);
-        }
-
-        public override string ToString() { return string.Join(":", Name, AddressBase58); }
-
-        public string iName { get { return Name; } }
-        public string iDescription { get { return Description; } }
-        public string iAddress { get { return AddressBase58; } }
-        public CurrencyUnit iUsableAmount { get { return usableAmount; } }
-        public CurrencyUnit iUnusableAmount { get { return unusableAmount; } }
-        public CurrencyUnit iAmount { get { return Amount; } }
-    }
-
-    public abstract class AccountHolder : SHAREDDATA, IAccountHolder
-    {
-        public AccountHolder()
-            : base(0)
-        {
-            accounts = new List<Account>();
-            accountsCache = new CachedData<Account[]>(() =>
-            {
-                lock (accountsLock)
-                    return accounts.ToArray();
-            });
-        }
-
-        public virtual void LoadVersion0() { Version = 0; }
-        public virtual void LoadVersion1() { Version = 1; }
-
-        private readonly object accountsLock = new object();
-        private List<Account> accounts;
-        private readonly CachedData<Account[]> accountsCache;
-        public Account[] Accounts { get { return accountsCache.Data; } }
-
-        protected override Func<ReaderWriter, IEnumerable<MainDataInfomation>> StreamInfo
-        {
-            get
-            {
-                if (Version == 0)
-                    return (msrw) => new MainDataInfomation[]{
-                        new MainDataInfomation(typeof(Account[]), 0, null, () => accountsCache.Data, (o) => 
-                        {
-                            accounts = ((Account[])o).ToList();
-                            foreach (var account in accounts)
-                                if (account.Version != 0)
-                                    throw new NotSupportedException();
-                        }),
-                    };
-                else if (Version == 1)
-                    return (msrw) => new MainDataInfomation[]{
-                        new MainDataInfomation(typeof(Account[]), 1, null, () => accountsCache.Data, (o) => 
-                        {
-                            accounts = ((Account[])o).ToList();
-                            foreach (var account in accounts)
-                                if (account.Version != 1)
-                                    throw new NotSupportedException();
-                        }),
-                    };
-                else
-                    throw new NotSupportedException();
-            }
-        }
-        public override bool IsVersioned { get { return true; } }
-        public override bool IsCorruptionChecked
-        {
-            get
-            {
-                if (Version == 0 || Version == 1)
-                    return true;
-                else
-                    throw new NotSupportedException();
-            }
-        }
-
-        public event EventHandler<Account> AccountAdded = delegate { };
-        protected EventHandler<Account> PAccountAdded { get { return AccountAdded; } }
-
-        public event EventHandler<Account> AccountRemoved = delegate { };
-        protected EventHandler<Account> PAccountRemoved { get { return AccountRemoved; } }
-
-        public event EventHandler AccountHolderChanged = delegate { };
-        protected EventHandler PAccountHolderChanged { get { return AccountHolderChanged; } }
-
-        public void AddAccount(Account account)
-        {
-            if (Version != 0 && Version != 1)
-                throw new NotSupportedException();
-            if (account.Version != Version)
-                throw new ArgumentException();
-
-            lock (accountsLock)
-            {
-                if (accounts.Contains(account))
-                    throw new InvalidOperationException("exist_account");
-
-                this.ExecuteBeforeEvent(() =>
-                {
-                    accounts.Add(account);
-                    accountsCache.IsModified = true;
-                }, account, new EventHandler<Account>[] { AccountAdded }, new EventHandler[] { AccountHolderChanged });
-            }
-        }
-
-        public void RemoveAccount(Account account)
-        {
-            if (Version != 0 && Version != 1)
-                throw new NotSupportedException();
-            if (account.Version != Version)
-                throw new ArgumentException();
-
-            lock (accountsLock)
-            {
-                if (!accounts.Contains(account))
-                    throw new InvalidOperationException("not_exist_account");
-
-                this.ExecuteBeforeEvent(() =>
-                {
-                    accounts.Remove(account);
-                    accountsCache.IsModified = true;
-                }, account, new EventHandler<Account>[] { AccountRemoved }, new EventHandler[] { AccountHolderChanged });
-            }
-        }
-
-        public IAccount[] iAccounts { get { return Accounts; } }
-
-        private Dictionary<EventHandler<IAccount>, EventHandler<Account>> iAccountAddedDict = new Dictionary<EventHandler<IAccount>, EventHandler<Account>>();
-        public event EventHandler<IAccount> iAccountAdded
-        {
-            add
-            {
-                EventHandler<Account> eh = (sender, e) => value(sender, e);
-
-                iAccountAddedDict.Add(value, eh);
-
-                AccountAdded += eh;
-            }
-            remove
-            {
-                EventHandler<Account> eh = iAccountAddedDict[value];
-
-                iAccountAddedDict.Remove(value);
-
-                AccountAdded -= eh;
-            }
-        }
-
-        private Dictionary<EventHandler<IAccount>, EventHandler<Account>> iAccountRemovedDict = new Dictionary<EventHandler<IAccount>, EventHandler<Account>>();
-        public event EventHandler<IAccount> iAccountRemoved
-        {
-            add
-            {
-                EventHandler<Account> eh = (sender, e) => value(sender, e);
-
-                iAccountRemovedDict.Add(value, eh);
-
-                AccountRemoved += eh;
-            }
-            remove
-            {
-                EventHandler<Account> eh = iAccountRemovedDict[value];
-
-                iAccountRemovedDict.Remove(value);
-
-                AccountRemoved -= eh;
-            }
-        }
-
-        public event EventHandler iAccountHolderChanged
-        {
-            add { AccountHolderChanged += value; }
-            remove { AccountHolderChanged -= value; }
-        }
-
-        public void iAddAccount(IAccount iAccount)
-        {
-            if (!(iAccount is Account))
-                throw new ArgumentException("type_mismatch");
-
-            AddAccount(iAccount as Account);
-        }
-
-        public void iRemoveAccount(IAccount iAccount)
-        {
-            if (!(iAccount is Account))
-                throw new ArgumentException("type_mismatch");
-
-            RemoveAccount(iAccount as Account);
-        }
-    }
-
-
-
-
     public class TransactionInput : SHAREDDATA
     {
         public TransactionInput() : base(0) { }
@@ -1604,8 +1121,6 @@ namespace New
 
     public class CoinbaseTransaction : Transaction
     {
-        public CoinbaseTransaction() : base() { }
-
         public override void LoadVersion0(TransactionOutput[] _txOutputs) { base.LoadVersion0(_txOutputs); }
 
         public override void LoadVersion1(TransactionOutput[] _txOutputs) { throw new NotSupportedException(); }
@@ -1624,8 +1139,6 @@ namespace New
 
     public class TransferTransaction : Transaction
     {
-        public TransferTransaction() : base() { }
-
         public override void LoadVersion0(TransactionOutput[] _txOutputs) { throw new NotSupportedException(); }
 
         public virtual void LoadVersion0(TransactionInput[] _txInputs, TransactionOutput[] _txOutputs)
@@ -1848,6 +1361,64 @@ namespace New
         }
     }
 
+    public class BlockHeader : SHAREDDATA
+    {
+        public BlockHeader() : base(0) { }
+
+        public void LoadVersion0(long _index, X15Hash _prevBlockHash, DateTime _timestamp, Difficulty<X15Hash> _difficulty, byte[] _nonce)
+        {
+            if (_index < 1)
+                throw new ArgumentOutOfRangeException("block_header_index_out");
+            if (_nonce.Length > maxNonceLength)
+                throw new ArgumentOutOfRangeException("block_header_nonce_out");
+
+            index = _index;
+            prevBlockHash = _prevBlockHash;
+            timestamp = _timestamp;
+            difficulty = _difficulty;
+            nonce = _nonce;
+        }
+
+        private static readonly int maxNonceLength = 10;
+
+        public long index { get; private set; }
+        public X15Hash prevBlockHash { get; private set; }
+        public Sha256Sha256Hash merkleRootHash { get; private set; }
+        public DateTime timestamp { get; private set; }
+        public Difficulty<X15Hash> difficulty { get; private set; }
+        public byte[] nonce { get; private set; }
+
+        protected override Func<ReaderWriter, IEnumerable<MainDataInfomation>> StreamInfo
+        {
+            get
+            {
+                if (Version == 0)
+                    return (msrw) => new MainDataInfomation[]{
+                        new MainDataInfomation(typeof(long), () => index, (o) => index = (long)o),
+                        new MainDataInfomation(typeof(X15Hash), null, () => prevBlockHash, (o) => prevBlockHash = (X15Hash)o),
+                        new MainDataInfomation(typeof(Sha256Sha256Hash), null, () => merkleRootHash, (o) => merkleRootHash = (Sha256Sha256Hash)o),
+                        new MainDataInfomation(typeof(DateTime), () => timestamp, (o) => timestamp = (DateTime)o),
+                        new MainDataInfomation(typeof(byte[]), 4, () => difficulty.CompactTarget, (o) => difficulty = new Difficulty<X15Hash>((byte[])o)),
+                        new MainDataInfomation(typeof(byte[]), null, () => nonce, (o) => nonce = (byte[])o),
+                    };
+                else
+                    throw new NotSupportedException();
+            }
+        }
+        public override bool IsVersioned { get { return true; } }
+        public override bool IsVersionSaved { get { return false; } }
+
+        public void UpdateMerkleRootHash(Sha256Sha256Hash newMerkleRootHash) { merkleRootHash = newMerkleRootHash; }
+        public void UpdateTimestamp(DateTime newTimestamp) { timestamp = newTimestamp; }
+        public void UpdateNonce(byte[] newNonce)
+        {
+            if (newNonce.Length > maxNonceLength)
+                throw new ArgumentOutOfRangeException("block_header_nonce_out");
+
+            nonce = newNonce;
+        }
+    }
+
     public abstract class TransactionalBlock : Block
     {
         static TransactionalBlock()
@@ -1858,7 +1429,41 @@ namespace New
                 rewards[i] = new Creacoin(rewards[i - 1].Amount * rewardReductionRate);
         }
 
-        public TransactionalBlock() : base(0) { }
+        public TransactionalBlock()
+            : base(0)
+        {
+            transactionsCache = new CachedData<Transaction[]>(() =>
+            {
+                Transaction[] transactions = new Transaction[transferTxs.Length + 1];
+                transactions[0] = coinbaseTxToMiner;
+                for (int i = 0; i < transferTxs.Length; i++)
+                    transactions[i + 1] = transferTxs[i];
+                return transactions;
+            });
+
+            merkleTreeCache = new CachedData<MerkleTree<Sha256Sha256Hash>>(() => new MerkleTree<Sha256Sha256Hash>(Transactions.Select((e) => e.Id).ToArray()));
+        }
+
+        public virtual void LoadVersion0(BlockHeader _header, CoinbaseTransaction _coinbaseTxToMiner, TransferTransaction[] _transferTxs)
+        {
+            Version = 0;
+
+            LoadCommon(_header, _coinbaseTxToMiner, _transferTxs);
+        }
+
+        public virtual void LoadVersion1(BlockHeader _header, CoinbaseTransaction _coinbaseTxToMiner, TransferTransaction[] _transferTxs)
+        {
+            Version = 1;
+
+            LoadCommon(_header, _coinbaseTxToMiner, _transferTxs);
+        }
+
+        private void LoadCommon(BlockHeader _header, CoinbaseTransaction _coinbaseTxToMiner, TransferTransaction[] _transferTxs)
+        {
+            header = _header;
+            coinbaseTxToMiner = _coinbaseTxToMiner;
+            transferTxs = _transferTxs;
+        }
 
         private static readonly long blockGenerationInterval = 60; //[sec]
         private static readonly long cycle = 60 * 60 * 24 * 365; //[sec]=1[year]
@@ -1881,8 +1486,16 @@ namespace New
         public static readonly Sha256Ripemd160Hash foundationPubKeyHash = null;
 #endif
 
-        //public BlockHeader<BlockidHashType, TxidHashType> header { get; private set; }
+        public BlockHeader header { get; private set; }
         public CoinbaseTransaction coinbaseTxToMiner { get; private set; }
         public TransferTransaction[] transferTxs { get; private set; }
+
+        protected override Func<X15Hash> IdGenerator { get { return () => new X15Hash(header.ToBinary()); } }
+
+        private CachedData<Transaction[]> transactionsCache;
+        public Transaction[] Transactions { get { return transactionsCache.Data; } }
+
+        private CachedData<MerkleTree<Sha256Sha256Hash>> merkleTreeCache;
+        public MerkleTree<Sha256Sha256Hash> MerkleTree { get { return merkleTreeCache.Data; } }
     }
 }

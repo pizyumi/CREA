@@ -2080,6 +2080,28 @@ namespace CREA2014
         protected abstract string XmlName { get; }
         protected abstract MainDataInfomation[] MainDataInfo { get; }
 
+        public bool canSet { get; private set; }
+
+        public event EventHandler SettingsChanged = delegate { };
+
+        public virtual void StartSetting()
+        {
+            if (canSet)
+                throw new InvalidOperationException("already_setting_started");
+
+            canSet = true;
+        }
+
+        public virtual void EndSetting()
+        {
+            if (!canSet)
+                throw new InvalidOperationException("not_yet_setting_started");
+
+            canSet = false;
+
+            SettingsChanged(this, EventArgs.Empty);
+        }
+
         public XElement ToXml()
         {
             XElement xElement = new XElement(XmlName);
@@ -2091,10 +2113,14 @@ namespace CREA2014
                         innerXElement.Add(new XElement(innerMdi.XmlName, ((bool)innerObj).ToString()));
                     else if (type == typeof(int))
                         innerXElement.Add(new XElement(innerMdi.XmlName, ((int)innerObj).ToString()));
+                    else if (type == typeof(uint))
+                        innerXElement.Add(new XElement(innerMdi.XmlName, ((uint)innerObj).ToString()));
                     else if (type == typeof(float))
                         innerXElement.Add(new XElement(innerMdi.XmlName, ((float)innerObj).ToString()));
                     else if (type == typeof(long))
                         innerXElement.Add(new XElement(innerMdi.XmlName, ((long)innerObj).ToString()));
+                    else if (type == typeof(ulong))
+                        innerXElement.Add(new XElement(innerMdi.XmlName, ((ulong)innerObj).ToString()));
                     else if (type == typeof(double))
                         innerXElement.Add(new XElement(innerMdi.XmlName, ((double)innerObj).ToString()));
                     else if (type == typeof(DateTime))
@@ -2142,10 +2168,14 @@ namespace CREA2014
                         return bool.Parse(iiXElement.Value);
                     else if (type == typeof(int))
                         return int.Parse(iiXElement.Value);
+                    else if (type == typeof(uint))
+                        return uint.Parse(iiXElement.Value);
                     else if (type == typeof(float))
                         return float.Parse(iiXElement.Value);
                     else if (type == typeof(long))
                         return long.Parse(iiXElement.Value);
+                    else if (type == typeof(ulong))
+                        return ulong.Parse(iiXElement.Value);
                     else if (type == typeof(double))
                         return double.Parse(iiXElement.Value);
                     else if (type == typeof(DateTime))
@@ -2183,31 +2213,17 @@ namespace CREA2014
             }
         }
     }
-    public abstract class SETTABLESETTINGSDATA<T> : SETTINGSDATA
+    public abstract class SETTABLESETTINGSDATA : SETTINGSDATA { }
+    public abstract class SAVEABLESETTINGSDATA : SETTINGSDATA
     {
-        protected abstract T Setters { get; }
-
-        private readonly object setLock = new object();
-        public virtual void Set(Action<T> setAction)
-        {
-            lock (setLock)
-                setAction(Setters);
-        }
-    }
-    public abstract class SAVEABLESETTINGSDATA<T> : SETTABLESETTINGSDATA<T>
-    {
-        private readonly string filename;
-        public string Filename
-        {
-            get { return filename; }
-        }
-
         public SAVEABLESETTINGSDATA(string _filename)
         {
             filename = _filename;
 
             Load();
         }
+
+        public string filename { get; private set; }
 
         public void Load()
         {
@@ -2216,17 +2232,6 @@ namespace CREA2014
         }
 
         public void Save() { ToXml().Save(filename); }
-
-        //基底クラスのSetと同時に実行される可能性はある
-        private readonly object setAndSaveLock = new object();
-        public virtual void SetAndSave(Action<T> setAction)
-        {
-            lock (setAndSaveLock)
-            {
-                setAction(Setters);
-                Save();
-            }
-        }
     }
 
     #endregion
@@ -2534,84 +2539,101 @@ namespace CREA2014
             }
         }
 
-        public class ProgramSettings : SAVEABLESETTINGSDATA<ProgramSettings.Setter>
+        public class ProgramSettings : SAVEABLESETTINGSDATA
         {
-            public class Setter
-            {
-                public Setter(Action<string> _cultureSetter, Action<string> _errorLogSetter, Action<string> _errorReportSetter, Action<bool> _isLogSetter)
-                {
-                    cultureSetter = _cultureSetter;
-                    errorLogSetter = _errorLogSetter;
-                    errorReportSetter = _errorReportSetter;
-                    isLogSetter = _isLogSetter;
-                }
+            public ProgramSettings() : base("ProgramSettings.xml") { logSettings = new LogSettings(); }
 
-                private readonly Action<string> cultureSetter;
-                public string Culture
-                {
-                    set { cultureSetter(value); }
-                }
-
-                private readonly Action<string> errorLogSetter;
-                public string ErrorLog
-                {
-                    set { errorLogSetter(value); }
-                }
-
-                private readonly Action<string> errorReportSetter;
-                public string ErrorReport
-                {
-                    set { errorReportSetter(value); }
-                }
-
-                private readonly Action<bool> isLogSetter;
-                public bool IsLog
-                {
-                    set { isLogSetter(value); }
-                }
-            }
-
+            public bool isCultureAltered { get; private set; }
             private string culture = "ja-JP";
             public string Culture
             {
                 get { return culture; }
+                set
+                {
+                    if (!canSet)
+                        throw new InvalidOperationException("cant_set");
+
+                    if (value != culture)
+                    {
+                        culture = value;
+                        isCultureAltered = true;
+                    }
+                }
             }
 
+            public bool isErrorLogAltered { get; private set; }
             private string errorLog = "Error.txt";
             public string ErrorLog
             {
                 get { return errorLog; }
+                set
+                {
+                    if (!canSet)
+                        throw new InvalidOperationException("cant_set");
+
+                    if (value != errorLog)
+                    {
+                        errorLog = value;
+                        isErrorLogAltered = true;
+                    }
+                }
             }
 
+            public bool isErrorReportAltered { get; private set; }
             private string errorReport = "ErrorReport.txt";
             public string ErrorReport
             {
                 get { return errorReport; }
+                set
+                {
+                    if (!canSet)
+                        throw new InvalidOperationException("cant_set");
+
+                    if (value != errorReport)
+                    {
+                        errorReport = value;
+                        isErrorReportAltered = true;
+                    }
+                }
             }
 
+            public bool isIsLogAltered { get; private set; }
             private bool isLog = true;
             public bool IsLog
             {
                 get { return isLog; }
+                set
+                {
+                    if (!canSet)
+                        throw new InvalidOperationException("cant_set");
+
+                    if (value != isLog)
+                    {
+                        isLog = value;
+                        isIsLogAltered = true;
+                    }
+                }
             }
 
+            public bool isLogSettingsAltered { get; private set; }
             private LogSettings logSettings;
             public LogSettings LogSettings
             {
                 get { return logSettings; }
+                set
+                {
+                    if (!canSet)
+                        throw new InvalidOperationException("cant_set");
+
+                    if (value != logSettings)
+                    {
+                        logSettings = value;
+                        isLogSettingsAltered = true;
+                    }
+                }
             }
 
-            public ProgramSettings()
-                : base("ProgramSettings.xml")
-            {
-                logSettings = new LogSettings();
-            }
-
-            protected override string XmlName
-            {
-                get { return "ProgramSettings"; }
-            }
-
+            protected override string XmlName { get { return "ProgramSettings"; } }
             protected override MainDataInfomation[] MainDataInfo
             {
                 get
@@ -2626,125 +2648,137 @@ namespace CREA2014
                 }
             }
 
-            protected override Setter Setters
+            public override void StartSetting()
             {
-                get
-                {
-                    return new Setter(
-                        (_culture) => culture = _culture,
-                        (_errorLog) => errorLog = _errorLog,
-                        (_errorReport) => errorReport = _errorReport,
-                        (_isLog) => isLog = _isLog);
-                }
+                base.StartSetting();
+
+                isCultureAltered = false;
+                isErrorLogAltered = false;
+                isErrorReportAltered = false;
+                isIsLogAltered = false;
+                isLogSettingsAltered = false;
             }
         }
 
-        public class LogSettings : SETTABLESETTINGSDATA<LogSettings.Setter>
+        public class LogSettings : SETTABLESETTINGSDATA
         {
+            public LogSettings() { filters = new List<LogFilter>(); }
+
             public enum SaveMethod { allInOne, monthByMonth, dayByDay }
 
-            public class Setter
-            {
-                public Setter(Action<int> _minimalLevel, Action<int> _maximalHoldingCount, Action<bool> _isSave, Action<string> _savePath, Action<SaveMethod> _saveMeth, Action<string> _expression)
-                {
-                    minimalLevel = _minimalLevel;
-                    maximalholdingCount = _maximalHoldingCount;
-                    isSave = _isSave;
-                    savePath = _savePath;
-                    saveMeth = _saveMeth;
-                    expression = _expression;
-                }
-
-                private readonly Action<int> minimalLevel;
-                public int MinimalLevel
-                {
-                    set { minimalLevel(value); }
-                }
-
-                private readonly Action<int> maximalholdingCount;
-                public int MaximalHoldingCount
-                {
-                    set { maximalholdingCount(value); }
-                }
-
-                private readonly Action<bool> isSave;
-                public bool IsSave
-                {
-                    set { isSave(value); }
-                }
-
-                private readonly Action<string> savePath;
-                public string SavePath
-                {
-                    set { savePath(value); }
-                }
-
-                private readonly Action<SaveMethod> saveMeth;
-                public SaveMethod SaveMeth
-                {
-                    set { saveMeth(value); }
-                }
-
-                private readonly Action<string> expression;
-                public string Expression
-                {
-                    set { expression(value); }
-                }
-            }
-
+            public bool isMinimalLevelAltered { get; private set; }
             private int minimalLevel = 0;
             public int MinimalLevel
             {
                 get { return minimalLevel; }
+                set
+                {
+                    if (!canSet)
+                        throw new InvalidOperationException("cant_set");
+
+                    if (value != minimalLevel)
+                    {
+                        minimalLevel = value;
+                        isMinimalLevelAltered = true;
+                    }
+                }
             }
 
+            public bool isMaximalHoldingCountAltered { get; private set; }
             private int maximalHoldingCount = 64;
             public int MaximalHoldingCount
             {
                 get { return maximalHoldingCount; }
+                set
+                {
+                    if (!canSet)
+                        throw new InvalidOperationException("cant_set");
+
+                    if (value != maximalHoldingCount)
+                    {
+                        maximalHoldingCount = value;
+                        isMaximalHoldingCountAltered = true;
+                    }
+                }
             }
 
+            public bool isIsSaveAltered { get; private set; }
             private bool isSave = true;
             public bool IsSave
             {
                 get { return isSave; }
+                set
+                {
+                    if (!canSet)
+                        throw new InvalidOperationException("cant_set");
+
+                    if (value != isSave)
+                    {
+                        isSave = value;
+                        isIsSaveAltered = true;
+                    }
+                }
             }
 
+            public bool isSavePathAltered { get; private set; }
             private string savePath = "Log.log";
             public string SavePath
             {
                 get { return savePath; }
+                set
+                {
+                    if (!canSet)
+                        throw new InvalidOperationException("cant_set");
+
+                    if (value != savePath)
+                    {
+                        savePath = value;
+                        isSavePathAltered = true;
+                    }
+                }
             }
 
+            public bool isSaveMethAltered { get; private set; }
             private SaveMethod saveMeth = SaveMethod.allInOne;
             public SaveMethod SaveMeth
             {
                 get { return saveMeth; }
+                set
+                {
+                    if (!canSet)
+                        throw new InvalidOperationException("cant_set");
+
+                    if (value != saveMeth)
+                    {
+                        saveMeth = value;
+                        isSaveMethAltered = true;
+                    }
+                }
             }
 
+            public bool isExpressionAltered { get; private set; }
             private string expression = string.Empty;
             public string Expression
             {
                 get { return expression; }
+                set
+                {
+                    if (!canSet)
+                        throw new InvalidOperationException("cant_set");
+
+                    if (value != expression)
+                    {
+                        expression = value;
+                        isExpressionAltered = true;
+                    }
+                }
             }
 
             private readonly object filtersLock = new object();
             private List<LogFilter> filters;
-            public LogFilter[] Filters
-            {
-                get { return filters.ToArray(); }
-            }
+            public LogFilter[] Filters { get { return filters.ToArray(); } }
 
-            public LogSettings()
-            {
-                filters = new List<LogFilter>();
-            }
-
-            protected override string XmlName
-            {
-                get { return "LogSettings"; }
-            }
-
+            protected override string XmlName { get { return "LogSettings"; } }
             protected override SETTINGSDATA.MainDataInfomation[] MainDataInfo
             {
                 get
@@ -2761,18 +2795,16 @@ namespace CREA2014
                 }
             }
 
-            protected override LogSettings.Setter Setters
+            public override void StartSetting()
             {
-                get
-                {
-                    return new Setter(
-                        (_minimalLevel) => minimalLevel = _minimalLevel,
-                        (_maximalHoldingCount) => maximalHoldingCount = _maximalHoldingCount,
-                        (_isSave) => isSave = _isSave,
-                        (_savePath) => savePath = _savePath,
-                        (_saveMeth) => saveMeth = _saveMeth,
-                        (_expression) => expression = _expression);
-                }
+                base.StartSetting();
+
+                isMinimalLevelAltered = false;
+                isMaximalHoldingCountAltered = false;
+                isIsSaveAltered = false;
+                isSavePathAltered = false;
+                isSaveMethAltered = false;
+                isExpressionAltered = false;
             }
 
             public event EventHandler<LogFilter> FilterAdded = delegate { };
@@ -2801,191 +2833,245 @@ namespace CREA2014
             }
         }
 
-        public class LogFilter : SETTABLESETTINGSDATA<LogFilter.Setter>
+        public class LogFilter : SETTABLESETTINGSDATA
         {
-            public class Setter
-            {
-                public Setter(Action<string> _name, Action<bool> _isEnabled, Action<bool> _isWordEnabled, Action<string> _word, Action<bool> _isRegularExpressionEnabled, Action<string> _regularExpression, Action<bool> _isLevelEnabled, Action<int> _minimalLevel, Action<int> _maximalLevel, Action<bool> _isKindEnabled, Action<LogData.LogKind> _kind, Action<bool> _isGroundEnabled, Action<LogData.LogGround> _ground)
-                {
-                    name = _name;
-                    isEnabled = _isEnabled;
-                    isWordEnabled = _isWordEnabled;
-                    word = _word;
-                    isRegularExpressionEnabled = _isRegularExpressionEnabled;
-                    regularExpression = _regularExpression;
-                    isLevelEnabled = _isLevelEnabled;
-                    minimalLevel = _minimalLevel;
-                    maximalLevel = _maximalLevel;
-                    isKindEnabled = _isKindEnabled;
-                    kind = _kind;
-                    isGroundEnabled = _isGroundEnabled;
-                    ground = _ground;
-                }
-
-                private readonly Action<string> name;
-                public string Name
-                {
-                    set { name(value); }
-                }
-
-                private readonly Action<bool> isEnabled;
-                public bool IsEnabled
-                {
-                    set { isEnabled(value); }
-                }
-
-                private readonly Action<bool> isWordEnabled;
-                public bool IsWordEnabled
-                {
-                    set { isWordEnabled(value); }
-                }
-
-                private readonly Action<string> word;
-                public string Word
-                {
-                    set { word(value); }
-                }
-
-                private readonly Action<bool> isRegularExpressionEnabled;
-                public bool IsRegularExpressionEnabled
-                {
-                    set { isRegularExpressionEnabled(value); }
-                }
-
-                private readonly Action<string> regularExpression;
-                public string RegularExpression
-                {
-                    set { regularExpression(value); }
-                }
-
-                private readonly Action<bool> isLevelEnabled;
-                public bool IsLevelEnabled
-                {
-                    set { isLevelEnabled(value); }
-                }
-
-                private readonly Action<int> minimalLevel;
-                public int MinimalLevel
-                {
-                    set { minimalLevel(value); }
-                }
-
-                private readonly Action<int> maximalLevel;
-                public int MaximalLevel
-                {
-                    set { maximalLevel(value); }
-                }
-
-                private readonly Action<bool> isKindEnabled;
-                public bool IsKindEnabled
-                {
-                    set { isKindEnabled(value); }
-                }
-
-                private readonly Action<LogData.LogKind> kind;
-                public LogData.LogKind Kind
-                {
-                    set { kind(value); }
-                }
-
-                private readonly Action<bool> isGroundEnabled;
-                public bool IsGroundEnabled
-                {
-                    set { isGroundEnabled(value); }
-                }
-
-                private readonly Action<LogData.LogGround> ground;
-                public LogData.LogGround Ground
-                {
-                    set { ground(value); }
-                }
-            }
-
+            public bool isNameAltered { get; private set; }
             private string name = string.Empty;
             public string Name
             {
                 get { return name; }
+                set
+                {
+                    if (!canSet)
+                        throw new InvalidOperationException("cant_set");
+
+                    if (value != name)
+                    {
+                        name = value;
+                        isNameAltered = true;
+                    }
+                }
             }
 
+            public bool isIsEnabledAltered { get; private set; }
             private bool isEnabled = false;
             public bool IsEnabled
             {
                 get { return isEnabled; }
+                set
+                {
+                    if (!canSet)
+                        throw new InvalidOperationException("cant_set");
+
+                    if (value != isEnabled)
+                    {
+                        isEnabled = value;
+                        isIsEnabledAltered = true;
+                    }
+                }
             }
 
+            public bool isIsWordEnabledAltered { get; private set; }
             private bool isWordEnabled = false;
             public bool IsWordEnabled
             {
                 get { return isWordEnabled; }
+                set
+                {
+                    if (!canSet)
+                        throw new InvalidOperationException("cant_set");
+
+                    if (value != isWordEnabled)
+                    {
+                        isWordEnabled = value;
+                        isIsWordEnabledAltered = true;
+                    }
+                }
             }
 
+            public bool isWordAltered { get; private set; }
             private string word = string.Empty;
             public string Word
             {
                 get { return word; }
+                set
+                {
+                    if (!canSet)
+                        throw new InvalidOperationException("cant_set");
+
+                    if (value != word)
+                    {
+                        word = value;
+                        isWordAltered = true;
+                    }
+                }
             }
 
+            public bool isIsRegularExpressionEnabledAltered { get; private set; }
             private bool isRegularExpressionEnabled = false;
             public bool IsRegularExpressionEnabled
             {
                 get { return isRegularExpressionEnabled; }
+                set
+                {
+                    if (!canSet)
+                        throw new InvalidOperationException("cant_set");
+
+                    if (value != isRegularExpressionEnabled)
+                    {
+                        isRegularExpressionEnabled = value;
+                        isIsRegularExpressionEnabledAltered = true;
+                    }
+                }
             }
 
+            public bool isRegularExpressionAltered { get; private set; }
             private string regularExpression = string.Empty;
             public string RegularExpression
             {
                 get { return regularExpression; }
+                set
+                {
+                    if (!canSet)
+                        throw new InvalidOperationException("cant_set");
+
+                    if (value != regularExpression)
+                    {
+                        regularExpression = value;
+                        isRegularExpressionAltered = true;
+                    }
+                }
             }
 
+            public bool isIsLevelEnabledAltered { get; private set; }
             private bool isLevelEnabled = false;
             public bool IsLevelEnabled
             {
                 get { return isLevelEnabled; }
+                set
+                {
+                    if (!canSet)
+                        throw new InvalidOperationException("cant_set");
+
+                    if (value != isLevelEnabled)
+                    {
+                        isLevelEnabled = value;
+                        isIsLevelEnabledAltered = true;
+                    }
+                }
             }
 
+            public bool isMinimalLevelAltered { get; private set; }
             private int minimalLevel = 0;
             public int MinimalLevel
             {
                 get { return minimalLevel; }
+                set
+                {
+                    if (!canSet)
+                        throw new InvalidOperationException("cant_set");
+
+                    if (value != minimalLevel)
+                    {
+                        minimalLevel = value;
+                        isMinimalLevelAltered = true;
+                    }
+                }
             }
 
+            public bool isMaximalLevelAltered { get; private set; }
             private int maximalLevel = 5;
             public int MaximalLevel
             {
                 get { return maximalLevel; }
+                set
+                {
+                    if (!canSet)
+                        throw new InvalidOperationException("cant_set");
+
+                    if (value != maximalLevel)
+                    {
+                        maximalLevel = value;
+                        isMaximalLevelAltered = true;
+                    }
+                }
             }
 
+            public bool isIsKindEnabledAltered { get; private set; }
             private bool isKindEnabled = false;
             public bool IsKindEnabled
             {
                 get { return isKindEnabled; }
+                set
+                {
+                    if (!canSet)
+                        throw new InvalidOperationException("cant_set");
+
+                    if (value != isKindEnabled)
+                    {
+                        isKindEnabled = value;
+                        isIsKindEnabledAltered = true;
+                    }
+                }
             }
 
             //<未改良>複数指定
+            public bool isKindAltered { get; private set; }
             private LogData.LogKind kind = LogData.LogKind.error;
             public LogData.LogKind Kind
             {
                 get { return kind; }
+                set
+                {
+                    if (!canSet)
+                        throw new InvalidOperationException("cant_set");
+
+                    if (value != kind)
+                    {
+                        kind = value;
+                        isKindAltered = true;
+                    }
+                }
             }
 
+            public bool isIsGroundEnabledAltered { get; private set; }
             private bool isGroundEnabled = false;
             public bool IsGroundEnabled
             {
                 get { return isGroundEnabled; }
+                set
+                {
+                    if (!canSet)
+                        throw new InvalidOperationException("cant_set");
+
+                    if (value != isGroundEnabled)
+                    {
+                        isGroundEnabled = value;
+                        isIsGroundEnabledAltered = true;
+                    }
+                }
             }
 
+            public bool isGroundAltered { get; private set; }
             //<未改良>複数指定
             private LogData.LogGround ground = LogData.LogGround.core;
             public LogData.LogGround Ground
             {
                 get { return ground; }
+                set
+                {
+                    if (!canSet)
+                        throw new InvalidOperationException("cant_set");
+
+                    if (value != ground)
+                    {
+                        ground = value;
+                        isGroundAltered = true;
+                    }
+                }
             }
 
-            protected override string XmlName
-            {
-                get { return "LogFilter"; }
-            }
-
+            protected override string XmlName { get { return "LogFilter"; } }
             protected override MainDataInfomation[] MainDataInfo
             {
                 get
@@ -3008,25 +3094,23 @@ namespace CREA2014
                 }
             }
 
-            protected override LogFilter.Setter Setters
+            public override void StartSetting()
             {
-                get
-                {
-                    return new Setter(
-                        (_name) => name = _name,
-                        (_isEnabled) => isEnabled = _isEnabled,
-                        (_isWordEnabled) => isWordEnabled = _isWordEnabled,
-                        (_word) => word = _word,
-                        (_isRegularExpressionEnabled) => isRegularExpressionEnabled = _isRegularExpressionEnabled,
-                        (_regularExpression) => regularExpression = _regularExpression,
-                        (_isLevelEnabled) => isLevelEnabled = _isLevelEnabled,
-                        (_minimalLevel) => minimalLevel = _minimalLevel,
-                        (_maximalLevel) => maximalLevel = _maximalLevel,
-                        (_isKindEnabled) => isKindEnabled = _isKindEnabled,
-                        (_kind) => kind = _kind,
-                        (_isGroundEnabled) => isGroundEnabled = _isGroundEnabled,
-                        (_ground) => ground = _ground);
-                }
+                base.StartSetting();
+
+                isNameAltered = false;
+                isIsEnabledAltered = false;
+                isIsWordEnabledAltered = false;
+                isWordAltered = false;
+                isIsRegularExpressionEnabledAltered = false;
+                isRegularExpressionAltered = false;
+                isIsLevelEnabledAltered = false;
+                isMinimalLevelAltered = false;
+                isMaximalLevelAltered = false;
+                isIsKindEnabledAltered = false;
+                isKindAltered = false;
+                isIsGroundEnabledAltered = false;
+                isGroundAltered = false;
             }
         }
 

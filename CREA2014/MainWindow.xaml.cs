@@ -19,241 +19,191 @@ namespace CREA2014
 {
     public partial class MainWindow : Window
     {
-        public class MainWindowSettings : SAVEABLESETTINGSDATA<MainWindowSettings.Setter>
+        public class MainWindowSettings : SAVEABLESETTINGSDATA
         {
-            public class Setter
-            {
-                public Setter(Action<int> _portWebSocketSetter, Action<int> _portWebServerSetter, Action<bool> _isWallpaperSetter, Action<string> _wallpaperSetter, Action<float> _wallpaperOpacitySetter, Action<bool> _isDefaultUiSetter, Action<string> _uiFilesDirectorySetter, Action<string> _miningAccountHolderSetter, Action<string> _miningAccountSetter, Action<bool> _isConfirmAtExitSetter)
-                {
-                    portWebSocketSetter = _portWebSocketSetter;
-                    portWebServerSetter = _portWebServerSetter;
-                    isWallpaperSetter = _isWallpaperSetter;
-                    wallpaperSetter = _wallpaperSetter;
-                    wallpaperOpacitySetter = _wallpaperOpacitySetter;
-                    isDefaultUiSetter = _isDefaultUiSetter;
-                    uiFilesDirectorySetter = _uiFilesDirectorySetter;
-                    miningAccountHolderSetter = _miningAccountHolderSetter;
-                    miningAccountSetter = _miningAccountSetter;
-                    isConfirmAtExitSetter = _isConfirmAtExitSetter;
-                }
+            public MainWindowSettings() : base("MainWindowSettings.xml") { }
 
-                private readonly Action<int> portWebSocketSetter;
-                public int PortWebSocket
-                {
-                    set { portWebSocketSetter(value); }
-                }
-
-                private readonly Action<int> portWebServerSetter;
-                public int PortWebServer
-                {
-                    set { portWebServerSetter(value); }
-                }
-
-                private readonly Action<bool> isWallpaperSetter;
-                public bool IsWallpaper
-                {
-                    set { isWallpaperSetter(value); }
-                }
-
-                private readonly Action<string> wallpaperSetter;
-                public string Wallpaper
-                {
-                    set { wallpaperSetter(value); }
-                }
-
-                private readonly Action<float> wallpaperOpacitySetter;
-                public float WallpaperOpacity
-                {
-                    set { wallpaperOpacitySetter(value); }
-                }
-
-                private readonly Action<bool> isDefaultUiSetter;
-                public bool IsDefaultUi
-                {
-                    set { isDefaultUiSetter(value); }
-                }
-
-                private readonly Action<string> uiFilesDirectorySetter;
-                public string UiFilesDirectory
-                {
-                    set { uiFilesDirectorySetter(value); }
-                }
-
-                private readonly Action<string> miningAccountHolderSetter;
-                public string MiningAccountHolder
-                {
-                    set { miningAccountHolderSetter(value); }
-                }
-
-                private readonly Action<string> miningAccountSetter;
-                public string MiningAccount
-                {
-                    set { miningAccountSetter(value); }
-                }
-
-                private readonly Action<bool> isConfirmAtExitSetter;
-                public bool IsConfirmAtExit
-                {
-                    set { isConfirmAtExitSetter(value); }
-                }
-            }
-
-            public class MainWindowSettingsChangedEventArgs : EventArgs
-            {
-                private bool isPortWebSocketAltered;
-                public bool IsPortWebSocketAltered
-                {
-                    get { return isPortWebSocketAltered; }
-                }
-
-                private bool isPortWebServerAltered;
-                public bool IsPortWebServerAltered
-                {
-                    get { return isPortWebServerAltered; }
-                }
-
-                private bool isIsWallpaperAltered;
-                public bool IsIsWallpaperAltered
-                {
-                    get { return isIsWallpaperAltered; }
-                }
-
-                private bool isWallpaperAltered;
-                public bool IsWallpaperAltered
-                {
-                    get { return isWallpaperAltered; }
-                }
-
-                private bool isWallpaperOpacityAltered;
-                public bool IsWallpaperOpacityAltered
-                {
-                    get { return isWallpaperOpacityAltered; }
-                }
-
-                private bool isIsDefaultUiAltered;
-                public bool IsIsDefaultUiAltered
-                {
-                    get { return isIsDefaultUiAltered; }
-                }
-
-                private bool isUiFilesDirectoryAltered;
-                public bool IsUiFilesDirectoryAltered
-                {
-                    get { return isUiFilesDirectoryAltered; }
-                }
-
-                private bool isIsConfirmAtExitAltered;
-                public bool IsIsConfirmAtExitAltered
-                {
-                    get { return isIsConfirmAtExitAltered; }
-                }
-
-                public MainWindowSettingsChangedEventArgs(bool _isPortWebSocketAltered, bool _isPortWebServerAltered, bool _isIsWallpaperAltered, bool _isWallpaperAltered, bool _isWallpaperOpacityAltered, bool _isIsDefaultUiAltered, bool _isUiFilesDirectoryAltered, bool _isIsConfirmAtExitAltered)
-                    : base()
-                {
-                    isPortWebSocketAltered = _isPortWebSocketAltered;
-                    isPortWebServerAltered = _isPortWebServerAltered;
-                    isIsWallpaperAltered = _isIsWallpaperAltered;
-                    isWallpaperAltered = _isWallpaperAltered;
-                    isWallpaperOpacityAltered = _isWallpaperOpacityAltered;
-                    isIsDefaultUiAltered = _isIsDefaultUiAltered;
-                    isUiFilesDirectoryAltered = _isUiFilesDirectoryAltered;
-                    isIsConfirmAtExitAltered = _isIsConfirmAtExitAltered;
-                }
-            }
-
-            private bool isPortWebSocketAltered;
+            public bool isPortWebSocketAltered { get; private set; }
             private int portWebSocket = 3333;
             public int PortWebSocket
             {
                 get { return portWebSocket; }
-            }
-            public event EventHandler PortWebSocketChanged = delegate { };
+                set
+                {
+                    if (!canSet)
+                        throw new InvalidOperationException("cant_set");
 
-            private bool isPortWebServerAltered;
+                    if (value != portWebSocket)
+                    {
+                        portWebSocket = value;
+                        isPortWebSocketAltered = true;
+                    }
+                }
+            }
+
+            public bool isPortWebServerAltered { get; private set; }
             private int portWebServer = 3334;
             public int PortWebServer
             {
                 get { return portWebServer; }
-            }
-            public event EventHandler PortWebServerChanged = delegate { };
+                set
+                {
+                    if (!canSet)
+                        throw new InvalidOperationException("cant_set");
 
-            private bool isIsWallpaperAltered;
+                    if (value != portWebServer)
+                    {
+                        portWebServer = value;
+                        isPortWebServerAltered = true;
+                    }
+                }
+            }
+
+            public bool isIsWallpaperAltered { get; private set; }
             private bool isWallpaper = true;
             public bool IsWallpaper
             {
                 get { return isWallpaper; }
-            }
-            public event EventHandler IsWallpaperChanged = delegate { };
+                set
+                {
+                    if (!canSet)
+                        throw new InvalidOperationException("cant_set");
 
-            private bool isWallpaperAltered;
+                    if (value != isWallpaper)
+                    {
+                        isWallpaper = value;
+                        isIsWallpaperAltered = true;
+                    }
+                }
+            }
+
+            public bool isWallpaperAltered { get; private set; }
             private string wallpaper = string.Empty;
             public string Wallpaper
             {
                 get { return wallpaper; }
-            }
-            public event EventHandler WallpaperChanged = delegate { };
+                set
+                {
+                    if (!canSet)
+                        throw new InvalidOperationException("cant_set");
 
-            private bool isWallpaperOpacityAltered;
+                    if (value != wallpaper)
+                    {
+                        wallpaper = value;
+                        isWallpaperAltered = true;
+                    }
+                }
+            }
+
+            public bool isWallpaperOpacityAltered { get; private set; }
             private float wallpaperOpacity = 0.5F;
             public float WallpaperOpacity
             {
                 get { return wallpaperOpacity; }
-            }
-            public event EventHandler WallpaperOpacityChanged = delegate { };
+                set
+                {
+                    if (!canSet)
+                        throw new InvalidOperationException("cant_set");
 
-            private bool isIsDefaultUiAltered;
+                    if (value != wallpaperOpacity)
+                    {
+                        wallpaperOpacity = value;
+                        isWallpaperOpacityAltered = true;
+                    }
+                }
+            }
+
+            public bool isIsDefaultUiAltered { get; private set; }
             private bool isDefaultUi = true;
             public bool IsDefaultUi
             {
                 get { return isDefaultUi; }
-            }
-            public event EventHandler IsDefaultUiChanged = delegate { };
+                set
+                {
+                    if (!canSet)
+                        throw new InvalidOperationException("cant_set");
 
-            private bool isUiFilesDirectoryAltered;
+                    if (value != isDefaultUi)
+                    {
+                        isDefaultUi = value;
+                        isIsDefaultUiAltered = true;
+                    }
+                }
+            }
+
+            public bool isUiFilesDirectoryAltered { get; private set; }
             private string uiFilesDirectory = string.Empty;
             public string UiFilesDirectory
             {
                 get { return uiFilesDirectory; }
-            }
-            public event EventHandler UiFilesDirectoryChanged = delegate { };
+                set
+                {
+                    if (!canSet)
+                        throw new InvalidOperationException("cant_set");
 
+                    if (value != uiFilesDirectory)
+                    {
+                        uiFilesDirectory = value;
+                        isUiFilesDirectoryAltered = true;
+                    }
+                }
+            }
+
+            public bool isMiningAccountHolderAltered { get; private set; }
             private string miningAccountHolder = string.Empty;
             public string MiningAccountHolder
             {
                 get { return miningAccountHolder; }
+                set
+                {
+                    if (!canSet)
+                        throw new InvalidOperationException("cant_set");
+
+                    if (value != miningAccountHolder)
+                    {
+                        miningAccountHolder = value;
+                        isMiningAccountHolderAltered = true;
+                    }
+                }
             }
 
+            public bool isMiningAccountAltered { get; private set; }
             private string miningAccount = string.Empty;
             public string MiningAccount
             {
                 get { return miningAccount; }
+                set
+                {
+                    if (!canSet)
+                        throw new InvalidOperationException("cant_set");
+
+                    if (value != miningAccount)
+                    {
+                        miningAccount = value;
+                        isMiningAccountAltered = true;
+                    }
+                }
             }
 
-            private bool isIsConfirmAtExitAltered;
+            public bool isIsConfirmAtExitAltered { get; private set; }
             private bool isConfirmAtExit = true;
             public bool IsConfirmAtExit
             {
                 get { return isConfirmAtExit; }
-            }
-            public event EventHandler IsConfirmAtExitChanged = delegate { };
+                set
+                {
+                    if (!canSet)
+                        throw new InvalidOperationException("cant_set");
 
-            public event EventHandler WallpaperSettingsChanged = delegate { };
-            public event EventHandler UiFilesSettingsChanged = delegate { };
-
-            public event EventHandler<MainWindowSettingsChangedEventArgs> SettingsChanged = delegate { };
-
-            public MainWindowSettings()
-                : base("MainWindowSettings.xml")
-            {
-                Load();
-            }
-
-            protected override string XmlName
-            {
-                get { return "MainWindowSettings"; }
+                    if (value != isConfirmAtExit)
+                    {
+                        isConfirmAtExit = value;
+                        isIsConfirmAtExitAltered = true;
+                    }
+                }
             }
 
+            protected override string XmlName { get { return "MainWindowSettings"; } }
             protected override MainDataInfomation[] MainDataInfo
             {
                 get
@@ -273,131 +223,20 @@ namespace CREA2014
                 }
             }
 
-            protected override Setter Setters
+            public override void StartSetting()
             {
-                get
-                {
-                    return new Setter(
-                        (_portWebSocket) =>
-                        {
-                            if (portWebSocket != _portWebSocket)
-                            {
-                                portWebSocket = _portWebSocket;
-                                isPortWebSocketAltered = true;
-                            }
-                        },
-                        (_portWebServer) =>
-                        {
-                            if (portWebServer != _portWebServer)
-                            {
-                                portWebServer = _portWebServer;
-                                isPortWebServerAltered = true;
-                            }
-                        },
-                        (_isWallpaper) =>
-                        {
-                            if (isWallpaper != _isWallpaper)
-                            {
-                                isWallpaper = _isWallpaper;
-                                isIsWallpaperAltered = true;
-                            }
-                        },
-                        (_wallpaper) =>
-                        {
-                            if (wallpaper != _wallpaper)
-                            {
-                                wallpaper = _wallpaper;
-                                isWallpaperAltered = true;
-                            }
-                        },
-                        (_wallpaperOpacity) =>
-                        {
-                            if (wallpaperOpacity != _wallpaperOpacity)
-                            {
-                                wallpaperOpacity = _wallpaperOpacity;
-                                isWallpaperOpacityAltered = true;
-                            }
-                        },
-                        (_isDefaultUi) =>
-                        {
-                            if (isDefaultUi != _isDefaultUi)
-                            {
-                                isDefaultUi = _isDefaultUi;
-                                isIsDefaultUiAltered = true;
-                            }
-                        },
-                        (_UiFilesDirectory) =>
-                        {
-                            if (uiFilesDirectory != _UiFilesDirectory)
-                            {
-                                uiFilesDirectory = _UiFilesDirectory;
-                                isUiFilesDirectoryAltered = true;
-                            }
-                        },
-                        (_miningAccountHolder) =>
-                        {
-                            if (miningAccountHolder != _miningAccountHolder)
-                                miningAccountHolder = _miningAccountHolder;
-                        },
-                        (_miningAccount) =>
-                        {
-                            if (miningAccount != _miningAccount)
-                                miningAccount = _miningAccount;
-                        },
-                        (_isConfirmAtExit) =>
-                        {
-                            if (isConfirmAtExit != _isConfirmAtExit)
-                            {
-                                isConfirmAtExit = _isConfirmAtExit;
-                                isIsConfirmAtExitAltered = true;
-                            }
-                        });
-                }
-            }
+                base.StartSetting();
 
-            private readonly object setAndSaveLock = new object();
-            public override void SetAndSave(Action<Setter> setAction)
-            {
-                lock (setAndSaveLock)
-                {
-                    setAction(Setters);
-                    Save();
-
-                    if (isPortWebSocketAltered)
-                        PortWebSocketChanged(this, EventArgs.Empty);
-                    if (isPortWebServerAltered)
-                        PortWebServerChanged(this, EventArgs.Empty);
-                    if (isIsWallpaperAltered)
-                        IsWallpaperChanged(this, EventArgs.Empty);
-                    if (isWallpaperAltered)
-                        WallpaperChanged(this, EventArgs.Empty);
-                    if (isWallpaperOpacityAltered)
-                        WallpaperOpacityChanged(this, EventArgs.Empty);
-                    if (isIsDefaultUiAltered)
-                        IsDefaultUiChanged(this, EventArgs.Empty);
-                    if (isUiFilesDirectoryAltered)
-                        UiFilesDirectoryChanged(this, EventArgs.Empty);
-                    if (isIsConfirmAtExitAltered)
-                        IsConfirmAtExitChanged(this, EventArgs.Empty);
-
-                    if (isIsWallpaperAltered || isWallpaperAltered || isWallpaperOpacityAltered)
-                        WallpaperSettingsChanged(this, EventArgs.Empty);
-
-                    if (isIsDefaultUiAltered || isUiFilesDirectoryAltered)
-                        UiFilesSettingsChanged(this, EventArgs.Empty);
-
-                    if (isPortWebSocketAltered || isPortWebServerAltered || isIsWallpaperAltered || isWallpaperAltered || isWallpaperOpacityAltered || isIsDefaultUiAltered || isUiFilesDirectoryAltered || isIsConfirmAtExitAltered)
-                        SettingsChanged(this, new MainWindowSettingsChangedEventArgs(isPortWebSocketAltered, isPortWebServerAltered, isIsWallpaperAltered, isWallpaperAltered, isWallpaperOpacityAltered, isIsDefaultUiAltered, isUiFilesDirectoryAltered, isIsConfirmAtExitAltered));
-
-                    isPortWebSocketAltered = false;
-                    isPortWebServerAltered = false;
-                    isIsWallpaperAltered = false;
-                    isWallpaperAltered = false;
-                    isWallpaperOpacityAltered = false;
-                    isIsDefaultUiAltered = false;
-                    isUiFilesDirectoryAltered = false;
-                    isIsConfirmAtExitAltered = false;
-                }
+                isPortWebSocketAltered = false;
+                isPortWebServerAltered = false;
+                isIsWallpaperAltered = false;
+                isWallpaperAltered = false;
+                isWallpaperOpacityAltered = false;
+                isIsDefaultUiAltered = false;
+                isUiFilesDirectoryAltered = false;
+                isMiningAccountHolderAltered = false;
+                isMiningAccountAltered = false;
+                isIsConfirmAtExitAltered = false;
             }
         }
 
@@ -787,7 +626,7 @@ namespace CREA2014
 
             mws.SettingsChanged += (sender2, e2) =>
             {
-                if (e2.IsPortWebServerAltered)
+                if (mws.isPortWebServerAltered)
                 {
                     hl.Abort();
 
@@ -798,7 +637,7 @@ namespace CREA2014
                 }
                 else
                 {
-                    if (e2.IsIsWallpaperAltered || e2.IsWallpaperAltered || e2.IsWallpaperOpacityAltered)
+                    if (mws.isIsWallpaperAltered || mws.isWallpaperAltered || mws.isWallpaperOpacityAltered)
                     {
                         webServerData.Remove(wallpaperFileName);
                         wallpaperFileName = _GetWallpaperFileName(DateTime.Now.Ticks.ToString());
@@ -807,7 +646,7 @@ namespace CREA2014
                         foreach (var wssession in wss.GetAllSessions())
                             wssession.Send("wallpaper " + wallpaperFileName);
                     }
-                    if (e2.IsPortWebSocketAltered)
+                    if (mws.isPortWebSocketAltered)
                     {
                         //2014/07/02
                         //<未実装>古いイベントの登録を解除していない
@@ -828,7 +667,7 @@ namespace CREA2014
                         foreach (var wssession in oldWss.GetAllSessions())
                             wssession.Send("wss " + _GetWssAddress(mws.PortWebSocket));
                     }
-                    if (e2.IsIsDefaultUiAltered || e2.IsUiFilesDirectoryAltered)
+                    if (mws.isIsDefaultUiAltered || mws.isUiFilesDirectoryAltered)
                     {
                         webResourceCache.Clear();
 
@@ -837,11 +676,12 @@ namespace CREA2014
                 }
             };
 
-            core.iAccountHolders.iAccountHoldersChanged += (sender2, e2) =>
-            {
-                foreach (var wssession in wss.GetAllSessions())
-                    wssession.Send("acc_hols " + _GetAccountHolderHtml());
-            };
+            //<未実装>一旦コメントアウト
+            //core.iAccountHolders.iAccountHoldersChanged += (sender2, e2) =>
+            //{
+            //    foreach (var wssession in wss.GetAllSessions())
+            //        wssession.Send("acc_hols " + _GetAccountHolderHtml());
+            //};
             logger.LogAdded += (sender2, e2) =>
             {
                 foreach (var wssession in wss.GetAllSessions())
@@ -892,17 +732,20 @@ namespace CREA2014
             sw.Owner = this;
 
             if (sw.ShowDialog() == true)
-                mws.SetAndSave((setter) =>
-                {
-                    setter.PortWebSocket = int.Parse(sw.tbPortWebSocket.Text);
-                    setter.PortWebServer = int.Parse(sw.tbPortWebServer.Text);
-                    setter.IsWallpaper = (bool)sw.cbIsWallpaper.IsChecked;
-                    setter.Wallpaper = sw.tbWallpaper.Text;
-                    setter.WallpaperOpacity = float.Parse(sw.tbWallpaperOpacity.Text);
-                    setter.IsDefaultUi = sw.rbDefault.IsChecked.Value;
-                    setter.UiFilesDirectory = sw.tbUiFilesDirectory.Text;
-                    setter.IsConfirmAtExit = (bool)sw.cbConfirmAtExit.IsChecked;
-                });
+            {
+                mws.StartSetting();
+
+                mws.PortWebSocket = int.Parse(sw.tbPortWebSocket.Text);
+                mws.PortWebServer = int.Parse(sw.tbPortWebServer.Text);
+                mws.IsWallpaper = (bool)sw.cbIsWallpaper.IsChecked;
+                mws.Wallpaper = sw.tbWallpaper.Text;
+                mws.WallpaperOpacity = float.Parse(sw.tbWallpaperOpacity.Text);
+                mws.IsDefaultUi = sw.rbDefault.IsChecked.Value;
+                mws.UiFilesDirectory = sw.tbUiFilesDirectory.Text;
+                mws.IsConfirmAtExit = (bool)sw.cbConfirmAtExit.IsChecked;
+
+                mws.EndSetting();
+            }
         }
 
         private void miMining_Click(object sender, RoutedEventArgs e)
@@ -976,11 +819,12 @@ namespace CREA2014
 
                 if (mw.ShowDialog() == true)
                 {
-                    mws.SetAndSave((setter) =>
-                    {
-                        setter.MiningAccountHolder = mw.rbAnonymous.IsChecked.Value ? string.Empty : (mw.cbAccountHolder.SelectedItem as IPseudonymousAccountHolder).iName;
-                        setter.MiningAccount = (mw.cbAccount.SelectedItem as IAccount).iName;
-                    });
+                    mws.StartSetting();
+
+                    mws.MiningAccountHolder = mw.rbAnonymous.IsChecked.Value ? string.Empty : (mw.cbAccountHolder.SelectedItem as IPseudonymousAccountHolder).iName;
+                    mws.MiningAccount = (mw.cbAccount.SelectedItem as IAccount).iName;
+
+                    mws.EndSetting();
 
                     core.StartMining(mw.cbAccount.SelectedItem as IAccount);
 

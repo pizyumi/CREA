@@ -2,10 +2,125 @@
 Imports System.IO
 Imports System.Text
 
-Public Class Bug
-    Private ReadOnly id As Integer
+Imports CREA2014
 
+Public Class Item
+    Inherits SHAREDDATA
+
+    Public Sub New()
+        MyBase.New(0)
+    End Sub
+
+    Private m_id As Sha256Hash
+    Private m_idByAdministrator As String
+    Private m_title As String
+    'Private m_importances As 
+
+    Private m_projectId As Sha256Hash
+    Private m_categoryId As Sha256Hash
+
+
+    Private m_description As String
+
+    Protected Overrides ReadOnly Property StreamInfo As Func(Of STREAMDATA(Of SHAREDDATA.MainDataInfomation).ReaderWriter, IEnumerable(Of SHAREDDATA.MainDataInfomation))
+        Get
+
+        End Get
+    End Property
 End Class
+
+Public Class Project
+    Inherits SHAREDDATA
+
+    Public Sub New()
+        MyBase.New(0)
+
+        childProjectsIdCache = New CachedData(Of Sha256Hash())(
+            Function()
+                SyncLock childProjectsIdLock
+                    Return m_childProjectsId.ToArray()
+                End SyncLock
+            End Function)
+    End Sub
+
+    Public Sub LoadVersion0(_name As String, _description As String)
+        Version = 0
+
+        m_name = _name
+        m_description = _description
+    End Sub
+
+    Private m_name As String
+    Private m_description As String
+    Private m_childProjectsId As List(Of Sha256Hash)
+    Private m_items As List(Of Item)
+
+    Public ReadOnly Property Name As String
+        Get
+            If Version <> 0 Then
+                Throw New NotSupportedException()
+            End If
+
+            Return m_name
+        End Get
+    End Property
+
+    Public ReadOnly Property Description As String
+        Get
+            If Version <> 0 Then
+                Throw New NotSupportedException()
+            End If
+
+            Return m_description
+        End Get
+    End Property
+
+    Private ReadOnly childProjectsIdLock As Object = New Object()
+    Private ReadOnly childProjectsIdCache As CachedData(Of Sha256Hash())
+    Public ReadOnly Property ChildProjectsId As Sha256Hash()
+        Get
+            If Version <> 0 Then
+                Throw New NotSupportedException()
+            End If
+
+            Return childProjectsIdCache.Data
+        End Get
+    End Property
+
+    Private ReadOnly itemsLock As Object = New Object()
+    Private ReadOnly itemsCache As CachedData(Of Item())
+    Public ReadOnly Property Items As Item()
+        Get
+            If Version <> 0 Then
+                Throw New NotSupportedException()
+            End If
+
+            Return itemsCache.Data
+        End Get
+    End Property
+
+    Protected Overrides ReadOnly Property StreamInfo As Func(Of STREAMDATA(Of SHAREDDATA.MainDataInfomation).ReaderWriter, IEnumerable(Of SHAREDDATA.MainDataInfomation))
+        Get
+
+        End Get
+    End Property
+    Public Overrides ReadOnly Property IsVersioned As Boolean
+        Get
+            Return True
+        End Get
+    End Property
+    Public Overrides ReadOnly Property IsCorruptionChecked As Boolean
+        Get
+            If Version = 0 Then
+                Return True
+            End If
+
+            Throw New NotSupportedException()
+        End Get
+    End Property
+End Class
+
+
 
 Public Class BTSUse
     Public Sub ReportBug()
@@ -333,32 +448,32 @@ Public MustInherit Class STREAMDATA(Of T As STREAMDATA(Of T).StreamInfomation)
     Protected Sub Write(writer As STREAMWRITER, si As StreamInfomation)
         Dim _Write As Action(Of Type, Object) =
             Sub(type, o)
-                    If type = GetType(Boolean) Then
-                        writer.WriteBool(CBool(o))
-                    ElseIf type = GetType(Integer) Then
-                        writer.WriteInt(CInt(o))
-                    ElseIf type = GetType(UInteger) Then
-                        writer.WriteUint(CUInt(o))
-                    ElseIf type = GetType(Single) Then
-                        writer.WriteFloat(CSng(o))
-                    ElseIf type = GetType(Long) Then
-                        writer.WriteLong(CLng(o))
-                    ElseIf type = GetType(ULong) Then
-                        writer.WriteUlong(CULng(o))
-                    ElseIf type = GetType(Double) Then
-                        writer.WriteDouble(CDbl(o))
-                    ElseIf type = GetType(DateTime) Then
-                        writer.WriteDateTime(DirectCast(o, DateTime))
-                    ElseIf type = GetType(String) Then
-                        writer.WriteString(DirectCast(o, String))
-                    ElseIf type.IsSubclassOf(GetType(SHAREDDATA)) Then
-                        Dim sd As SHAREDDATA = TryCast(o, SHAREDDATA)
+                If type = GetType(Boolean) Then
+                    writer.WriteBool(CBool(o))
+                ElseIf type = GetType(Integer) Then
+                    writer.WriteInt(CInt(o))
+                ElseIf type = GetType(UInteger) Then
+                    writer.WriteUint(CUInt(o))
+                ElseIf type = GetType(Single) Then
+                    writer.WriteFloat(CSng(o))
+                ElseIf type = GetType(Long) Then
+                    writer.WriteLong(CLng(o))
+                ElseIf type = GetType(ULong) Then
+                    writer.WriteUlong(CULng(o))
+                ElseIf type = GetType(Double) Then
+                    writer.WriteDouble(CDbl(o))
+                ElseIf type = GetType(DateTime) Then
+                    writer.WriteDateTime(DirectCast(o, DateTime))
+                ElseIf type = GetType(String) Then
+                    writer.WriteString(DirectCast(o, String))
+                ElseIf type.IsSubclassOf(GetType(SHAREDDATA)) Then
+                    Dim sd As SHAREDDATA = TryCast(o, SHAREDDATA)
 
-                        writer.WriteSHAREDDATA(sd, If(sd.IsVersioned AndAlso Not sd.IsVersionSaved, CType(si.Version, Nullable(Of Integer)), Nothing))
-                    Else
-                        Throw New NotSupportedException("sd_write_not_supported")
-                    End If
-                End Sub
+                    writer.WriteSHAREDDATA(sd, If(sd.IsVersioned AndAlso Not sd.IsVersionSaved, CType(si.Version, Nullable(Of Integer)), Nothing))
+                Else
+                    Throw New NotSupportedException("sd_write_not_supported")
+                End If
+            End Sub
 
         Dim obj As Object = si.Sender()
         If obj.[GetType]() <> si.Type Then
@@ -385,32 +500,32 @@ Public MustInherit Class STREAMDATA(Of T As STREAMDATA(Of T).StreamInfomation)
     Protected Sub Read(reader As STREAMREADER, si As StreamInfomation)
         Dim _Read As Func(Of Type, Object) =
             Function(type)
-                    If type = GetType(Boolean) Then
-                        Return reader.ReadBool()
-                    ElseIf type = GetType(Integer) Then
-                        Return reader.ReadInt()
-                    ElseIf type = GetType(UInteger) Then
-                        Return reader.ReadUint()
-                    ElseIf type = GetType(Single) Then
-                        Return reader.ReadFloat()
-                    ElseIf type = GetType(Long) Then
-                        Return reader.ReadLong()
-                    ElseIf type = GetType(ULong) Then
-                        Return reader.ReadUlong()
-                    ElseIf type = GetType(Double) Then
-                        Return reader.ReadDouble()
-                    ElseIf type = GetType(DateTime) Then
-                        Return reader.ReadDateTime()
-                    ElseIf type = GetType(String) Then
-                        Return reader.ReadString()
-                    ElseIf type.IsSubclassOf(GetType(SHAREDDATA)) Then
-                        Dim sd As SHAREDDATA = TryCast(Activator.CreateInstance(type), SHAREDDATA)
+                If type = GetType(Boolean) Then
+                    Return reader.ReadBool()
+                ElseIf type = GetType(Integer) Then
+                    Return reader.ReadInt()
+                ElseIf type = GetType(UInteger) Then
+                    Return reader.ReadUint()
+                ElseIf type = GetType(Single) Then
+                    Return reader.ReadFloat()
+                ElseIf type = GetType(Long) Then
+                    Return reader.ReadLong()
+                ElseIf type = GetType(ULong) Then
+                    Return reader.ReadUlong()
+                ElseIf type = GetType(Double) Then
+                    Return reader.ReadDouble()
+                ElseIf type = GetType(DateTime) Then
+                    Return reader.ReadDateTime()
+                ElseIf type = GetType(String) Then
+                    Return reader.ReadString()
+                ElseIf type.IsSubclassOf(GetType(SHAREDDATA)) Then
+                    Dim sd As SHAREDDATA = TryCast(Activator.CreateInstance(type), SHAREDDATA)
 
-                        Return reader.ReadSHAREDDATA(type, If(sd.IsVersioned AndAlso Not sd.IsVersionSaved, CType(si.Version, Nullable(Of Integer)), Nothing))
-                    Else
-                        Throw New NotSupportedException("sd_read_not_supported")
-                    End If
-                End Function
+                    Return reader.ReadSHAREDDATA(type, If(sd.IsVersioned AndAlso Not sd.IsVersionSaved, CType(si.Version, Nullable(Of Integer)), Nothing))
+                Else
+                    Throw New NotSupportedException("sd_read_not_supported")
+                End If
+            End Function
 
         If si.Type = GetType(Byte()) Then
             si.Receiver(reader.ReadBytes(si.Length))
@@ -739,20 +854,20 @@ Public MustInherit Class SHAREDDATA
         Get
             Dim _GetLength As Func(Of Type, MainDataInfomation, Nullable(Of Integer)) =
                 Function(type, mdi)
-                        If type = GetType(Boolean) OrElse type = GetType(Byte) Then
-                            Return 1
-                        ElseIf type = GetType(Integer) OrElse type = GetType(UInteger) OrElse type = GetType(Single) Then
-                            Return 4
-                        ElseIf type = GetType(Long) OrElse type = GetType(ULong) OrElse type = GetType(Double) OrElse type = GetType(DateTime) Then
-                            Return 8
-                        ElseIf type = GetType(String) Then
-                            Return Nothing
-                        ElseIf type.IsSubclassOf(GetType(SHAREDDATA)) Then
-                            Return TryCast(Activator.CreateInstance(type), SHAREDDATA).LengthAll
-                        Else
-                            Throw New NotSupportedException("sd_length_not_supported")
-                        End If
-                    End Function
+                    If type = GetType(Boolean) OrElse type = GetType(Byte) Then
+                        Return 1
+                    ElseIf type = GetType(Integer) OrElse type = GetType(UInteger) OrElse type = GetType(Single) Then
+                        Return 4
+                    ElseIf type = GetType(Long) OrElse type = GetType(ULong) OrElse type = GetType(Double) OrElse type = GetType(DateTime) Then
+                        Return 8
+                    ElseIf type = GetType(String) Then
+                        Return Nothing
+                    ElseIf type.IsSubclassOf(GetType(SHAREDDATA)) Then
+                        Return TryCast(Activator.CreateInstance(type), SHAREDDATA).LengthAll
+                    Else
+                        Throw New NotSupportedException("sd_length_not_supported")
+                    End If
+                End Function
 
             If IsVersioned AndAlso IsVersionSaved Then
                 Return Nothing
