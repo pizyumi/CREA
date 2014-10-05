@@ -338,21 +338,23 @@ namespace CREA2014
                         }
                     }
 
+                    bool flag = false;
                     lock (endLock)
                     {
-                        if (isocket.Connected)
-                            isocket.Shutdown(SocketShutdown.Send);
-                        if (isReadEnded)
+                        isWriteEnded = true;
+
+                        if (flag = isReadEnded)
                         {
+                            if (isocket.Connected)
+                                isocket.Shutdown(SocketShutdown.Both);
                             rm.Dispose();
                             ins.Close();
                             isocket.Close();
                         }
-
-                        isWriteEnded = true;
                     }
 
-                    Closed(this, EventArgs.Empty);
+                    if (flag)
+                        Closed(this, EventArgs.Empty);
                 }
                 catch (Exception ex)
                 {
@@ -457,21 +459,23 @@ namespace CREA2014
                         }
                     }
 
+                    bool flag = false;
                     lock (endLock)
                     {
-                        if (isocket.Connected)
-                            isocket.Shutdown(SocketShutdown.Receive);
-                        if (isWriteEnded)
+                        isReadEnded = true;
+
+                        if (flag = isWriteEnded)
                         {
+                            if (isocket.Connected)
+                                isocket.Shutdown(SocketShutdown.Receive);
                             rm.Dispose();
                             ins.Close();
                             isocket.Close();
                         }
-
-                        isReadEnded = true;
                     }
 
-                    Closed(this, EventArgs.Empty);
+                    if (flag)
+                        Closed(this, EventArgs.Empty);
                 }
                 catch (Exception ex)
                 {
@@ -719,7 +723,7 @@ namespace CREA2014
 
             _write(uint.MaxValue, new byte[] { });
 
-            Closed(this, EventArgs.Empty);
+            //Closed(this, EventArgs.Empty);
         }
 
         private byte[] ReadBytesInnner(bool isCompressed)
@@ -986,45 +990,54 @@ namespace CREA2014
 
                     ins = CreateINetworkStream(isocket);
 
-                    RijndaelManaged rm = null;
-                    if (privateRsaParameters != null)
+                    int version = 0;
+
+                    ins.Write(BitConverter.GetBytes(version), 0, 4);
+
+                    if (version == 0)
                     {
-                        RSACryptoServiceProvider rsacsp = new RSACryptoServiceProvider();
-                        rsacsp.FromXmlString(privateRsaParameters);
+                        RijndaelManaged rm = null;
+                        if (privateRsaParameters != null)
+                        {
+                            RSACryptoServiceProvider rsacsp = new RSACryptoServiceProvider();
+                            rsacsp.FromXmlString(privateRsaParameters);
 
-                        if ((rsaKeySize == RsaKeySize.rsa1024 && rsacsp.KeySize != 1024) || (rsaKeySize == RsaKeySize.rsa2048 && rsacsp.KeySize != 2048))
-                            throw new Exception("rsa_key_size");
+                            if ((rsaKeySize == RsaKeySize.rsa1024 && rsacsp.KeySize != 1024) || (rsaKeySize == RsaKeySize.rsa2048 && rsacsp.KeySize != 2048))
+                                throw new Exception("rsa_key_size");
 
-                        RSAParameters rsaParameters = rsacsp.ExportParameters(true);
-                        byte[] modulus = rsaParameters.Modulus;
-                        byte[] exponent = rsaParameters.Exponent;
+                            RSAParameters rsaParameters = rsacsp.ExportParameters(true);
+                            byte[] modulus = rsaParameters.Modulus;
+                            byte[] exponent = rsaParameters.Exponent;
 
-                        ins.Write(modulus, 0, modulus.Length);
-                        ins.Write(exponent, 0, exponent.Length);
+                            ins.Write(modulus, 0, modulus.Length);
+                            ins.Write(exponent, 0, exponent.Length);
 
-                        RSAPKCS1KeyExchangeDeformatter rsapkcs1ked = new RSAPKCS1KeyExchangeDeformatter(rsacsp);
+                            RSAPKCS1KeyExchangeDeformatter rsapkcs1ked = new RSAPKCS1KeyExchangeDeformatter(rsacsp);
 
-                        byte[] encryptedKey = rsaKeySize == RsaKeySize.rsa1024 ? new byte[128] : new byte[256];
-                        byte[] encryptedIv = rsaKeySize == RsaKeySize.rsa1024 ? new byte[128] : new byte[256];
+                            byte[] encryptedKey = rsaKeySize == RsaKeySize.rsa1024 ? new byte[128] : new byte[256];
+                            byte[] encryptedIv = rsaKeySize == RsaKeySize.rsa1024 ? new byte[128] : new byte[256];
 
-                        ins.Read(encryptedKey, 0, encryptedKey.Length);
-                        ins.Read(encryptedIv, 0, encryptedIv.Length);
+                            ins.Read(encryptedKey, 0, encryptedKey.Length);
+                            ins.Read(encryptedIv, 0, encryptedIv.Length);
 
-                        rm = new RijndaelManaged();
-                        rm.Padding = PaddingMode.Zeros;
-                        rm.Key = rsapkcs1ked.DecryptKeyExchange(encryptedKey);
-                        rm.IV = rsapkcs1ked.DecryptKeyExchange(encryptedIv);
+                            rm = new RijndaelManaged();
+                            rm.Padding = PaddingMode.Zeros;
+                            rm.Key = rsapkcs1ked.DecryptKeyExchange(encryptedKey);
+                            rm.IV = rsapkcs1ked.DecryptKeyExchange(encryptedIv);
+                        }
+
+                        sc = new SocketChannel(isocket, ins, rm, ChannelDirection.outbound, connectionTime);
+
+                        //2014/09/15
+                        //SocketChannelは使用後Closeを呼び出さなければならない
+                        //このイベントの処理中に例外が発生する可能性もある
+                        //このイベントの処理スレッドで例外が発生した場合には例外が捕捉され、Closeが呼び出される
+                        //SocketChannelをこのイベントの処理スレッドでしか使用しない場合には、イベントハンドラのどこかでCloseを呼び出さなければならない
+                        //SocketChannelを別のスレッドで使用する場合には、例外が発生した場合も含めて、必ずCloseが呼び出されるようにしなければならない
+                        Connected(this, sc);
                     }
-
-                    sc = new SocketChannel(isocket, ins, rm, ChannelDirection.outbound, connectionTime);
-
-                    //2014/09/15
-                    //SocketChannelは使用後Closeを呼び出さなければならない
-                    //このイベントの処理中に例外が発生する可能性もある
-                    //このイベントの処理スレッドで例外が発生した場合には例外が捕捉され、Closeが呼び出される
-                    //SocketChannelをこのイベントの処理スレッドでしか使用しない場合には、イベントハンドラのどこかでCloseを呼び出さなければならない
-                    //SocketChannelを別のスレッドで使用する場合には、例外が発生した場合も含めて、必ずCloseが呼び出されるようにしなければならない
-                    Connected(this, sc);
+                    else
+                        throw new NotSupportedException("outbound_connection_version");
                 }
                 catch (Exception ex)
                 {
@@ -1140,42 +1153,51 @@ namespace CREA2014
 
                                     ins = CreateINetworkStream(isocket2);
 
-                                    RijndaelManaged rm = null;
-                                    if (isEncrypted)
+                                    byte[] versionBytes = new byte[4];
+                                    ins.Read(versionBytes, 0, versionBytes.Length);
+                                    int version = BitConverter.ToInt32(versionBytes, 0);
+
+                                    if (version == 0)
                                     {
-                                        byte[] modulus = rsaKeySize == RsaKeySize.rsa1024 ? new byte[128] : new byte[256];
-                                        byte[] exponent = new byte[3];
+                                        RijndaelManaged rm = null;
+                                        if (isEncrypted)
+                                        {
+                                            byte[] modulus = rsaKeySize == RsaKeySize.rsa1024 ? new byte[128] : new byte[256];
+                                            byte[] exponent = new byte[3];
 
-                                        ins.Read(modulus, 0, modulus.Length);
-                                        ins.Read(exponent, 0, exponent.Length);
+                                            ins.Read(modulus, 0, modulus.Length);
+                                            ins.Read(exponent, 0, exponent.Length);
 
-                                        RSACryptoServiceProvider rsacsp = new RSACryptoServiceProvider();
-                                        RSAParameters rsaParameters = new RSAParameters();
-                                        rsaParameters.Modulus = modulus;
-                                        rsaParameters.Exponent = exponent;
-                                        rsacsp.ImportParameters(rsaParameters);
+                                            RSACryptoServiceProvider rsacsp = new RSACryptoServiceProvider();
+                                            RSAParameters rsaParameters = new RSAParameters();
+                                            rsaParameters.Modulus = modulus;
+                                            rsaParameters.Exponent = exponent;
+                                            rsacsp.ImportParameters(rsaParameters);
 
-                                        RSAPKCS1KeyExchangeFormatter rsapkcs1kef = new RSAPKCS1KeyExchangeFormatter(rsacsp);
+                                            RSAPKCS1KeyExchangeFormatter rsapkcs1kef = new RSAPKCS1KeyExchangeFormatter(rsacsp);
 
-                                        rm = new RijndaelManaged();
-                                        rm.Padding = PaddingMode.Zeros;
+                                            rm = new RijndaelManaged();
+                                            rm.Padding = PaddingMode.Zeros;
 
-                                        byte[] encryptedKey = rsapkcs1kef.CreateKeyExchange(rm.Key);
-                                        byte[] encryptedIv = rsapkcs1kef.CreateKeyExchange(rm.IV);
+                                            byte[] encryptedKey = rsapkcs1kef.CreateKeyExchange(rm.Key);
+                                            byte[] encryptedIv = rsapkcs1kef.CreateKeyExchange(rm.IV);
 
-                                        ins.Write(encryptedKey, 0, encryptedKey.GetLength(0));
-                                        ins.Write(encryptedIv, 0, encryptedIv.GetLength(0));
+                                            ins.Write(encryptedKey, 0, encryptedKey.GetLength(0));
+                                            ins.Write(encryptedIv, 0, encryptedIv.GetLength(0));
+                                        }
+
+                                        sc = new SocketChannel(isocket2, ins, rm, ChannelDirection.inbound, connectedTime);
+
+                                        //2014/09/15
+                                        //SocketChannelは使用後Closeを呼び出さなければならない
+                                        //このイベントの処理中に例外が発生する可能性もある
+                                        //このイベントの処理スレッドで例外が発生した場合には例外が捕捉され、Closeが呼び出される
+                                        //SocketChannelをこのイベントの処理スレッドでしか使用しない場合には、イベントハンドラのどこかでCloseを呼び出さなければならない
+                                        //SocketChannelを別のスレッドで使用する場合には、例外が発生した場合も含めて、必ずCloseが呼び出されるようにしなければならない
+                                        Accepted(this, sc);
                                     }
-
-                                    sc = new SocketChannel(isocket2, ins, rm, ChannelDirection.inbound, connectedTime);
-
-                                    //2014/09/15
-                                    //SocketChannelは使用後Closeを呼び出さなければならない
-                                    //このイベントの処理中に例外が発生する可能性もある
-                                    //このイベントの処理スレッドで例外が発生した場合には例外が捕捉され、Closeが呼び出される
-                                    //SocketChannelをこのイベントの処理スレッドでしか使用しない場合には、イベントハンドラのどこかでCloseを呼び出さなければならない
-                                    //SocketChannelを別のスレッドで使用する場合には、例外が発生した場合も含めて、必ずCloseが呼び出されるようにしなければならない
-                                    Accepted(this, sc);
+                                    else
+                                        throw new NotSupportedException("inbound_connection_version");
                                 }
                                 catch (Exception ex)
                                 {
@@ -1347,7 +1369,7 @@ namespace CREA2014
 
         public P2PNODE(ushort _portNumber)
         {
-            portNumber = _portNumber;
+            myPortNumber = _portNumber;
 
             connections = new List<ConnectionData>();
             connectionsCache = new CachedData<ConnectionData[]>(() =>
@@ -1364,15 +1386,15 @@ namespace CREA2014
             });
         }
 
-        public IPAddress ipAddress { get; private set; }
-        public ushort portNumber { get; private set; }
-        public FirstNodeInformation firstNodeInfo { get; private set; }
+        public IPAddress myIpAddress { get; private set; }
+        public ushort myPortNumber { get; private set; }
+        public FirstNodeInformation myFirstNodeInfo { get; private set; }
 
         private readonly object isStartedLock = new object();
         public bool isStarted { get; private set; }
         public bool isStartCompleted { get; private set; }
 
-        protected string privateRsaParameters { get; private set; }
+        protected string myPrivateRsaParameters { get; private set; }
         protected FirstNodeInformation[] firstNodeInfos { get; private set; }
 
         private readonly object connectionsLock = new object();
@@ -1399,8 +1421,8 @@ namespace CREA2014
         protected abstract void KeepConnections();
         protected abstract void OnAccepted(SocketChannel sc);
 
-        public bool IsPort0 { get { return portNumber == 0; } }
-        public bool IsServer { get { return !IsPort0 && ipAddress != null; } }
+        public bool IsPort0 { get { return myPortNumber == 0; } }
+        public bool IsServer { get { return !IsPort0 && myIpAddress != null; } }
 
         public void Start()
         {
@@ -1414,7 +1436,7 @@ namespace CREA2014
 
             this.StartTask("node_start", "node_start", () =>
             {
-                if ((privateRsaParameters = GetPrivateRsaParameters()) == null)
+                if ((myPrivateRsaParameters = GetPrivateRsaParameters()) == null)
                     throw new CryptographicException("cant_create_key_pair");
 
                 if (IsPort0)
@@ -1422,17 +1444,17 @@ namespace CREA2014
                 else
                 {
                     //IPアドレスの取得には時間が掛かる可能性がある
-                    ipAddress = GetIpAddress();
+                    myIpAddress = GetIpAddress();
 
                     if (IsServer)
                     {
-                        firstNodeInfo = new FirstNodeInformation(ipAddress, portNumber, Network);
+                        myFirstNodeInfo = new FirstNodeInformation(myIpAddress, myPortNumber, Network);
 
                         NotifyFirstNodeInfo();
 
                         CreateNodeInfo();
 
-                        RealInboundChennel ric = new RealInboundChennel(portNumber, RsaKeySize.rsa2048, 100);
+                        RealInboundChennel ric = new RealInboundChennel(myPortNumber, RsaKeySize.rsa2048, 100);
                         ric.Accepted += (sender, e) =>
                         {
                             try
@@ -1472,14 +1494,14 @@ namespace CREA2014
                         ric.Failed += (sender, e) => { };
                         ric.RequestAcceptanceStart();
 
-                        this.RaiseNotification("server_started", 5, ipAddress.ToString(), portNumber.ToString());
+                        this.RaiseNotification("server_started", 5, myIpAddress.ToString(), myPortNumber.ToString());
                     }
                 }
 
-                if (firstNodeInfo == null)
+                if (myFirstNodeInfo == null)
                     firstNodeInfos = GetFirstNodeInfos();
                 else
-                    firstNodeInfos = GetFirstNodeInfos().Where((a) => !a.Equals(firstNodeInfo)).ToArray();
+                    firstNodeInfos = GetFirstNodeInfos().Where((a) => !a.Equals(myFirstNodeInfo)).ToArray();
 
                 KeepConnections();
 
@@ -1494,7 +1516,7 @@ namespace CREA2014
             SocketChannel sc = null;
             AutoResetEvent are = new AutoResetEvent(false);
 
-            RealOutboundChannel roc = new RealOutboundChannel(aiteIpAddress, aitePortNumber, RsaKeySize.rsa2048, privateRsaParameters);
+            RealOutboundChannel roc = new RealOutboundChannel(aiteIpAddress, aitePortNumber, RsaKeySize.rsa2048, myPrivateRsaParameters);
             roc.Connected += (sender, e) =>
             {
                 try
@@ -1520,7 +1542,6 @@ namespace CREA2014
                     //SocketChannelを別のスレッドで使用する場合には、例外が発生した場合も含めて、必ずCloseが呼び出されるようにしなければならない
                     //この場合はこのメソッドの呼び出し元が、必ずCloseが呼び出されるようにしなければならない
                     sc = e;
-                    are.Set();
                 }
                 catch (Exception ex)
                 {
@@ -1529,6 +1550,12 @@ namespace CREA2014
                     //別スレッドでないので例外を再スローすればCloseが呼び出されるのだが、
                     //ここで呼んでも良いだろう
                     e.Close();
+                }
+                finally
+                {
+                    //2014/10/04
+                    //例外が発生した場合には30秒も待機すべきではないだろう
+                    are.Set();
                 }
             };
             roc.Failed += (sender, e) =>
@@ -1542,9 +1569,14 @@ namespace CREA2014
             roc.RequestConnection();
 
             if (are.WaitOne(30000))
+            {
+                if (sc == null)
+                    throw new Exception("cant_connect");
+
                 return sc;
+            }
             else
-                throw new Exception("cant_connect");
+                throw new Exception("cant_connect_timeout");
         }
 
         private void AddConnection(ConnectionData cd)
@@ -1602,7 +1634,7 @@ namespace CREA2014
 
     public enum MessageName
     {
-        reqNodeInofs = 1,
+        reqNodeInfos = 1,
         resNodeInfos = 2,
 
         inv = 10,
@@ -1635,12 +1667,12 @@ namespace CREA2014
             get
             {
                 if (messageBase is ReqNodeInfos)
-                    return MessageName.reqNodeInofs;
+                    return MessageName.reqNodeInfos;
                 else if (messageBase is ResNodeInfos)
                     return MessageName.resNodeInfos;
-                else if (messageBase is Inv)
+                else if (messageBase is NotifyNewTransactions)
                     return MessageName.inv;
-                else if (messageBase is Getdata)
+                else if (messageBase is ReqTransactions)
                     return MessageName.getdata;
                 else if (messageBase is TxTest)
                     return MessageName.tx;
@@ -1658,14 +1690,14 @@ namespace CREA2014
                 yield return new MainDataInfomation(typeof(int), () => (int)Name, (o) =>
                 {
                     mn = (MessageName)o;
-                    if (mn == MessageName.reqNodeInofs)
+                    if (mn == MessageName.reqNodeInfos)
                         messageBase = new ReqNodeInfos();
                     else if (mn == MessageName.resNodeInfos)
                         messageBase = new ResNodeInfos();
                     else if (mn == MessageName.inv)
-                        messageBase = new Inv();
+                        messageBase = new NotifyNewTransactions();
                     else if (mn == MessageName.getdata)
-                        messageBase = new Getdata();
+                        messageBase = new ReqTransactions();
                     else if (mn == MessageName.tx)
                         messageBase = new TxTest();
                     else
@@ -1677,7 +1709,6 @@ namespace CREA2014
             else
                 throw new NotSupportedException("message_main_data_info");
         }
-
         public override bool IsVersioned { get { return true; } }
         public override bool IsCorruptionChecked
         {
@@ -1714,7 +1745,6 @@ namespace CREA2014
                     throw new NotSupportedException("node_infos_main_data_info");
             }
         }
-
         public override bool IsVersioned { get { return true; } }
         public override bool IsCorruptionChecked
         {
@@ -1730,7 +1760,7 @@ namespace CREA2014
 
     public class ResNodeInfos : MessageBase
     {
-        public ResNodeInfos() { }
+        public ResNodeInfos() : base(0) { }
 
         public ResNodeInfos(NodeInformation[] _nodeInfos) : base(0) { nodeInfos = _nodeInfos; }
 
@@ -1748,7 +1778,6 @@ namespace CREA2014
                     throw new NotSupportedException("node_infos_main_data_info");
             }
         }
-
         public override bool IsVersioned { get { return true; } }
         public override bool IsCorruptionChecked
         {
@@ -1781,11 +1810,30 @@ namespace CREA2014
         }
     }
 
-    public class Inv : MessageHash<Sha256Sha256Hash>
+    public abstract class MessageHashes<HashType> : MessageBase where HashType : HASHBASE
     {
-        public Inv() : this(new Sha256Sha256Hash()) { }
+        public MessageHashes(HashType[] _hashes) : this(null, _hashes) { }
 
-        public Inv(Sha256Sha256Hash _hash) : base(0, _hash) { }
+        public MessageHashes(int? _version, HashType[] _hashes) : base(_version) { hashes = _hashes; }
+
+        public HashType[] hashes { get; private set; }
+
+        protected override Func<ReaderWriter, IEnumerable<MainDataInfomation>> StreamInfo
+        {
+            get
+            {
+                return (msrw) => new MainDataInfomation[]{
+                    new MainDataInfomation(typeof(HashType[]), null, null, () => hashes, (o) => hashes = (HashType[])o),
+                };
+            }
+        }
+    }
+
+    public class NotifyNewTransactions : MessageHashes<Sha256Sha256Hash>
+    {
+        public NotifyNewTransactions() : this(new Sha256Sha256Hash[] { }) { }
+
+        public NotifyNewTransactions(Sha256Sha256Hash[] _hashes) : base(0, _hashes) { }
 
         protected override Func<ReaderWriter, IEnumerable<MainDataInfomation>> StreamInfo
         {
@@ -1797,7 +1845,6 @@ namespace CREA2014
                     throw new NotSupportedException("inv_main_data_info");
             }
         }
-
         public override bool IsVersioned { get { return true; } }
         public override bool IsCorruptionChecked
         {
@@ -1811,11 +1858,11 @@ namespace CREA2014
         }
     }
 
-    public class Getdata : MessageHash<Sha256Sha256Hash>
+    public class ReqTransactions : MessageHashes<Sha256Sha256Hash>
     {
-        public Getdata() : this(new Sha256Sha256Hash()) { }
+        public ReqTransactions() : this(new Sha256Sha256Hash[] { }) { }
 
-        public Getdata(Sha256Sha256Hash _hash) : base(0, _hash) { }
+        public ReqTransactions(Sha256Sha256Hash[] _hashes) : base(0, _hashes) { }
 
         protected override Func<ReaderWriter, IEnumerable<MainDataInfomation>> StreamInfo
         {
@@ -1827,7 +1874,6 @@ namespace CREA2014
                     throw new NotSupportedException("getdata_main_data_info");
             }
         }
-
         public override bool IsVersioned { get { return true; } }
         public override bool IsCorruptionChecked
         {
@@ -1928,7 +1974,6 @@ namespace CREA2014
                     throw new NotSupportedException("header_stream_info");
             }
         }
-
         public override bool IsVersioned { get { return true; } }
         public override bool IsCorruptionChecked
         {
@@ -1991,7 +2036,6 @@ namespace CREA2014
                     throw new NotSupportedException("header_res_stream_info");
             }
         }
-
         public override bool IsVersioned { get { return true; } }
         public override bool IsCorruptionChecked
         {
@@ -2369,7 +2413,7 @@ namespace CREA2014
         private readonly int creaVersion;
         private readonly string appnameWithVersion;
 
-        public NodeInformation nodeInfo { get; private set; }
+        public NodeInformation myNodeInfo { get; private set; }
 
         protected abstract bool IsContinue { get; }
 
@@ -2386,15 +2430,12 @@ namespace CREA2014
         protected abstract MessageBase[] Request(NodeInformation nodeinfo, params MessageBase[] messages);
         protected abstract void Diffuse(params MessageBase[] messages);
 
-        public int NodeIdSizeByte { get { return nodeInfo.Id.SizeByte; } }
-        public int NodeIdSizeBit { get { return nodeInfo.Id.SizeBit; } }
-
         protected override void CreateNodeInfo()
         {
             using (RSACryptoServiceProvider rsacsp = new RSACryptoServiceProvider(2048))
             {
-                rsacsp.FromXmlString(privateRsaParameters);
-                nodeInfo = new NodeInformation(ipAddress, portNumber, Network, rsacsp.ToXmlString(false));
+                rsacsp.FromXmlString(myPrivateRsaParameters);
+                myNodeInfo = new NodeInformation(myIpAddress, myPortNumber, Network, rsacsp.ToXmlString(false));
             }
         }
 
@@ -2411,7 +2452,7 @@ namespace CREA2014
                 aiteNodeInfo = new NodeInformation(sc.aiteIpAddress, header.nodeInfo.portNumber, header.nodeInfo.network, header.nodeInfo.publicRSAParameters);
             }
 
-            HeaderResponse headerResponse = new HeaderResponse(nodeInfo, header.nodeInfo.network == Network, IsAlreadyConnected(header.nodeInfo), aiteNodeInfo, header.creaVersion < creaVersion, protocolVersion, appnameWithVersion);
+            HeaderResponse headerResponse = new HeaderResponse(myNodeInfo, header.nodeInfo.network == Network, IsAlreadyConnected(header.nodeInfo), aiteNodeInfo, header.creaVersion < creaVersion, protocolVersion, appnameWithVersion);
 
             sc.WriteBytes(headerResponse.ToBinary());
 
@@ -2491,8 +2532,10 @@ namespace CREA2014
             {
                 return ConnectInner(aiteNodeInfo.ipAddress, aiteNodeInfo.portNumber, isTemporary, _Continued, reqMessages);
             }
-            catch
+            catch (Exception ex)
             {
+                this.RaiseError("connect", 5, ex);
+
                 UpdateNodeState(aiteNodeInfo, false);
 
                 return null;
@@ -2505,8 +2548,10 @@ namespace CREA2014
             {
                 return ConnectInner(aiteIpAddress, aitePortNumber, isTemporary, _Continued, reqMessages);
             }
-            catch
+            catch (Exception ex)
             {
+                this.RaiseError("connect", 5, ex);
+
                 UpdateNodeState(aiteIpAddress, aitePortNumber, false);
 
                 return null;
@@ -2521,7 +2566,7 @@ namespace CREA2014
             try
             {
                 //サーバが起動していない場合（ポート0又はIPアドレスが取得できなかったような場合）にはノード情報はnull
-                sc.WriteBytes(new Header(nodeInfo, creaVersion, protocolVersion, appnameWithVersion, isTemporary).ToBinary());
+                sc.WriteBytes(new Header(myNodeInfo, creaVersion, protocolVersion, appnameWithVersion, isTemporary).ToBinary());
                 HeaderResponse headerResponse = SHAREDDATA.FromBinary<HeaderResponse>(sc.ReadBytes());
 
                 bool isWrongNetwork = (!headerResponse.isSameNetwork).RaiseNotification(GetType(), "wrong_network", 5, aiteIpAddress.ToString(), aitePortNumber.ToString());
@@ -2604,9 +2649,11 @@ namespace CREA2014
                 else
                     throw new NotSupportedException("not_supported_protocol_ver");
             }
-            catch
+            catch (Exception ex)
             {
                 sc.Close();
+
+                throw ex;
             }
 
             return null;
@@ -2656,7 +2703,7 @@ namespace CREA2014
 
         protected override void NotifyFirstNodeInfo()
         {
-            HttpWebRequest hwreq = WebRequest.Create(fnisRegistryURL + firstNodeInfo.Hex) as HttpWebRequest;
+            HttpWebRequest hwreq = WebRequest.Create(fnisRegistryURL + myFirstNodeInfo.Hex) as HttpWebRequest;
             using (HttpWebResponse hwres = hwreq.GetResponse() as HttpWebResponse)
             using (Stream stream = hwres.GetResponseStream())
             using (StreamReader sr = new StreamReader(stream, Encoding.UTF8))
@@ -2679,7 +2726,10 @@ namespace CREA2014
                 {
                     fni = new FirstNodeInformation(node);
                 }
-                catch { }
+                catch
+                {
+                    this.RaiseError("cant_decode_fni", 5);
+                }
 
                 if (fni != null && !fnis.Contains(fni))
                     fnis.Add(fni);
@@ -2781,7 +2831,7 @@ namespace CREA2014
 
         protected override void NotifyFirstNodeInfo()
         {
-            HttpWebRequest hwreq = WebRequest.Create(fnisRegistryURL + firstNodeInfo.Hex) as HttpWebRequest;
+            HttpWebRequest hwreq = WebRequest.Create(fnisRegistryURL + myFirstNodeInfo.Hex) as HttpWebRequest;
             using (HttpWebResponse hwres = hwreq.GetResponse() as HttpWebResponse)
             using (Stream stream = hwres.GetResponseStream())
             using (StreamReader sr = new StreamReader(stream, Encoding.UTF8))
@@ -2806,35 +2856,35 @@ namespace CREA2014
         protected override void InboundProtocol(IChannel sc, Action<string> _ConsoleWriteLine)
         {
             Message message = SHAREDDATA.FromBinary<Message>(sc.ReadBytes());
-            if (message.Name == MessageName.reqNodeInofs)
+            if (message.Name == MessageName.reqNodeInfos)
                 sc.WriteBytes(new Message(new ResNodeInfos(GetNodeInfos())).ToBinary());
-            else if (message.Name == MessageName.inv)
-            {
-                Inv inv = message.messageBase as Inv;
-                bool isNew = !txtests.Keys.Contains(inv.hash);
-                sc.WriteBytes(BitConverter.GetBytes(isNew));
-                if (isNew)
-                {
-                    TxTest txtest = SHAREDDATA.FromBinary<TxTest>(sc.ReadBytes());
-                    lock (txtestsLock)
-                        if (!txtests.Keys.Contains(inv.hash))
-                            txtests.Add(inv.hash, txtest.data);
-                        else
-                            return;
+            //else if (message.Name == MessageName.inv)
+            //{
+            //    NotifyNewTransactions inv = message.messageBase as NotifyNewTransactions;
+            //    bool isNew = !txtests.Keys.Contains(inv.hash);
+            //    sc.WriteBytes(BitConverter.GetBytes(isNew));
+            //    if (isNew)
+            //    {
+            //        TxTest txtest = SHAREDDATA.FromBinary<TxTest>(sc.ReadBytes());
+            //        lock (txtestsLock)
+            //            if (!txtests.Keys.Contains(inv.hash))
+            //                txtests.Add(inv.hash, txtest.data);
+            //            else
+            //                return;
 
-                    _ConsoleWriteLine("txtest受信");
+            //        _ConsoleWriteLine("txtest受信");
 
-                    TxtestReceived(this, nodeInfo);
+            //        TxtestReceived(this, myNodeInfo);
 
-                    this.StartTask(string.Empty, string.Empty, () => DiffuseInv(txtest, inv));
-                }
-                else
-                {
-                    _ConsoleWriteLine("txtest既に存在する");
+            //        this.StartTask(string.Empty, string.Empty, () => DiffuseInv(txtest, inv));
+            //    }
+            //    else
+            //    {
+            //        _ConsoleWriteLine("txtest既に存在する");
 
-                    TxtestAlreadyExisted(this, nodeInfo);
-                }
-            }
+            //        TxtestAlreadyExisted(this, myNodeInfo);
+            //    }
+            //}
             else
                 throw new NotSupportedException("protocol_not_supported");
         }
@@ -2844,7 +2894,7 @@ namespace CREA2014
             Message message = new Message(messages[0]);
 
             sc.WriteBytes(message.ToBinary());
-            if (message.Name == MessageName.reqNodeInofs)
+            if (message.Name == MessageName.reqNodeInfos)
             {
                 Message resNodeInfosMessage = SHAREDDATA.FromBinary<Message>(sc.ReadBytes());
                 if (resNodeInfosMessage.Name != MessageName.resNodeInfos)
@@ -2863,20 +2913,20 @@ namespace CREA2014
         }
 
         //試験用
-        public void DiffuseInv(TxTest txtest, Inv inv)
+        public void DiffuseInv(TxTest txtest, NotifyNewTransactions inv)
         {
-            if (txtest == null && inv == null)
-            {
-                txtest = new TxTest();
-                inv = new Inv(new Sha256Sha256Hash(txtest.data));
+            //if (txtest == null && inv == null)
+            //{
+            //    txtest = new TxTest();
+            //    inv = new NotifyNewTransactions(new Sha256Sha256Hash(txtest.data));
 
-                lock (txtestsLock)
-                    txtests.Add(inv.hash, txtest.data);
+            //    lock (txtestsLock)
+            //        txtests.Add(inv.hash, txtest.data);
 
-                (string.Join(":", ipAddress.ToString(), portNumber.ToString()) + " txtest作成").ConsoleWriteLine();
-            }
+            //    (string.Join(":", myIpAddress.ToString(), myPortNumber.ToString()) + " txtest作成").ConsoleWriteLine();
+            //}
 
-            Diffuse(inv, txtest);
+            //Diffuse(inv, txtest);
         }
     }
 
@@ -3148,40 +3198,26 @@ namespace CREA2014
 
     public class CreaNodeLocalTestContinueDHT : CreaNodeLocalTest
     {
-        public CreaNodeLocalTestContinueDHT(ushort _portNumber, int _creaVersion, string _appnameWithVersion)
-            : base(_portNumber, _creaVersion, _appnameWithVersion)
-        {
-            kbuckets = new List<NodeInformation>[NodeIdSizeBit];
-            kbucketsLocks = new object[NodeIdSizeBit];
+        public CreaNodeLocalTestContinueDHT(ushort _portNumber, int _creaVersion, string _appnameWithVersion) : base(_portNumber, _creaVersion, _appnameWithVersion) { }
 
-            outboundConnections = new List<Connection>[NodeIdSizeBit];
-            outboundConnectionsLock = new object[NodeIdSizeBit];
-            inboundConnections = new List<Connection>[NodeIdSizeBit];
-            inboundConnectionsLock = new object[NodeIdSizeBit];
+        private NodeInformation dhtNodeInfo;
 
-            for (int i = 0; i < NodeIdSizeBit; i++)
-            {
-                kbuckets[i] = new List<NodeInformation>();
-                kbucketsLocks[i] = new object();
+        private object[] kbucketsLocks;
+        private List<NodeInformation>[] kbuckets;
 
-                outboundConnections[i] = new List<Connection>();
-                outboundConnectionsLock[i] = new object();
-                inboundConnections[i] = new List<Connection>();
-                inboundConnectionsLock[i] = new object();
-            }
-        }
+        private object[] outboundConnectionsLock;
+        private List<Connection>[] outboundConnections;
+        private object[] inboundConnectionsLock;
+        private List<Connection>[] inboundConnections;
 
-        private readonly object[] kbucketsLocks;
-        private readonly List<NodeInformation>[] kbuckets;
-
-        private readonly object[] outboundConnectionsLock;
-        private readonly List<Connection>[] outboundConnections;
-        private readonly object[] inboundConnectionsLock;
-        private readonly List<Connection>[] inboundConnections;
+        private bool isInitialized = false;
 
         private static readonly int keepConnectionNodeInfosMin = 4;
         private static readonly int outboundConnectionsMax = 2;
         private static readonly int inboundConnectionsMax = 4;
+
+        public int NodeIdSizeByte { get { return dhtNodeInfo.Id.SizeByte; } }
+        public int NodeIdSizeBit { get { return dhtNodeInfo.Id.SizeBit; } }
 
         public class Connection
         {
@@ -3200,9 +3236,15 @@ namespace CREA2014
         protected override NodeInformation[] GetNodeInfos()
         {
             List<NodeInformation> nodeInfos = new List<NodeInformation>();
-            for (int i = 0; i < NodeIdSizeBit; i++)
-                lock (kbucketsLocks[i])
-                    nodeInfos.AddRange(kbuckets[i]);
+
+            if (myNodeInfo != null)
+                nodeInfos.Add(myNodeInfo);
+
+            if (isInitialized)
+                for (int i = 0; i < NodeIdSizeBit; i++)
+                    lock (kbucketsLocks[i])
+                        nodeInfos.AddRange(kbuckets[i]);
+
             return nodeInfos.ToArray();
         }
 
@@ -3210,44 +3252,59 @@ namespace CREA2014
 
         protected override bool IsAlreadyConnected(NodeInformation nodeInfo)
         {
-            int distanceLevel = GetDistanceLevel(nodeInfo);
+            if (isInitialized)
+            {
+                int distanceLevel = GetDistanceLevel(nodeInfo);
 
-            if (outboundConnections[distanceLevel].Count > 0)
-                lock (outboundConnectionsLock[distanceLevel])
-                    if (outboundConnections[distanceLevel].Where((elem) => elem.nodeInfo.Equals(nodeInfo)).FirstOrDefault() != null)
-                        return true;
+                if (outboundConnections[distanceLevel].Count > 0)
+                    lock (outboundConnectionsLock[distanceLevel])
+                        if (outboundConnections[distanceLevel].Where((elem) => elem.nodeInfo.Equals(nodeInfo)).FirstOrDefault() != null)
+                            return true;
 
-            if (inboundConnections[distanceLevel].Count > 0)
-                lock (inboundConnectionsLock[distanceLevel])
-                    if (inboundConnections[distanceLevel].Where((elem) => elem.nodeInfo.Equals(nodeInfo)).FirstOrDefault() != null)
-                        return true;
+                if (inboundConnections[distanceLevel].Count > 0)
+                    lock (inboundConnectionsLock[distanceLevel])
+                        if (inboundConnections[distanceLevel].Where((elem) => elem.nodeInfo.Equals(nodeInfo)).FirstOrDefault() != null)
+                            return true;
+            }
 
             return false;
         }
 
         protected override void UpdateNodeState(NodeInformation nodeInfo, bool isSucceeded)
         {
-            throw new NotImplementedException();
+            //<未改良>単純な追加と削除ではなく優先順位をつけるべき？
+            if (isInitialized)
+            {
+                int distanceLevel = GetDistanceLevel(nodeInfo);
+
+                if (isSucceeded)
+                {
+                    lock (kbucketsLocks[distanceLevel])
+                        if (!kbuckets[distanceLevel].Contains(nodeInfo))
+                            kbuckets[distanceLevel].Add(nodeInfo);
+                }
+                else if (kbuckets[distanceLevel].Count > 0)
+                    lock (kbucketsLocks[distanceLevel])
+                        if (kbuckets[distanceLevel].Contains(nodeInfo))
+                            kbuckets[distanceLevel].Remove(nodeInfo);
+            }
         }
 
-        protected override void UpdateNodeState(IPAddress ipAddress, ushort portNumber, bool isSucceeded)
-        {
-            throw new NotImplementedException();
-        }
+        protected override void UpdateNodeState(IPAddress ipAddress, ushort portNumber, bool isSucceeded) { }
 
         protected override bool IsListenerCanContinue(NodeInformation nodeInfo)
         {
-            return GetDistanceLevel(nodeInfo).Operate((distanceLevel) => distanceLevel != -1 && inboundConnections[distanceLevel].Count < inboundConnectionsMax);
+            return isInitialized && GetDistanceLevel(nodeInfo).Operate((distanceLevel) => distanceLevel != -1 && inboundConnections[distanceLevel].Count < inboundConnectionsMax);
         }
 
         protected override bool IsWantToContinue(NodeInformation nodeInfo)
         {
-            return GetDistanceLevel(nodeInfo).Operate((distanceLevel) => distanceLevel != -1 && inboundConnections[distanceLevel].Count < inboundConnectionsMax);
+            return isInitialized && GetDistanceLevel(nodeInfo).Operate((distanceLevel) => distanceLevel != -1 && inboundConnections[distanceLevel].Count < inboundConnectionsMax);
         }
 
         protected override bool IsClientCanContinue(NodeInformation nodeInfo)
         {
-            return GetDistanceLevel(nodeInfo).Operate((distanceLevel) => distanceLevel != -1 && outboundConnections[distanceLevel].Count < outboundConnectionsMax);
+            return isInitialized && GetDistanceLevel(nodeInfo).Operate((distanceLevel) => distanceLevel != -1 && outboundConnections[distanceLevel].Count < outboundConnectionsMax);
         }
 
         protected override void InboundContinue(NodeInformation nodeInfo, SocketChannel sc, Action<string> _ConsoleWriteLine)
@@ -3258,16 +3315,8 @@ namespace CREA2014
             lock (inboundConnectionsLock[distanceLevel])
                 inboundConnections[distanceLevel].Add(connection);
 
-            sc.Closed += (sender, e) =>
-            {
-                lock (inboundConnectionsLock[distanceLevel])
-                    inboundConnections[distanceLevel].Remove(connection);
-            };
-            sc.Failed += (sender, e) =>
-            {
-                lock (inboundConnectionsLock[distanceLevel])
-                    inboundConnections[distanceLevel].Remove(connection);
-            };
+            sc.Closed += (sender, e) => RemoveAndRefillConnections(distanceLevel, connection, inboundConnectionsLock, inboundConnections, inboundConnectionsMax);
+            sc.Failed += (sender, e) => RemoveAndRefillConnections(distanceLevel, connection, inboundConnectionsLock, inboundConnections, inboundConnectionsMax);
 
             Continue(nodeInfo, sc, _ConsoleWriteLine);
         }
@@ -3280,18 +3329,34 @@ namespace CREA2014
             lock (outboundConnectionsLock[distanceLevel])
                 outboundConnections[distanceLevel].Add(connection);
 
-            sc.Closed += (sender, e) =>
-            {
-                lock (outboundConnectionsLock[distanceLevel])
-                    outboundConnections[distanceLevel].Remove(connection);
-            };
-            sc.Failed += (sender, e) =>
-            {
-                lock (outboundConnectionsLock[distanceLevel])
-                    outboundConnections[distanceLevel].Remove(connection);
-            };
+            sc.Closed += (sender, e) => RemoveAndRefillConnections(distanceLevel, connection, outboundConnectionsLock, outboundConnections, outboundConnectionsMax);
+            sc.Failed += (sender, e) => RemoveAndRefillConnections(distanceLevel, connection, outboundConnectionsLock, outboundConnections, outboundConnectionsMax);
 
             Continue(nodeInfo, sc, _ConsoleWriteLine);
+        }
+
+        private void RemoveAndRefillConnections(int distanceLevel, Connection connection, object[] locks, List<Connection>[] connections, int max)
+        {
+            lock (locks[distanceLevel])
+                connections[distanceLevel].Remove(connection);
+
+            List<NodeInformation> nodeInfos;
+            List<NodeInformation> nodeInfosConnected;
+            lock (kbucketsLocks[distanceLevel])
+                nodeInfos = kbuckets[distanceLevel];
+            lock (outboundConnectionsLock[distanceLevel])
+                nodeInfosConnected = outboundConnections[distanceLevel].Select((elem) => elem.nodeInfo).ToList();
+            lock (inboundConnections[distanceLevel])
+                nodeInfosConnected.AddRange(inboundConnections[distanceLevel].Select((elem) => elem.nodeInfo));
+
+            foreach (var nodeInfo in nodeInfos)
+                if (connections[distanceLevel].Count < max)
+                {
+                    if (!nodeInfosConnected.Contains(nodeInfo))
+                        Connect(nodeInfo, false, () => { });
+                }
+                else
+                    break;
         }
 
         private void Continue(NodeInformation nodeInfo, SocketChannel sc, Action<string> _ConsoleWriteLine)
@@ -3321,16 +3386,20 @@ namespace CREA2014
 
         protected override MessageBase[] Request(NodeInformation nodeinfo, params MessageBase[] messages)
         {
-            int distanceLevel = GetDistanceLevel(nodeInfo);
-
             Connection connection = null;
-            if (outboundConnections[distanceLevel].Count > 0)
-                lock (outboundConnectionsLock[distanceLevel])
-                    connection = outboundConnections[distanceLevel].Where((elem) => elem.nodeInfo.Equals(nodeinfo)).FirstOrDefault();
-            if (connection == null)
-                if (inboundConnections[distanceLevel].Count > 0)
-                    lock (inboundConnectionsLock[distanceLevel])
-                        connection = inboundConnections[distanceLevel].Where((elem) => elem.nodeInfo.Equals(nodeinfo)).FirstOrDefault();
+            if (isInitialized)
+            {
+                int distanceLevel = GetDistanceLevel(myNodeInfo);
+
+                if (outboundConnections[distanceLevel].Count > 0)
+                    lock (outboundConnectionsLock[distanceLevel])
+                        connection = outboundConnections[distanceLevel].Where((elem) => elem.nodeInfo.Equals(nodeinfo)).FirstOrDefault();
+
+                if (connection == null)
+                    if (inboundConnections[distanceLevel].Count > 0)
+                        lock (inboundConnectionsLock[distanceLevel])
+                            connection = inboundConnections[distanceLevel].Where((elem) => elem.nodeInfo.Equals(nodeinfo)).FirstOrDefault();
+            }
 
             if (connection == null)
                 return Connect(nodeinfo, true, () => { }, messages);
@@ -3363,6 +3432,9 @@ namespace CREA2014
 
         protected override void Diffuse(params MessageBase[] messages)
         {
+            if (!isInitialized)
+                throw new InvalidOperationException("not_yet_connections_keeped");
+
             List<Connection> connections = new List<Connection>();
             for (int i = 0; i < NodeIdSizeBit; i++)
             {
@@ -3398,56 +3470,98 @@ namespace CREA2014
             }
         }
 
+        private void Initialize()
+        {
+            kbuckets = new List<NodeInformation>[NodeIdSizeBit];
+            kbucketsLocks = new object[NodeIdSizeBit];
+
+            outboundConnections = new List<Connection>[NodeIdSizeBit];
+            outboundConnectionsLock = new object[NodeIdSizeBit];
+            inboundConnections = new List<Connection>[NodeIdSizeBit];
+            inboundConnectionsLock = new object[NodeIdSizeBit];
+
+            for (int i = 0; i < NodeIdSizeBit; i++)
+            {
+                kbuckets[i] = new List<NodeInformation>();
+                kbucketsLocks[i] = new object();
+
+                outboundConnections[i] = new List<Connection>();
+                outboundConnectionsLock[i] = new object();
+                inboundConnections[i] = new List<Connection>();
+                inboundConnectionsLock[i] = new object();
+            }
+
+            isInitialized = true;
+        }
+
         //<未実装>別スレッドで常時動かすべき？
         protected override void KeepConnections()
         {
+            if (myNodeInfo != null)
+            {
+                dhtNodeInfo = myNodeInfo;
+
+                Initialize();
+            }
+
             if (firstNodeInfos.Length == 0)
             {
                 //<未実装>初期ノード情報がない場合の処理
                 //選択肢1 -> 10分くらい待って再度初期ノード情報取得
                 //選択肢2 -> 使用者に任せる（使用者によって手動で初期ノード情報が追加された時に常時接続再実行）
+
+                return;
             }
-            else
+
+            List<NodeInformation> nodeInfos = new List<NodeInformation>();
+            for (int i = 0; i < firstNodeInfos.Length && nodeInfos.Count < keepConnectionNodeInfosMin; i++)
             {
-                List<NodeInformation> nodeInfos = new List<NodeInformation>();
-                for (int i = 0; i < firstNodeInfos.Length && nodeInfos.Count < keepConnectionNodeInfosMin; i++)
-                {
-                    MessageBase[] resMessages = Connect(firstNodeInfos[i].ipAddress, firstNodeInfos[i].portNumber, true, () => { }, new ReqNodeInfos());
-                    ResNodeInfos resNodeInfos;
-                    if (resMessages != null && resMessages.Length == 1 && (resNodeInfos = resMessages[0] as ResNodeInfos) != null)
-                        //<要検討>更新時間順に並び替えるべき？
-                        nodeInfos.AddRange(resNodeInfos.nodeInfos);
-                }
-                if (nodeInfos.Count == 0)
-                {
-                    //<未実装>初期ノードからノード情報を取得できなかった場合の処理
-                    //選択肢1 -> 10分くらい待って再度ノード情報取得
-                    //選択肢2 -> 使用者に任せる（使用者によって手動で初期ノード情報が追加された時に常時接続再実行）
-                }
+                MessageBase[] resMessages = Connect(firstNodeInfos[i].ipAddress, firstNodeInfos[i].portNumber, true, () => { }, new ReqNodeInfos());
+                ResNodeInfos resNodeInfos;
+                if (resMessages != null && resMessages.Length == 1 && (resNodeInfos = resMessages[0] as ResNodeInfos) != null)
+                    //<要検討>更新時間順に並び替えるべき？
+                    nodeInfos.AddRange(resNodeInfos.nodeInfos);
+            }
+            if (nodeInfos.Count == 0)
+            {
+                //<未実装>初期ノードからノード情報を取得できなかった場合の処理
+                //選択肢1 -> 10分くらい待って再度ノード情報取得
+                //選択肢2 -> 使用者に任せる（使用者によって手動で初期ノード情報が追加された時に常時接続再実行）
+
+                return;
+            }
+
+            if (myNodeInfo != null)
+            {
+                dhtNodeInfo = nodeInfos[0];
+
+                Initialize();
+            }
+
+            foreach (var nodeInfo in nodeInfos)
+            {
+                int distanceLevel = GetDistanceLevel(nodeInfo);
+                if (distanceLevel != -1)
+                    lock (kbucketsLocks[distanceLevel])
+                        kbuckets[distanceLevel].Add(nodeInfo);
+            }
+
+            for (int i = 0; i < NodeIdSizeBit; i++)
+            {
+                if (kbuckets[i].Count == 0 || outboundConnections[i].Count >= outboundConnectionsMax)
+                    continue;
+
+                lock (kbucketsLocks[i])
+                    nodeInfos = kbuckets[i];
 
                 foreach (var nodeInfo in nodeInfos)
-                {
-                    int distanceLevel = GetDistanceLevel(nodeInfo);
-                    if (distanceLevel != -1)
-                        lock (kbucketsLocks[distanceLevel])
-                            kbuckets[distanceLevel].Add(nodeInfo);
-                }
-
-                for (int i = 0; i < NodeIdSizeByte; i++)
-                {
-                    if (kbuckets[i].Count == 0 || outboundConnections[i].Count >= outboundConnectionsMax)
-                        continue;
-
-                    lock (kbucketsLocks[i])
-                        nodeInfos = kbuckets[i];
-
-                    foreach (var nodeInfo in nodeInfos)
-                        while (outboundConnections[i].Count < outboundConnectionsMax)
-                            Connect(nodeInfo, false, () => { });
-                }
-
-                this.RaiseNotification("keep_conn_completed", 5);
+                    if (outboundConnections[i].Count < outboundConnectionsMax)
+                        Connect(nodeInfo, false, () => { });
+                    else
+                        break;
             }
+
+            this.RaiseNotification("keep_conn_completed", 5);
         }
 
         public class DistanceParameter
@@ -3478,7 +3592,7 @@ namespace CREA2014
 
         private int GetDistanceLevel(NodeInformation nodeInfo2)
         {
-            Sha256Hash xor = nodeInfo.Id.XOR(nodeInfo2.Id);
+            Sha256Hash xor = dhtNodeInfo.Id.XOR(nodeInfo2.Id);
 
             int distanceLevel = NodeIdSizeBit - 1;
 
@@ -3580,7 +3694,9 @@ namespace CREA2014
 
                     this.StartTask(string.Empty, string.Empty, () =>
                     {
-                        Test10NodesInv();
+                        //Test10NodesInv();
+
+                        TestDHT();
                     });
                 };
 
@@ -3594,6 +3710,19 @@ namespace CREA2014
 
                     File.AppendAllText(Path.Combine(new FileInfo(Assembly.GetEntryAssembly().Location).DirectoryName, "LogTest.txt"), fileText);
                 };
+            }
+
+            private void TestDHT()
+            {
+                int numOfNodes = 5;
+                CreaNodeLocalTestContinueDHT[] cnlts = new CreaNodeLocalTestContinueDHT[numOfNodes];
+                for (int i = 0; i < numOfNodes; i++)
+                {
+                    cnlts[i] = new CreaNodeLocalTestContinueDHT((ushort)(7777 + i), 0, "test");
+                    cnlts[i].Start();
+                    while (!cnlts[i].isStartCompleted)
+                        Thread.Sleep(100);
+                }
             }
 
             private void Test10NodesInv()
@@ -5088,6 +5217,8 @@ namespace CREA2014
 
     public class Secp256k1PubKey<HashType> : DSAPUBKEYBASE where HashType : HASHBASE
     {
+        public Secp256k1PubKey() : base() { }
+
         public Secp256k1PubKey(byte[] _pubKey) : base(_pubKey) { }
 
         public override int SizeByte { get { return 65; } }
@@ -5112,6 +5243,8 @@ namespace CREA2014
 
     public class Secp256k1PrivKey<HashType> : DSAPRIVKEYBASE where HashType : HASHBASE
     {
+        public Secp256k1PrivKey() : base() { }
+
         public Secp256k1PrivKey(byte[] _pribKey) : base(_pribKey) { }
 
         public override int SizeByte { get { return 32; } }
@@ -5791,8 +5924,19 @@ namespace CREA2014
             candidateAccountHolders = new List<PseudonymousAccountHolder>();
         }
 
-        public virtual void LoadVersion0() { Version = 0; }
-        public virtual void LoadVersion1() { Version = 1; }
+        public virtual void LoadVersion0()
+        {
+            Version = 0;
+
+            anonymousAccountHolder.LoadVersion0();
+        }
+
+        public virtual void LoadVersion1()
+        {
+            Version = 1;
+
+            anonymousAccountHolder.LoadVersion1();
+        }
 
         public AnonymousAccountHolder anonymousAccountHolder { get; private set; }
 
