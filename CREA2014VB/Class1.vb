@@ -122,6 +122,12 @@ End Class
 
 
 
+Public Class BTSProject
+
+End Class
+
+
+
 Public Class BTSUse
     Public Sub ReportBug()
     End Sub

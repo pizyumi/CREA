@@ -194,7 +194,7 @@ namespace CREA2014
             isSystemStarted = false;
         }
 
-        private EventHandler<TransactionalBlock<BlockidHashType, TxidHashType, PubKeyHashType, DsaPubKeyType>> _ContinueMine;
+        private EventHandler<TransactionalBlock> _ContinueMine;
 
         public void StartMining(IAccount iAccount)
         {
@@ -204,7 +204,7 @@ namespace CREA2014
 
             Action _Mine = () =>
             {
-                mining.NewMiningBlock(TransactionalBlock<BlockidHashType, TxidHashType, PubKeyHashType, DsaPubKeyType>.GetBlockTemplate(blockChain.head + 1, Activator.CreateInstance(typeof(PubKeyHashType), account.pubKey.pubKey) as PubKeyHashType, (index) => blockChain.GetMainBlock(index)));
+                mining.NewMiningBlock(TransactionalBlock.GetBlockTemplate(blockChain.head + 1, Activator.CreateInstance(typeof(PubKeyHashType), account.pubKey.pubKey) as PubKeyHashType, (index) => blockChain.GetMainBlock(index)));
             };
 
             _ContinueMine = (sender, e) =>
@@ -6560,105 +6560,206 @@ namespace CREA2014
 
     #region 取引
 
-    public class TransactionInput<TxidHashType, PubKeyType> : SHAREDDATA
-        where TxidHashType : HASHBASE
-        where PubKeyType : DSAPUBKEYBASE
-    {
-        public TransactionInput() : base(null) { }
+    //<未実装>Load部分の抽象化
 
-        public TransactionInput(long _prevTxBlockIndex, int _prevTxIndex, int _prevTxOutputIndex, PubKeyType _senderPubKey)
-            : base(null)
+    public class TransactionInput : SHAREDDATA
+    {
+        public TransactionInput() : base(0) { }
+
+        public void LoadVersion0(long _prevTxBlockIndex, int _prevTxIndex, int _prevTxOutputIndex, Ecdsa256PubKey _senderPubKey)
+        {
+            Version = 0;
+
+            LoadCommon(_prevTxBlockIndex, _prevTxIndex, _prevTxOutputIndex);
+
+            ecdsa256PubKey = _senderPubKey;
+        }
+
+        public void LoadVersion1(long _prevTxBlockIndex, int _prevTxIndex, int _prevTxOutputIndex)
+        {
+            Version = 1;
+
+            LoadCommon(_prevTxBlockIndex, _prevTxIndex, _prevTxOutputIndex);
+        }
+
+        private void LoadCommon(long _prevTxBlockIndex, int _prevTxIndex, int _prevTxOutputIndex)
         {
             prevTxBlockIndex = _prevTxBlockIndex;
             prevTxIndex = _prevTxIndex;
-            //prevTxHash = _prevTxHash;
             prevTxOutputIndex = _prevTxOutputIndex;
-            senderPubKey = _senderPubKey;
-            //amount = _amount;
         }
 
-        public static readonly int senderSigLength = 64;
+        private long prevTxBlockIndex;
+        private int prevTxIndex;
+        private int prevTxOutputIndex;
+        private Ecdsa256Signature ecdsa256Signature;
+        private Secp256k1Signature secp256k1Signature;
+        private Ecdsa256PubKey ecdsa256PubKey;
 
-        public long prevTxBlockIndex { get; private set; }
-        public int prevTxIndex { get; private set; }
-        //public TxidHashType prevTxHash { get; private set; }
-        public int prevTxOutputIndex { get; private set; }
-        public byte[] senderSig { get; private set; }
-        public PubKeyType senderPubKey { get; private set; }
-        //public CurrencyUnit amount { get; private set; }
+        public long PrevTxBlockIndex { get { return prevTxBlockIndex; } }
+        public int PrevTxIndex { get { return prevTxIndex; } }
+        public int PrevTxOutputIndex { get { return prevTxOutputIndex; } }
+        public Ecdsa256Signature Ecdsa256Signature
+        {
+            get
+            {
+                if (Version != 0)
+                    throw new NotSupportedException();
+                return ecdsa256Signature;
+            }
+        }
+        public Secp256k1Signature Secp256k1Signature
+        {
+            get
+            {
+                if (Version != 1)
+                    throw new NotSupportedException();
+                return secp256k1Signature;
+            }
+        }
+        public Ecdsa256PubKey Ecdsa256PubKey
+        {
+            get
+            {
+                if (Version != 0)
+                    throw new NotSupportedException();
+                return ecdsa256PubKey;
+            }
+        }
+
+        public DSASIGNATUREBASE SenderSignature
+        {
+            get
+            {
+                if (Version == 0)
+                    return ecdsa256Signature;
+                else if (Version == 1)
+                    return secp256k1Signature;
+                else
+                    throw new NotSupportedException();
+            }
+        }
+        public DSAPUBKEYBASE SenderPubKey
+        {
+            get
+            {
+                if (Version == 0)
+                    return ecdsa256PubKey;
+                //Secp256k1の場合、署名だけではなく署名対象のデータもなければ公開鍵を復元できない
+                else if (Version == 1)
+                    throw new InvalidOperationException();
+                else
+                    throw new NotSupportedException();
+            }
+        }
 
         protected override Func<ReaderWriter, IEnumerable<MainDataInfomation>> StreamInfo
         {
             get
             {
-                return (msrw) => new MainDataInfomation[]{
-                    new MainDataInfomation(typeof(long), () => prevTxBlockIndex, (o) => prevTxBlockIndex = (long)o),
-                    new MainDataInfomation(typeof(int), () => prevTxIndex, (o) => prevTxIndex = (int)o),
-                    //new MainDataInfomation(typeof(TxidHashType), null, () => prevTxHash, (o) => prevTxHash = (TxidHashType)o),
-                    new MainDataInfomation(typeof(int), () => prevTxOutputIndex, (o) => prevTxOutputIndex = (int)o),
-                    new MainDataInfomation(typeof(byte[]), senderSigLength, () => senderSig, (o) => senderSig = (byte[])o),
-                    new MainDataInfomation(typeof(PubKeyType), null, () => senderPubKey, (o) => senderPubKey = (PubKeyType)o),
-                    //new MainDataInfomation(typeof(long), () => amount.rawAmount, (o) => amount = new CurrencyUnit((long)o)),
-                };
+                if (Version == 0)
+                    return (msrw) => new MainDataInfomation[]{
+                        new MainDataInfomation(typeof(long), () => prevTxBlockIndex, (o) => prevTxBlockIndex = (long)o),
+                        new MainDataInfomation(typeof(int), () => prevTxIndex, (o) => prevTxIndex = (int)o),
+                        new MainDataInfomation(typeof(int), () => prevTxOutputIndex, (o) => prevTxOutputIndex = (int)o),
+                        new MainDataInfomation(typeof(Ecdsa256Signature), null, () => ecdsa256Signature, (o) => ecdsa256Signature = (Ecdsa256Signature)o),
+                        new MainDataInfomation(typeof(Ecdsa256PubKey), null, () => ecdsa256PubKey, (o) => ecdsa256PubKey = (Ecdsa256PubKey)o),
+                    };
+                else if (Version == 1)
+                    return (msrw) => new MainDataInfomation[]{
+                        new MainDataInfomation(typeof(long), () => prevTxBlockIndex, (o) => prevTxBlockIndex = (long)o),
+                        new MainDataInfomation(typeof(int), () => prevTxIndex, (o) => prevTxIndex = (int)o),
+                        new MainDataInfomation(typeof(int), () => prevTxOutputIndex, (o) => prevTxOutputIndex = (int)o),
+                        new MainDataInfomation(typeof(Secp256k1Signature), null, () => secp256k1Signature, (o) => secp256k1Signature = (Secp256k1Signature)o),
+                    };
+                else
+                    throw new NotSupportedException();
             }
         }
+        public override bool IsVersioned { get { return true; } }
+        public override bool IsVersionSaved { get { return false; } }
 
         public Func<ReaderWriter, IEnumerable<MainDataInfomation>> StreamInfoToSign
         {
             get
             {
-                return (msrw) => new MainDataInfomation[]{
-                    new MainDataInfomation(typeof(long), () => prevTxBlockIndex, (o) => { throw new NotSupportedException("tx_in_si_to_sign"); }),
-                    new MainDataInfomation(typeof(int), () => prevTxIndex, (o) => { throw new NotSupportedException("tx_in_si_to_sign"); }),
-                    //new MainDataInfomation(typeof(TxidHashType), null, () => prevTxHash, (o) => { throw new NotSupportedException("tx_in_si_to_sign"); }),
-                    new MainDataInfomation(typeof(int), () => prevTxOutputIndex, (o) => { throw new NotSupportedException("tx_in_si_to_sign"); }),
-                    //new MainDataInfomation(typeof(long), () => amount.rawAmount, (o) => { throw new NotSupportedException("tx_out_si_to_sign"); }),
-                };
+                if (Version == 0 || Version == 1)
+                    return (msrw) => new MainDataInfomation[]{
+                        new MainDataInfomation(typeof(long), () => prevTxBlockIndex, (o) => { throw new NotSupportedException(); }),
+                        new MainDataInfomation(typeof(int), () => prevTxIndex, (o) => { throw new NotSupportedException(); }),
+                        new MainDataInfomation(typeof(int), () => prevTxOutputIndex, (o) => { throw new NotSupportedException(); }),
+                    };
+                else
+                    throw new NotSupportedException();
             }
         }
 
-        public void SetSenderSig(byte[] sig)
+        public void SetSenderSig(DSASIGNATUREBASE signature)
         {
-            if (sig.Length != senderSigLength)
-                throw new ArgumentException("tx_in_sender_sig_length");
-
-            senderSig = sig;
+            if (Version == 0)
+            {
+                if (!(signature is Ecdsa256Signature))
+                    throw new ArgumentException();
+                ecdsa256Signature = signature as Ecdsa256Signature;
+            }
+            else if (Version == 1)
+            {
+                if (!(signature is Secp256k1Signature))
+                    throw new ArgumentException();
+                secp256k1Signature = signature as Secp256k1Signature;
+            }
+            else
+                throw new NotSupportedException();
         }
     }
 
-    public class TransactionOutput<PubKeyHashType> : SHAREDDATA where PubKeyHashType : HASHBASE
+    public class TransactionOutput : SHAREDDATA
     {
-        public TransactionOutput() : base(null) { }
+        public TransactionOutput() : base(0) { }
 
-        public TransactionOutput(PubKeyHashType _receiverPubKeyHash, CurrencyUnit _amount)
-            : base(null)
+        public void LoadVersion0(Sha256Ripemd160Hash _receiverPubKeyHash, CurrencyUnit _amount)
         {
+            Version = 0;
+
             receiverPubKeyHash = _receiverPubKeyHash;
             amount = _amount;
         }
 
-        public PubKeyHashType receiverPubKeyHash { get; private set; }
-        public CurrencyUnit amount { get; private set; }
+        private Sha256Ripemd160Hash receiverPubKeyHash;
+        private CurrencyUnit amount;
+
+        public Sha256Ripemd160Hash Sha256Ripemd160Hash { get { return receiverPubKeyHash; } }
+        public CurrencyUnit Amount { get { return amount; } }
+
+        public HASHBASE ReceiverPubKeyHash { get { return receiverPubKeyHash; } }
 
         protected override Func<ReaderWriter, IEnumerable<MainDataInfomation>> StreamInfo
         {
             get
             {
-                return (msrw) => new MainDataInfomation[]{
-                    new MainDataInfomation(typeof(PubKeyHashType), null, () => receiverPubKeyHash, (o) => receiverPubKeyHash = (PubKeyHashType)o),
-                    new MainDataInfomation(typeof(long), () => amount.rawAmount, (o) => amount = new CurrencyUnit((long)o)),
-                };
+                if (Version == 0)
+                    return (msrw) => new MainDataInfomation[]{
+                        new MainDataInfomation(typeof(Sha256Ripemd160Hash), null, () => receiverPubKeyHash, (o) => receiverPubKeyHash = (Sha256Ripemd160Hash)o),
+                        new MainDataInfomation(typeof(long), () => amount.rawAmount, (o) => amount = new CurrencyUnit((long)o)),
+                    };
+                else
+                    throw new NotSupportedException();
             }
         }
+        public override bool IsVersioned { get { return true; } }
+        public override bool IsVersionSaved { get { return false; } }
 
         public Func<ReaderWriter, IEnumerable<MainDataInfomation>> StreamInfoToSign
         {
             get
             {
-                return (msrw) => new MainDataInfomation[]{
-                    new MainDataInfomation(typeof(PubKeyHashType), null, () => receiverPubKeyHash, (o) => { throw new NotSupportedException("tx_out_si_to_sign"); }),
-                    new MainDataInfomation(typeof(long), () => amount.rawAmount, (o) => { throw new NotSupportedException("tx_out_si_to_sign"); }),
+                if (Version == 0)
+                    return (msrw) => new MainDataInfomation[]{
+                        new MainDataInfomation(typeof(Sha256Ripemd160Hash), null, () => receiverPubKeyHash, (o) => { throw new NotSupportedException(); }),
+                        new MainDataInfomation(typeof(long), () => amount.rawAmount, (o) => { throw new NotSupportedException(); }),
                 };
+                else
+                    throw new NotSupportedException();
             }
         }
 
@@ -6666,79 +6767,135 @@ namespace CREA2014
         {
             get
             {
-                return (msrw) => new MainDataInfomation[]{
-                    new MainDataInfomation(typeof(PubKeyHashType), null, () => receiverPubKeyHash, (o) => { throw new NotSupportedException("tx_out_si_to_sign_prev"); }),
+                if (Version == 0)
+                    return (msrw) => new MainDataInfomation[]{
+                        new MainDataInfomation(typeof(Sha256Ripemd160Hash), null, () => receiverPubKeyHash, (o) => { throw new NotSupportedException(); }),
                 };
+                else
+                    throw new NotSupportedException();
             }
         }
     }
 
-    public abstract class Transaction<TxidHashType, PubKeyHashType, PubKeyType> : TXBLOCKBASE<TxidHashType>
-        where TxidHashType : HASHBASE
-        where PubKeyHashType : HASHBASE
-        where PubKeyType : DSAPUBKEYBASE
+    //<未実装>再度行う必要のない検証は行わない
+    public abstract class Transaction : SHAREDDATA
     {
-        public Transaction(int? _version) : base(_version) { }
+        public Transaction() : base(0) { idCache = new CachedData<Sha256Sha256Hash>(() => new Sha256Sha256Hash(ToBinary())); }
 
-        public Transaction(int? _version, TransactionOutput<PubKeyHashType>[] _outputs)
-            : base(_version)
+        public virtual void LoadVersion0(TransactionOutput[] _txOutputs)
         {
-            if (_outputs.Length == 0)
-                throw new InvalidDataException("tx_outputs_empty");
+            foreach (var txOutput in _txOutputs)
+                if (txOutput.Version != 0)
+                    throw new ArgumentException();
 
-            outputs = _outputs;
+            Version = 0;
+
+            LoadCommon(_txOutputs);
         }
 
-        private static readonly CurrencyUnit dustTxout = new Yumina(0.1m);
-        private static readonly int maxSize = 65536;
-
-        public TransactionOutput<PubKeyHashType>[] outputs { get; private set; }
-
-        public override bool IsValid
+        public virtual void LoadVersion1(TransactionOutput[] _txOutputs)
         {
-            get
+            foreach (var txOutput in _txOutputs)
+                if (txOutput.Version != 0)
+                    throw new ArgumentException();
+
+            Version = 1;
+
+            LoadCommon(_txOutputs);
+        }
+
+        private void LoadCommon(TransactionOutput[] _txOutputs)
+        {
+            if (_txOutputs.Length == 0)
+                throw new ArgumentException();
+
+            txOutputs = _txOutputs;
+        }
+
+        private static readonly CurrencyUnit dustTxoutput = new Yumina(0.1m);
+        private static readonly int maxTxInputs = 100;
+        private static readonly int maxTxOutputs = 10;
+
+        private TransactionOutput[] _txOutputs;
+        private TransactionOutput[] txOutputs
+        {
+            get { return _txOutputs; }
+            set
             {
-                if (!base.IsValid)
-                    return false;
-
-                if (Version == 0)
+                if (value != _txOutputs)
                 {
-                    if (!outputs.All((e) => e.amount.rawAmount >= dustTxout.rawAmount))
-                        return false;
-
-                    if (ToBinary().Length > maxSize)
-                        return false;
-
-                    return true;
+                    _txOutputs = value;
+                    idCache.IsModified = true;
                 }
-                else
-                    throw new NotSupportedException("tx_is_valid_not_supported");
             }
         }
+
+        public virtual TransactionInput[] TxInputs { get { return new TransactionInput[] { }; } }
+        public virtual TransactionOutput[] TxOutputs { get { return txOutputs; } }
+
+        protected readonly CachedData<Sha256Sha256Hash> idCache;
+        public virtual Sha256Sha256Hash Id { get { return idCache.Data; } }
 
         protected override Func<ReaderWriter, IEnumerable<MainDataInfomation>> StreamInfo
         {
             get
             {
-                return (msrw) => new MainDataInfomation[]{
-                    new MainDataInfomation(typeof(TransactionOutput<PubKeyHashType>[]), null, null, () => outputs, (o) => outputs = (TransactionOutput<PubKeyHashType>[])o),
-                };
+                if (Version == 0 || Version == 1)
+                    return (msrw) => new MainDataInfomation[]{
+                        new MainDataInfomation(typeof(TransactionOutput[]), 0, null, () => txOutputs, (o) => txOutputs = (TransactionOutput[])o),
+                    };
+                else
+                    throw new NotSupportedException();
+            }
+        }
+        public override bool IsVersioned { get { return true; } }
+        public override bool IsCorruptionChecked
+        {
+            get
+            {
+                if (Version == 0 || Version == 1)
+                    return true;
+                else
+                    throw new NotSupportedException();
             }
         }
 
-        public virtual TransactionInput<TxidHashType, PubKeyType>[] Inputs { get { return new TransactionInput<TxidHashType, PubKeyType>[] { }; } }
+        public virtual bool Verify()
+        {
+            if (Version == 0 || Version == 1)
+                return VerifyNotExistDustTxOutput() && VerifyNumberOfTxInputs() && VerifyNumberOfTxOutputs();
+            else
+                throw new NotSupportedException();
+        }
 
-        public virtual TransactionOutput<PubKeyHashType>[] Outputs { get { return outputs; } }
+        public bool VerifyNotExistDustTxOutput()
+        {
+            if (Version == 0 || Version == 1)
+                return txOutputs.All((elem) => elem.Amount.rawAmount >= dustTxoutput.rawAmount);
+            else
+                throw new NotSupportedException();
+        }
+
+        public bool VerifyNumberOfTxInputs()
+        {
+            if (Version == 0 || Version == 1)
+                return TxInputs.Length <= maxTxInputs;
+            else
+                throw new NotSupportedException();
+        }
+
+        public bool VerifyNumberOfTxOutputs()
+        {
+            if (Version == 0 || Version == 1)
+                return TxOutputs.Length <= maxTxOutputs;
+            else
+                throw new NotSupportedException();
+        }
     }
 
-    public class CoinbaseTransaction<TxidHashType, PubKeyHashType, PubKeyType> : Transaction<TxidHashType, PubKeyHashType, PubKeyType>
-        where TxidHashType : HASHBASE
-        where PubKeyHashType : HASHBASE
-        where PubKeyType : DSAPUBKEYBASE
+    public class CoinbaseTransaction : Transaction
     {
-        public CoinbaseTransaction() : base(0) { }
-
-        public CoinbaseTransaction(TransactionOutput<PubKeyHashType>[] _outputs) : base(0, _outputs) { }
+        public override void LoadVersion1(TransactionOutput[] _txOutputs) { throw new NotSupportedException(); }
 
         protected override Func<ReaderWriter, IEnumerable<MainDataInfomation>> StreamInfo
         {
@@ -6747,30 +6904,63 @@ namespace CREA2014
                 if (Version == 0)
                     return base.StreamInfo;
                 else
-                    throw new NotSupportedException("coinbase_tx_main_data_info");
+                    throw new NotSupportedException();
+            }
+        }
+    }
+
+    //<未実装>再度行う必要のない検証は行わない
+    public class TransferTransaction : Transaction
+    {
+        public override void LoadVersion0(TransactionOutput[] _txOutputs) { throw new NotSupportedException(); }
+
+        public virtual void LoadVersion0(TransactionInput[] _txInputs, TransactionOutput[] _txOutputs)
+        {
+            foreach (var txInput in _txInputs)
+                if (txInput.Version != 0)
+                    throw new ArgumentException();
+
+            base.LoadVersion0(_txOutputs);
+
+            LoadCommon(_txInputs);
+        }
+
+        public override void LoadVersion1(TransactionOutput[] _txOutputs) { throw new NotSupportedException(); }
+
+        public virtual void LoadVersion1(TransactionInput[] _txInputs, TransactionOutput[] _txOutputs)
+        {
+            foreach (var txInput in _txInputs)
+                if (txInput.Version != 1)
+                    throw new ArgumentException();
+
+            base.LoadVersion1(_txOutputs);
+
+            LoadCommon(_txInputs);
+        }
+
+        private void LoadCommon(TransactionInput[] _txInputs)
+        {
+            if (_txInputs.Length == 0)
+                throw new ArgumentException();
+
+            txInputs = _txInputs;
+        }
+
+        private TransactionInput[] _txInputs;
+        public TransactionInput[] txInputs
+        {
+            get { return _txInputs; }
+            private set
+            {
+                if (value != _txInputs)
+                {
+                    _txInputs = value;
+                    idCache.IsModified = true;
+                }
             }
         }
 
-        public override bool IsVersioned { get { return true; } }
-    }
-
-    public class TransferTransaction<TxidHashType, PubKeyHashType, PubKeyType> : Transaction<TxidHashType, PubKeyHashType, PubKeyType>
-        where TxidHashType : HASHBASE
-        where PubKeyHashType : HASHBASE
-        where PubKeyType : DSAPUBKEYBASE
-    {
-        public TransferTransaction() : base(0) { }
-
-        public TransferTransaction(TransactionInput<TxidHashType, PubKeyType>[] _inputs, TransactionOutput<PubKeyHashType>[] _outputs)
-            : base(0, _outputs)
-        {
-            if (_inputs.Length == 0)
-                throw new InvalidDataException("tx_inputs_empty");
-
-            inputs = _inputs;
-        }
-
-        public TransactionInput<TxidHashType, PubKeyType>[] inputs { get; private set; }
+        public override TransactionInput[] TxInputs { get { return txInputs; } }
 
         protected override Func<ReaderWriter, IEnumerable<MainDataInfomation>> StreamInfo
         {
@@ -6778,115 +6968,141 @@ namespace CREA2014
             {
                 if (Version == 0)
                     return (msrw) => base.StreamInfo(msrw).Concat(new MainDataInfomation[]{
-                        new MainDataInfomation(typeof(TransactionInput<TxidHashType, PubKeyType>[]), null, null, () => inputs, (o) => inputs = (TransactionInput<TxidHashType, PubKeyType>[])o),
+                        new MainDataInfomation(typeof(TransactionInput[]), 0, null, () => txInputs, (o) => txInputs = (TransactionInput[])o),
+                    });
+                else if (Version == 1)
+                    return (msrw) => base.StreamInfo(msrw).Concat(new MainDataInfomation[]{
+                        new MainDataInfomation(typeof(TransactionInput[]), 1, null, () => txInputs, (o) => txInputs = (TransactionInput[])o),
                     });
                 else
-                    throw new NotSupportedException("transfer_tx_main_data_info");
+                    throw new NotSupportedException();
             }
         }
 
-        public override bool IsVersioned { get { return true; } }
-
-        public override TransactionInput<TxidHashType, PubKeyType>[] Inputs { get { return inputs; } }
-
-        private Func<ReaderWriter, IEnumerable<MainDataInfomation>> StreamInfoToSign(TransactionOutput<PubKeyHashType>[] prevTxOutputs) { return (msrw) => StreamInfoToSignInner(prevTxOutputs); }
-        private IEnumerable<MainDataInfomation> StreamInfoToSignInner(TransactionOutput<PubKeyHashType>[] prevTxOutputs)
+        private Func<ReaderWriter, IEnumerable<MainDataInfomation>> StreamInfoToSign(TransactionOutput[] prevTxOutputs) { return (msrw) => StreamInfoToSignInner(prevTxOutputs); }
+        private IEnumerable<MainDataInfomation> StreamInfoToSignInner(TransactionOutput[] prevTxOutputs)
         {
-            if (Version == 0)
+            if (Version == 0 || Version == 1)
             {
-                for (int i = 0; i < inputs.Length; i++)
+                for (int i = 0; i < txInputs.Length; i++)
                 {
-                    foreach (var mdi in inputs[i].StreamInfoToSign(null))
+                    foreach (var mdi in txInputs[i].StreamInfoToSign(null))
                         yield return mdi;
                     foreach (var mdi in prevTxOutputs[i].StreamInfoToSignPrev(null))
                         yield return mdi;
                 }
-                for (int i = 0; i < outputs.Length; i++)
-                    foreach (var mdi in outputs[i].StreamInfoToSign(null))
+                for (int i = 0; i < TxOutputs.Length; i++)
+                    foreach (var mdi in TxOutputs[i].StreamInfoToSign(null))
                         yield return mdi;
             }
             else
-                throw new NotSupportedException("transfer_tx_mdi_sign");
+                throw new NotSupportedException();
         }
 
-        public byte[] GetBytesToSign(TransactionOutput<PubKeyHashType>[] prevTxOutputs)
+        public byte[] GetBytesToSign(TransactionOutput[] prevTxOutputs)
         {
-            if (prevTxOutputs.Length != inputs.Length)
-                throw new ArgumentException("inputs_and_prev_outputs");
+            if (prevTxOutputs.Length != txInputs.Length)
+                throw new ArgumentException();
 
             return ToBinaryMainData(StreamInfoToSign(prevTxOutputs));
         }
 
-        public void Sign(TransactionOutput<PubKeyHashType>[] prevTxOutputs, DSAPRIVKEYBASE[] privKeys)
+        public void Sign(TransactionOutput[] prevTxOutputs, DSAPRIVKEYBASE[] privKeys)
         {
-            if (prevTxOutputs.Length != inputs.Length)
-                throw new ArgumentException("inputs_and_prev_outputs");
-            if (privKeys.Length != inputs.Length)
-                throw new ArgumentException("inputs_and_priv_keys");
+            if (prevTxOutputs.Length != txInputs.Length)
+                throw new ArgumentException();
+            if (privKeys.Length != txInputs.Length)
+                throw new ArgumentException();
 
             byte[] bytesToSign = GetBytesToSign(prevTxOutputs);
 
-            for (int i = 0; i < inputs.Length; i++)
-                inputs[i].SetSenderSig(privKeys[i].Sign(bytesToSign).signature);
+            for (int i = 0; i < txInputs.Length; i++)
+                txInputs[i].SetSenderSig(privKeys[i].Sign(bytesToSign));
 
             //取引入力の内容が変更された
-            isModified = true;
+            idCache.IsModified = true;
         }
 
-        public bool VerifySignature(TransactionOutput<PubKeyHashType>[] prevTxOutputs)
+        public override bool Verify() { throw new NotSupportedException(); }
+
+        public virtual bool Verify(TransactionOutput[] prevTxOutputs)
         {
-            if (prevTxOutputs.Length != inputs.Length)
-                throw new ArgumentException("inputs_and_prev_outputs");
+            if (prevTxOutputs.Length != txInputs.Length)
+                throw new ArgumentException();
+
+            if (Version == 0 || Version == 1)
+                return base.Verify() && VerifySignature(prevTxOutputs) && VerifyPubKey(prevTxOutputs) && VerifyAmount(prevTxOutputs);
+            else
+                throw new NotSupportedException();
+        }
+
+        public bool VerifySignature(TransactionOutput[] prevTxOutputs)
+        {
+            if (prevTxOutputs.Length != txInputs.Length)
+                throw new ArgumentException();
 
             byte[] bytesToSign = GetBytesToSign(prevTxOutputs);
 
-            for (int i = 0; i < inputs.Length; i++)
-                if (!inputs[i].senderPubKey.Verify(bytesToSign, inputs[i].senderSig))
-                    return false;
+            if (Version == 0)
+            {
+                for (int i = 0; i < txInputs.Length; i++)
+                    if (!txInputs[i].Ecdsa256PubKey.Verify(bytesToSign, txInputs[i].SenderSignature.signature))
+                        return false;
+            }
+            else if (Version == 1)
+            {
+                for (int i = 0; i < txInputs.Length; i++)
+                    if (!Secp256k1Utility.Recover<Sha256Hash>(bytesToSign, txInputs[i].SenderSignature.signature).Verify(bytesToSign, txInputs[i].SenderSignature.signature))
+                        return false;
+            }
+            else
+                throw new NotSupportedException();
             return true;
         }
 
-        public bool VerifyPubKey(TransactionOutput<PubKeyHashType>[] prevTxOutputs)
+        public bool VerifyPubKey(TransactionOutput[] prevTxOutputs)
         {
-            if (prevTxOutputs.Length != inputs.Length)
-                throw new ArgumentException("inputs_and_prev_outputs");
+            if (prevTxOutputs.Length != txInputs.Length)
+                throw new ArgumentException();
 
-            for (int i = 0; i < inputs.Length; i++)
-                if (!(Activator.CreateInstance(typeof(PubKeyHashType), inputs[i].senderPubKey.pubKey) as PubKeyHashType).Equals(prevTxOutputs[i].receiverPubKeyHash))
-                    return false;
+            if (Version == 0)
+            {
+                for (int i = 0; i < txInputs.Length; i++)
+                    if (!(Activator.CreateInstance(typeof(Sha256Ripemd160Hash), txInputs[i].Ecdsa256PubKey.pubKey) as Sha256Ripemd160Hash).Equals(prevTxOutputs[i].ReceiverPubKeyHash))
+                        return false;
+            }
+            else if (Version == 1)
+            {
+                byte[] bytesToSign = GetBytesToSign(prevTxOutputs);
+
+                for (int i = 0; i < txInputs.Length; i++)
+                    if (!(Activator.CreateInstance(typeof(Sha256Ripemd160Hash), Secp256k1Utility.Recover<Sha256Hash>(bytesToSign, txInputs[i].Secp256k1Signature.signature).pubKey) as Sha256Ripemd160Hash).Equals(prevTxOutputs[i].ReceiverPubKeyHash))
+                        return false;
+            }
+            else
+                throw new NotSupportedException();
             return true;
         }
 
-        public bool VerifyAmount(TransactionOutput<PubKeyHashType>[] prevTxOutputs)
+        public bool VerifyAmount(TransactionOutput[] prevTxOutputs)
         {
-            if (prevTxOutputs.Length != inputs.Length)
-                throw new ArgumentException("inputs_and_prev_outputs");
+            if (prevTxOutputs.Length != txInputs.Length)
+                throw new ArgumentException();
 
             return GetFee(prevTxOutputs).rawAmount >= 0;
         }
 
-        public bool VerifyAll(TransactionOutput<PubKeyHashType>[] prevTxOutputs)
+        public CurrencyUnit GetFee(TransactionOutput[] prevTxOutputs)
         {
-            if (prevTxOutputs.Length != inputs.Length)
-                throw new ArgumentException("inputs_and_prev_outputs");
-
-            if (Version == 0)
-                return VerifySignature(prevTxOutputs) && VerifyPubKey(prevTxOutputs) && VerifyAmount(prevTxOutputs);
-            else
-                throw new NotSupportedException("transfer_tx_verify_all");
-        }
-
-        public CurrencyUnit GetFee(TransactionOutput<PubKeyHashType>[] prevTxOutputs)
-        {
-            if (prevTxOutputs.Length != inputs.Length)
-                throw new ArgumentException("inputs_and_prev_outputs");
+            if (prevTxOutputs.Length != txInputs.Length)
+                throw new ArgumentException();
 
             long totalPrevOutputs = 0;
             for (int i = 0; i < prevTxOutputs.Length; i++)
-                totalPrevOutputs += prevTxOutputs[i].amount.rawAmount;
+                totalPrevOutputs += prevTxOutputs[i].Amount.rawAmount;
             long totalOutpus = 0;
-            for (int i = 0; i < outputs.Length; i++)
-                totalOutpus += outputs[i].amount.rawAmount;
+            for (int i = 0; i < TxOutputs.Length; i++)
+                totalOutpus += TxOutputs[i].Amount.rawAmount;
 
             return new CurrencyUnit(totalPrevOutputs - totalOutpus);
         }
@@ -6896,14 +7112,18 @@ namespace CREA2014
 
     #region ブロック
 
-    public abstract class Block<BlockidHashType> : TXBLOCKBASE<BlockidHashType>
-        where BlockidHashType : HASHBASE
+    public abstract class Block : SHAREDDATA
     {
-        public Block(int? _version) : base(_version) { }
+        public Block(int? _version) : base(_version) { idCache = new CachedData<X15Hash>(IdGenerator); }
+
+        protected CachedData<X15Hash> idCache;
+        protected virtual Func<X15Hash> IdGenerator { get { return () => new X15Hash(ToBinary()); } }
+        public virtual X15Hash Id { get { return idCache.Data; } }
+
+        public virtual bool Verify() { return true; }
     }
 
-    public class GenesisBlock<BlockidHashType> : Block<BlockidHashType>
-        where BlockidHashType : HASHBASE
+    public class GenesisBlock : Block
     {
         public GenesisBlock() : base(null) { }
 
@@ -6920,11 +7140,66 @@ namespace CREA2014
         }
     }
 
-    public abstract class TransactionalBlock<BlockidHashType, TxidHashType, PubKeyHashType, PubKeyType> : Block<BlockidHashType>
-        where BlockidHashType : HASHBASE
-        where TxidHashType : HASHBASE
-        where PubKeyHashType : HASHBASE
-        where PubKeyType : DSAPUBKEYBASE
+    public class BlockHeader : SHAREDDATA
+    {
+        public BlockHeader() : base(0) { }
+
+        public void LoadVersion0(long _index, X15Hash _prevBlockHash, DateTime _timestamp, Difficulty<X15Hash> _difficulty, byte[] _nonce)
+        {
+            if (_index < 1)
+                throw new ArgumentOutOfRangeException("block_header_index_out");
+            if (_nonce.Length > maxNonceLength)
+                throw new ArgumentOutOfRangeException("block_header_nonce_out");
+
+            index = _index;
+            prevBlockHash = _prevBlockHash;
+            timestamp = _timestamp;
+            difficulty = _difficulty;
+            nonce = _nonce;
+        }
+
+        private static readonly int maxNonceLength = 10;
+
+        public long index { get; private set; }
+        public X15Hash prevBlockHash { get; private set; }
+        public Sha256Sha256Hash merkleRootHash { get; private set; }
+        public DateTime timestamp { get; private set; }
+        public Difficulty<X15Hash> difficulty { get; private set; }
+        public byte[] nonce { get; private set; }
+
+        protected override Func<ReaderWriter, IEnumerable<MainDataInfomation>> StreamInfo
+        {
+            get
+            {
+                if (Version == 0)
+                    return (msrw) => new MainDataInfomation[]{
+                        new MainDataInfomation(typeof(long), () => index, (o) => index = (long)o),
+                        new MainDataInfomation(typeof(X15Hash), null, () => prevBlockHash, (o) => prevBlockHash = (X15Hash)o),
+                        new MainDataInfomation(typeof(Sha256Sha256Hash), null, () => merkleRootHash, (o) => merkleRootHash = (Sha256Sha256Hash)o),
+                        new MainDataInfomation(typeof(DateTime), () => timestamp, (o) => timestamp = (DateTime)o),
+                        new MainDataInfomation(typeof(byte[]), 4, () => difficulty.CompactTarget, (o) => difficulty = new Difficulty<X15Hash>((byte[])o)),
+                        new MainDataInfomation(typeof(byte[]), null, () => nonce, (o) => nonce = (byte[])o),
+                    };
+                else
+                    throw new NotSupportedException();
+            }
+        }
+        public override bool IsVersioned { get { return true; } }
+        public override bool IsVersionSaved { get { return false; } }
+
+        public void UpdateMerkleRootHash(Sha256Sha256Hash newMerkleRootHash) { merkleRootHash = newMerkleRootHash; }
+        public void UpdateTimestamp(DateTime newTimestamp) { timestamp = newTimestamp; }
+        public void UpdateNonce(byte[] newNonce)
+        {
+            if (newNonce.Length > maxNonceLength)
+                throw new ArgumentOutOfRangeException("block_header_nonce_out");
+
+            nonce = newNonce;
+        }
+    }
+
+    //<未実装>再度行う必要のない検証は行わない
+    public abstract class TransactionalBlock : Block
     {
         static TransactionalBlock()
         {
@@ -6934,20 +7209,56 @@ namespace CREA2014
                 rewards[i] = new Creacoin(rewards[i - 1].Amount * rewardReductionRate);
         }
 
-        public TransactionalBlock(int? _version) : base(_version) { }
+        public TransactionalBlock()
+            : base(0)
+        {
+            transactionsCache = new CachedData<Transaction[]>(TransactionsGenerator);
+            merkleTreeCache = new CachedData<MerkleTree<Sha256Sha256Hash>>(() => new MerkleTree<Sha256Sha256Hash>(Transactions.Select((e) => e.Id).ToArray()));
+        }
 
-        public TransactionalBlock(int? _version, BlockHeader<BlockidHashType, TxidHashType> _header, CoinbaseTransaction<TxidHashType, PubKeyHashType, PubKeyType> _coinbaseTxToMiner, TransferTransaction<TxidHashType, PubKeyHashType, PubKeyType>[] _transferTxs)
-            : base(_version)
+        public virtual void LoadVersion0(BlockHeader _header, CoinbaseTransaction _coinbaseTxToMiner, TransferTransaction[] _transferTxs)
+        {
+            if (_header.Version != 0)
+                throw new ArgumentException();
+            if (_coinbaseTxToMiner.Version != 0)
+                throw new ArgumentException();
+            foreach (var transferTx in _transferTxs)
+                if (transferTx.Version != 0)
+                    throw new ArgumentException();
+
+            Version = 0;
+
+            LoadCommon(_header, _coinbaseTxToMiner, _transferTxs);
+        }
+
+        public virtual void LoadVersion1(BlockHeader _header, CoinbaseTransaction _coinbaseTxToMiner, TransferTransaction[] _transferTxs)
+        {
+            if (_header.Version != 0)
+                throw new ArgumentException();
+            if (_coinbaseTxToMiner.Version != 1)
+                throw new ArgumentException();
+            foreach (var transferTx in _transferTxs)
+                if (transferTx.Version != 1)
+                    throw new ArgumentException();
+
+            Version = 1;
+
+            LoadCommon(_header, _coinbaseTxToMiner, _transferTxs);
+        }
+
+        private void LoadCommon(BlockHeader _header, CoinbaseTransaction _coinbaseTxToMiner, TransferTransaction[] _transferTxs)
         {
             header = _header;
             coinbaseTxToMiner = _coinbaseTxToMiner;
             transferTxs = _transferTxs;
         }
 
-        private static readonly long blockGenerationInterval = 5; //[sec]
-        private static readonly long cycle = 60 * 60 * 24 * 365; //[sec]
+        private static readonly int maxTxs = 100;
+
+        private static readonly long blockGenerationInterval = 60; //[sec]
+        private static readonly long cycle = 60 * 60 * 24 * 365; //[sec]=1[year]
         private static readonly int numberOfCycles = 8;
-        private static readonly long rewardlessStart = cycle * numberOfCycles; //[sec]
+        private static readonly long rewardlessStart = cycle * numberOfCycles; //[sec]=8[year]
         private static readonly decimal rewardReductionRate = 0.8m;
         private static readonly CurrencyUnit initialReward = new Creacoin(1.0m); //[CREA/sec]
         private static readonly CurrencyUnit[] rewards; //[CREA/sec]
@@ -6957,104 +7268,133 @@ namespace CREA2014
         private static readonly long numberOfTimestamps = 11;
         private static readonly long targetTimespan = blockGenerationInterval * 1; //[sec]
 
-        private static readonly int maxSize = 1048576;
-
-        public static readonly Difficulty<BlockidHashType> minDifficulty = new Difficulty<BlockidHashType>(HASHBASE.FromHash<BlockidHashType>(new byte[] { 0, 127, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255 }));
+        private static readonly Difficulty<X15Hash> minDifficulty = new Difficulty<X15Hash>(HASHBASE.FromHash<X15Hash>(new byte[] { 0, 127, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255 }));
 
 #if TEST
-        public static readonly PubKeyHashType foundationPubKeyHash = Activator.CreateInstance(typeof(PubKeyHashType), new byte[] { 69, 67, 83, 49, 32, 0, 0, 0, 16, 31, 116, 194, 127, 71, 154, 183, 50, 198, 23, 17, 129, 220, 25, 98, 4, 30, 93, 45, 53, 252, 176, 145, 108, 20, 226, 233, 36, 7, 35, 198, 98, 239, 109, 66, 206, 41, 162, 179, 255, 189, 126, 72, 97, 140, 165, 139, 118, 107, 137, 103, 76, 238, 125, 62, 163, 205, 108, 62, 189, 240, 124, 71 }) as PubKeyHashType;
+        public static readonly Sha256Ripemd160Hash foundationPubKeyHash = new Sha256Ripemd160Hash(new byte[] { 69, 67, 83, 49, 32, 0, 0, 0, 16, 31, 116, 194, 127, 71, 154, 183, 50, 198, 23, 17, 129, 220, 25, 98, 4, 30, 93, 45, 53, 252, 176, 145, 108, 20, 226, 233, 36, 7, 35, 198, 98, 239, 109, 66, 206, 41, 162, 179, 255, 189, 126, 72, 97, 140, 165, 139, 118, 107, 137, 103, 76, 238, 125, 62, 163, 205, 108, 62, 189, 240, 124, 71 });
+#else
+        public static readonly Sha256Ripemd160Hash foundationPubKeyHash = null;
 #endif
 
-        public BlockHeader<BlockidHashType, TxidHashType> header { get; private set; }
-        public CoinbaseTransaction<TxidHashType, PubKeyHashType, PubKeyType> coinbaseTxToMiner { get; private set; }
-        public TransferTransaction<TxidHashType, PubKeyHashType, PubKeyType>[] transferTxs { get; private set; }
-
-        public override BlockidHashType Id
+        private BlockHeader _header;
+        public BlockHeader header
         {
-            get
+            get { return _header; }
+            private set
             {
-                if (isModified || idCache == null)
+                if (value != _header)
                 {
-                    idCache = Activator.CreateInstance(typeof(BlockidHashType), header.ToBinary()) as BlockidHashType;
-                    isModified = false;
+                    _header = value;
+                    idCache.IsModified = true;
                 }
-                return idCache;
             }
         }
 
-        public Transaction<TxidHashType, PubKeyHashType, PubKeyType>[] transactionsCache;
-        public virtual Transaction<TxidHashType, PubKeyHashType, PubKeyType>[] Transactions
+        private CoinbaseTransaction _coinbaseTxToMiner;
+        public CoinbaseTransaction coinbaseTxToMiner
+        {
+            get { return _coinbaseTxToMiner; }
+            private set
+            {
+                if (value != _coinbaseTxToMiner)
+                {
+                    _coinbaseTxToMiner = value;
+                    idCache.IsModified = true;
+                    transactionsCache.IsModified = true;
+                    merkleTreeCache.IsModified = true;
+                }
+            }
+        }
+
+        private TransferTransaction[] _transferTxs;
+        public TransferTransaction[] transferTxs
+        {
+            get { return _transferTxs; }
+            private set
+            {
+                if (value != _transferTxs)
+                {
+                    _transferTxs = value;
+                    idCache.IsModified = true;
+                    transactionsCache.IsModified = true;
+                    merkleTreeCache.IsModified = true;
+                }
+            }
+        }
+
+        protected override Func<X15Hash> IdGenerator { get { return () => new X15Hash(header.ToBinary()); } }
+
+        protected CachedData<Transaction[]> transactionsCache;
+        protected virtual Func<Transaction[]> TransactionsGenerator
         {
             get
             {
-                if (isTransactionsModified || transactionsCache == null)
+                return () =>
                 {
-                    transactionsCache = new Transaction<TxidHashType, PubKeyHashType, PubKeyType>[transferTxs.Length + 1];
-                    transactionsCache[0] = coinbaseTxToMiner;
+                    Transaction[] transactions = new Transaction[transferTxs.Length + 1];
+                    transactions[0] = coinbaseTxToMiner;
                     for (int i = 0; i < transferTxs.Length; i++)
-                        transactionsCache[i + 1] = transferTxs[i];
-                    isTransactionsModified = false;
-                }
-                return transactionsCache;
+                        transactions[i + 1] = transferTxs[i];
+                    return transactions;
+                };
             }
         }
+        public Transaction[] Transactions { get { return transactionsCache.Data; } }
 
-        protected bool isTransactionsModified;
-
-        protected MerkleTree<TxidHashType> merkleTreeCache;
-        public MerkleTree<TxidHashType> MerkleTree
-        {
-            get
-            {
-                if (isTransactionsModified || merkleTreeCache == null)
-                {
-                    merkleTreeCache = new MerkleTree<TxidHashType>(Transactions.Select((e) => e.Id).ToArray());
-                    isTransactionsModified = false;
-                }
-                return merkleTreeCache;
-            }
-        }
-
-        public override bool IsValid
-        {
-            get
-            {
-                if (!base.IsValid)
-                    return false;
-
-                if (Version == 0)
-                {
-                    if (this.GetType() != GetBlockType(header.index, Version))
-                        return false;
-
-                    if (!Transactions.All((e) => e.IsValid))
-                        return false;
-
-                    if (!header.merkleRootHash.Equals(MerkleTree.Root))
-                        return false;
-
-                    if (Id.CompareTo(header.difficulty.Target) > 0)
-                        return false;
-
-                    if (ToBinary().Length > maxSize)
-                        return false;
-
-                    return true;
-                }
-                else
-                    throw new NotSupportedException("tx_block_is_valid_not_supported");
-            }
-        }
+        protected CachedData<MerkleTree<Sha256Sha256Hash>> merkleTreeCache;
+        public MerkleTree<Sha256Sha256Hash> MerkleTree { get { return merkleTreeCache.Data; } }
 
         protected override Func<ReaderWriter, IEnumerable<MainDataInfomation>> StreamInfo
         {
             get
             {
-                return (msrw) => new MainDataInfomation[]{
-                    new MainDataInfomation(typeof(BlockHeader<BlockidHashType, TxidHashType>), null, () => header, (o) => header = (BlockHeader<BlockidHashType, TxidHashType>)o),
-                    new MainDataInfomation(typeof(CoinbaseTransaction<TxidHashType, PubKeyHashType, PubKeyType>), 0, () => coinbaseTxToMiner, (o) => coinbaseTxToMiner = (CoinbaseTransaction<TxidHashType, PubKeyHashType, PubKeyType>)o),
-                    new MainDataInfomation(typeof(TransferTransaction<TxidHashType, PubKeyHashType, PubKeyType>[]), 0, null, () => transferTxs, (o) => transferTxs = (TransferTransaction<TxidHashType, PubKeyHashType, PubKeyType>[])o),
-                };
+                if (Version == 0)
+                    return (msrw) => new MainDataInfomation[]{
+                        new MainDataInfomation(typeof(BlockHeader), 0, () => header, (o) => header = (BlockHeader)o),
+                        new MainDataInfomation(typeof(CoinbaseTransaction), 0, () => coinbaseTxToMiner, (o) => 
+                        {
+                            coinbaseTxToMiner = (CoinbaseTransaction)o;
+                            if (coinbaseTxToMiner.Version != 0)
+                                throw new NotSupportedException();
+                        }),
+                        new MainDataInfomation(typeof(TransferTransaction[]), 0, null, () => transferTxs, (o) => 
+                        {
+                            transferTxs = (TransferTransaction[])o;
+                            foreach (var transaferTx in transferTxs)
+                                if (transaferTx.Version != 0)
+                                    throw new NotSupportedException();
+                        }),
+                    };
+                else if (Version == 1)
+                    return (msrw) => new MainDataInfomation[]{
+                        new MainDataInfomation(typeof(BlockHeader), 0, () => header, (o) => header = (BlockHeader)o),
+                        new MainDataInfomation(typeof(CoinbaseTransaction), 1, () => coinbaseTxToMiner, (o) => 
+                        {
+                            coinbaseTxToMiner = (CoinbaseTransaction)o;
+                            if (coinbaseTxToMiner.Version != 1)
+                                throw new NotSupportedException();
+                        }),
+                        new MainDataInfomation(typeof(TransferTransaction[]), 1, null, () => transferTxs, (o) => 
+                        {
+                            transferTxs = (TransferTransaction[])o;
+                            foreach (var transaferTx in transferTxs)
+                                if (transaferTx.Version != 1)
+                                    throw new NotSupportedException();
+                        }),
+                    };
+                else
+                    throw new NotSupportedException();
+            }
+        }
+        public override bool IsVersioned { get { return true; } }
+        public override bool IsCorruptionChecked
+        {
+            get
+            {
+                if (Version == 0 || Version == 1)
+                    return true;
+                else
+                    throw new NotSupportedException();
             }
         }
 
@@ -7062,44 +7402,98 @@ namespace CREA2014
         {
             header.UpdateMerkleRootHash(MerkleTree.Root);
 
-            isModified = true;
+            idCache.IsModified = true;
         }
 
         public void UpdateTimestamp(DateTime newTimestamp)
         {
             header.UpdateTimestamp(newTimestamp);
 
-            isModified = true;
+            idCache.IsModified = true;
         }
 
         public void UpdateNonce(byte[] newNonce)
         {
             header.UpdateNonce(newNonce);
 
-            isModified = true;
+            idCache.IsModified = true;
         }
 
-        public bool VerifyTransferTransaction(TransactionOutput<PubKeyHashType>[][] prevTxOutputss)
+        public override bool Verify() { throw new NotSupportedException(); }
+
+        public virtual bool Verify(TransactionOutput[][] prevTxOutputss, Func<long, TransactionalBlock> indexToTxBlock)
         {
             if (prevTxOutputss.Length != transferTxs.Length)
                 throw new ArgumentException("transfet_txs_and_prev_outputs");
 
+            if (Version != 0 && Version != 1)
+                throw new NotSupportedException();
+
+            return VerifyBlockType() && VerifyMerkleRootHash() && VerifyId() && VerifyNumberOfTxs() && VerifyTransferTransaction(prevTxOutputss) && VerifyRewardAndTxFee(prevTxOutputss) & VerifyTimestamp(indexToTxBlock) && VerifyDifficulty(indexToTxBlock);
+        }
+
+        public bool VerifyBlockType()
+        {
+            if (Version != 0 && Version != 1)
+                throw new NotSupportedException();
+
+            return this.GetType() == GetBlockType(header.index, Version);
+        }
+
+        public bool VerifyMerkleRootHash()
+        {
+            if (Version != 0 && Version != 1)
+                throw new NotSupportedException();
+
+            return header.merkleRootHash.Equals(MerkleTree.Root);
+        }
+
+        public bool VerifyId()
+        {
+            if (Version != 0 && Version != 1)
+                throw new NotSupportedException();
+
+            return Id.CompareTo(header.difficulty.Target) <= 0;
+        }
+
+        public bool VerifyNumberOfTxs()
+        {
+            if (Version != 0 && Version != 1)
+                throw new NotSupportedException();
+
+            return Transactions.Length <= maxTxs;
+        }
+
+        public bool VerifyTransferTransaction(TransactionOutput[][] prevTxOutputss)
+        {
+            if (prevTxOutputss.Length != transferTxs.Length)
+                throw new ArgumentException("transfet_txs_and_prev_outputs");
+
+            if (Version != 0 && Version != 1)
+                throw new NotSupportedException();
+
             for (int i = 0; i < transferTxs.Length; i++)
-                if (!transferTxs[i].VerifyAll(prevTxOutputss[i]))
+                if (!transferTxs[i].Verify(prevTxOutputss[i]))
                     return false;
             return true;
         }
 
-        public virtual bool VerifyRewardAndTxFee(TransactionOutput<PubKeyHashType>[][] prevTxOutputss)
+        public virtual bool VerifyRewardAndTxFee(TransactionOutput[][] prevTxOutputss)
         {
             if (prevTxOutputss.Length != transferTxs.Length)
                 throw new ArgumentException("transfet_txs_and_prev_outputs");
 
+            if (Version != 0 && Version != 1)
+                throw new NotSupportedException();
+
             return GetActualRewardToMinerAndTxFee().rawAmount == GetValidRewardToMinerAndTxFee(prevTxOutputss).rawAmount;
         }
 
-        public bool VerifyTimestamp(Func<long, TransactionalBlock<BlockidHashType, TxidHashType, PubKeyHashType, PubKeyType>> indexToTxBlock)
+        public bool VerifyTimestamp(Func<long, TransactionalBlock> indexToTxBlock)
         {
+            if (Version != 0 && Version != 1)
+                throw new NotSupportedException();
+
             List<DateTime> timestamps = new List<DateTime>();
             for (long i = 1; i < numberOfTimestamps + 1 && header.index - i > 0; i++)
                 timestamps.Add(indexToTxBlock(header.index - i).header.timestamp);
@@ -7111,25 +7505,17 @@ namespace CREA2014
             return (timestamps.Count / 2).Operate((index) => header.timestamp > (timestamps.Count % 2 == 0 ? timestamps[index - 1] + new TimeSpan((timestamps[index] - timestamps[index - 1]).Ticks / 2) : timestamps[index]));
         }
 
-        public bool VerifyDifficulty(Func<long, TransactionalBlock<BlockidHashType, TxidHashType, PubKeyHashType, PubKeyType>> indexToTxBlock)
+        public bool VerifyDifficulty(Func<long, TransactionalBlock> indexToTxBlock)
         {
+            if (Version != 0 && Version != 1)
+                throw new NotSupportedException();
+
             return header.difficulty.Diff == GetWorkRequired(header.index, indexToTxBlock, 0).Diff;
-        }
-
-        public virtual bool VerifyAll(TransactionOutput<PubKeyHashType>[][] prevTxOutputss, Func<long, TransactionalBlock<BlockidHashType, TxidHashType, PubKeyHashType, PubKeyType>> indexToTxBlock)
-        {
-            if (prevTxOutputss.Length != transferTxs.Length)
-                throw new ArgumentException("transfet_txs_and_prev_outputs");
-
-            if (Version == 0)
-                return VerifyTransferTransaction(prevTxOutputss) && VerifyRewardAndTxFee(prevTxOutputss) & VerifyTimestamp(indexToTxBlock) && VerifyDifficulty(indexToTxBlock);
-            else
-                throw new NotSupportedException("tx_block_not_supported");
         }
 
         public CurrencyUnit GetValidRewardToMiner() { return GetRewardToMiner(header.index, Version); }
 
-        public CurrencyUnit GetValidTxFee(TransactionOutput<PubKeyHashType>[][] prevTxOutputss)
+        public CurrencyUnit GetValidTxFee(TransactionOutput[][] prevTxOutputss)
         {
             if (prevTxOutputss.Length != transferTxs.Length)
                 throw new ArgumentException("transfet_txs_and_prev_outputs");
@@ -7140,7 +7526,7 @@ namespace CREA2014
             return new CurrencyUnit(rawTxFee);
         }
 
-        public CurrencyUnit GetValidRewardToMinerAndTxFee(TransactionOutput<PubKeyHashType>[][] prevTxOutputss)
+        public CurrencyUnit GetValidRewardToMinerAndTxFee(TransactionOutput[][] prevTxOutputss)
         {
             if (prevTxOutputss.Length != transferTxs.Length)
                 throw new ArgumentException("transfet_txs_and_prev_outputs");
@@ -7151,8 +7537,8 @@ namespace CREA2014
         public CurrencyUnit GetActualRewardToMinerAndTxFee()
         {
             long rawTxFee = 0;
-            for (int i = 0; i < coinbaseTxToMiner.outputs.Length; i++)
-                rawTxFee += coinbaseTxToMiner.outputs[i].amount.rawAmount;
+            for (int i = 0; i < coinbaseTxToMiner.TxOutputs.Length; i++)
+                rawTxFee += coinbaseTxToMiner.TxOutputs[i].Amount.rawAmount;
             return new CurrencyUnit(rawTxFee);
         }
 
@@ -7161,10 +7547,8 @@ namespace CREA2014
             if (index < 1)
                 throw new ArgumentOutOfRangeException("index_out");
 
-            if (version == 0)
-            {
-                return index % foundationInterval == 0 ? typeof(FoundationalBlock<BlockidHashType, TxidHashType, PubKeyHashType, PubKeyType>) : typeof(NormalBlock<BlockidHashType, TxidHashType, PubKeyHashType, PubKeyType>);
-            }
+            if (version == 0 || version == 1)
+                return index % foundationInterval == 0 ? typeof(FoundationalBlock) : typeof(NormalBlock);
             else
                 throw new NotSupportedException("tx_block_not_supported");
         }
@@ -7174,7 +7558,7 @@ namespace CREA2014
             if (index < 1)
                 throw new ArgumentOutOfRangeException("index_out");
 
-            if (version == 0)
+            if (version == 0 || version == 1)
             {
                 long sec = index * blockGenerationInterval;
                 for (int i = 0; i < numberOfCycles; i++)
@@ -7191,7 +7575,7 @@ namespace CREA2014
             if (index < 1)
                 throw new ArgumentOutOfRangeException("index_out");
 
-            if (version == 0)
+            if (version == 0 || version == 1)
                 return new Creacoin(GetRewardToAll(index, version).AmountInCreacoin.Amount * (1.0m - foundationShare));
             else
                 throw new NotSupportedException("tx_block_not_supported");
@@ -7202,7 +7586,7 @@ namespace CREA2014
             if (index < 1)
                 throw new ArgumentOutOfRangeException("index_out");
 
-            if (version == 0)
+            if (version == 0 || version == 1)
                 return new Creacoin(GetRewardToAll(index, version).AmountInCreacoin.Amount * foundationShare);
             else
                 throw new NotSupportedException("tx_block_not_supported");
@@ -7213,18 +7597,18 @@ namespace CREA2014
             if (index < 1)
                 throw new ArgumentOutOfRangeException("index_out");
 
-            if (version == 0)
+            if (version == 0 || version == 1)
                 return new Creacoin(GetRewardToFoundation(index, version).AmountInCreacoin.Amount * foundationInterval);
             else
                 throw new NotSupportedException("tx_block_not_supported");
         }
 
-        public static Difficulty<BlockidHashType> GetWorkRequired(long index, Func<long, TransactionalBlock<BlockidHashType, TxidHashType, PubKeyHashType, PubKeyType>> indexToTxBlock, int version)
+        public static Difficulty<X15Hash> GetWorkRequired(long index, Func<long, TransactionalBlock> indexToTxBlock, int version)
         {
             if (index < 1)
                 throw new ArgumentOutOfRangeException("index_out");
 
-            if (version == 0)
+            if (version == 0 || version == 1)
             {
                 if (index == 1)
                     return minDifficulty;
@@ -7271,7 +7655,7 @@ namespace CREA2014
                     }
                     target3Bytes.Add((byte)prevtarget2BytesDouble);
 
-                    BlockidHashType hash = Activator.CreateInstance(typeof(BlockidHashType)) as BlockidHashType;
+                    X15Hash hash = new X15Hash();
 
                     byte[] targetBytes = new byte[hash.SizeByte];
                     if (pos != prevTargetBytes.Length - 1)
@@ -7307,7 +7691,7 @@ namespace CREA2014
 
                     hash.FromHash(targetBytes);
 
-                    Difficulty<BlockidHashType> difficulty = new Difficulty<BlockidHashType>(hash);
+                    Difficulty<X15Hash> difficulty = new Difficulty<X15Hash>(hash);
 
                     return (difficulty.Diff < minDifficulty.Diff ? minDifficulty : difficulty).Operate((dif) => dif.RaiseNotification("difficulty", 3, difficulty.Diff.ToString()));
                 }
@@ -7316,25 +7700,59 @@ namespace CREA2014
                 throw new NotSupportedException("tx_block_not_supported");
         }
 
-        private static TransactionalBlock<BlockidHashType, TxidHashType, PubKeyHashType, PubKeyType> GetBlockTemplate(long index, PubKeyHashType minerPubKeyHash, Func<long, TransactionalBlock<BlockidHashType, TxidHashType, PubKeyHashType, PubKeyType>> indexToTxBlock, int version)
+        private static TransactionalBlock GetBlockTemplate(long index, Sha256Ripemd160Hash minerPubKeyHash, Func<long, TransactionalBlock> indexToTxBlock, int version)
         {
             if (index < 1)
                 throw new ArgumentOutOfRangeException("index_out");
 
             if (version == 0)
             {
-                CoinbaseTransaction<TxidHashType, PubKeyHashType, PubKeyType> coinbaseTxToMiner = new CoinbaseTransaction<TxidHashType, PubKeyHashType, PubKeyType>(new TransactionOutput<PubKeyHashType>[] { new TransactionOutput<PubKeyHashType>(minerPubKeyHash, GetRewardToMiner(index, version)) });
+                TransactionOutput coinbaseTxOutToMiner = new TransactionOutput();
+                coinbaseTxOutToMiner.LoadVersion0(minerPubKeyHash, GetRewardToMiner(index, version));
+                CoinbaseTransaction coinbaseTxToMiner = new CoinbaseTransaction();
+                coinbaseTxToMiner.LoadVersion0(new TransactionOutput[] { coinbaseTxOutToMiner });
 
-                BlockHeader<BlockidHashType, TxidHashType> header = new BlockHeader<BlockidHashType, TxidHashType>(index, index == 1 ? new GenesisBlock<BlockidHashType>().Id : indexToTxBlock(index - 1).Id, DateTime.Now, GetWorkRequired(index, indexToTxBlock, version), new byte[] { });
+                BlockHeader header = new BlockHeader();
+                header.LoadVersion0(index, index == 1 ? new GenesisBlock().Id : indexToTxBlock(index - 1).Id, DateTime.Now, GetWorkRequired(index, indexToTxBlock, version), new byte[] { });
 
-                TransactionalBlock<BlockidHashType, TxidHashType, PubKeyHashType, PubKeyType> txBlock;
-                if (GetBlockType(index, version) == typeof(NormalBlock<BlockidHashType, TxidHashType, PubKeyHashType, PubKeyType>))
-                    txBlock = new NormalBlock<BlockidHashType, TxidHashType, PubKeyHashType, PubKeyType>(header, coinbaseTxToMiner, new TransferTransaction<TxidHashType, PubKeyHashType, PubKeyType>[] { });
+                TransactionalBlock txBlock;
+                if (GetBlockType(index, version) == typeof(NormalBlock))
+                    txBlock = new NormalBlock().Operate((normalBlock) => normalBlock.LoadVersion0(header, coinbaseTxToMiner, new TransferTransaction[] { }));
                 else
                 {
-                    CoinbaseTransaction<TxidHashType, PubKeyHashType, PubKeyType> coinbaseTxToFoundation = new CoinbaseTransaction<TxidHashType, PubKeyHashType, PubKeyType>(new TransactionOutput<PubKeyHashType>[] { new TransactionOutput<PubKeyHashType>(foundationPubKeyHash, GetRewardToFoundationInterval(index, version)) });
+                    TransactionOutput coinbaseTxOutToFoundation = new TransactionOutput();
+                    coinbaseTxOutToFoundation.LoadVersion0(foundationPubKeyHash, GetRewardToFoundationInterval(index, version));
+                    CoinbaseTransaction coinbaseTxToFoundation = new CoinbaseTransaction();
+                    coinbaseTxToFoundation.LoadVersion0(new TransactionOutput[] { coinbaseTxOutToFoundation });
 
-                    txBlock = new FoundationalBlock<BlockidHashType, TxidHashType, PubKeyHashType, PubKeyType>(header, coinbaseTxToMiner, coinbaseTxToFoundation, new TransferTransaction<TxidHashType, PubKeyHashType, PubKeyType>[] { });
+                    txBlock = new FoundationalBlock().Operate((foundationalBlock) => foundationalBlock.LoadVersion0(header, coinbaseTxToMiner, coinbaseTxToFoundation, new TransferTransaction[] { }));
+                }
+
+                txBlock.UpdateMerkleRootHash();
+
+                return txBlock;
+            }
+            else if (version == 1)
+            {
+                TransactionOutput coinbaseTxOutToMiner = new TransactionOutput();
+                coinbaseTxOutToMiner.LoadVersion0(minerPubKeyHash, GetRewardToMiner(index, version));
+                CoinbaseTransaction coinbaseTxToMiner = new CoinbaseTransaction();
+                coinbaseTxToMiner.LoadVersion0(new TransactionOutput[] { coinbaseTxOutToMiner });
+
+                BlockHeader header = new BlockHeader();
+                header.LoadVersion0(index, index == 1 ? new GenesisBlock().Id : indexToTxBlock(index - 1).Id, DateTime.Now, GetWorkRequired(index, indexToTxBlock, version), new byte[] { });
+
+                TransactionalBlock txBlock;
+                if (GetBlockType(index, version) == typeof(NormalBlock))
+                    txBlock = new NormalBlock().Operate((normalBlock) => normalBlock.LoadVersion1(header, coinbaseTxToMiner, new TransferTransaction[] { }));
+                else
+                {
+                    TransactionOutput coinbaseTxOutToFoundation = new TransactionOutput();
+                    coinbaseTxOutToFoundation.LoadVersion0(foundationPubKeyHash, GetRewardToFoundationInterval(index, version));
+                    CoinbaseTransaction coinbaseTxToFoundation = new CoinbaseTransaction();
+                    coinbaseTxToFoundation.LoadVersion0(new TransactionOutput[] { coinbaseTxOutToFoundation });
+
+                    txBlock = new FoundationalBlock().Operate((foundationalBlock) => foundationalBlock.LoadVersion1(header, coinbaseTxToMiner, coinbaseTxToFoundation, new TransferTransaction[] { }));
                 }
 
                 txBlock.UpdateMerkleRootHash();
@@ -7345,96 +7763,72 @@ namespace CREA2014
                 throw new NotSupportedException("tx_block_not_supported");
         }
 
-        public static TransactionalBlock<BlockidHashType, TxidHashType, PubKeyHashType, PubKeyType> GetBlockTemplate(long index, PubKeyHashType minerPubKeyHash, Func<long, TransactionalBlock<BlockidHashType, TxidHashType, PubKeyHashType, PubKeyType>> indexToTxBlock)
+        public static TransactionalBlock GetBlockTemplate(long index, Sha256Ripemd160Hash minerPubKeyHash, Func<long, TransactionalBlock> indexToTxBlock)
         {
-            return GetBlockTemplate(index, minerPubKeyHash, indexToTxBlock, 0);
+            return GetBlockTemplate(index, minerPubKeyHash, indexToTxBlock, 1);
         }
     }
 
-    public class NormalBlock<BlockidHashType, TxidHashType, PubKeyHashType, PubKeyType> : TransactionalBlock<BlockidHashType, TxidHashType, PubKeyHashType, PubKeyType>
-        where BlockidHashType : HASHBASE
-        where TxidHashType : HASHBASE
-        where PubKeyHashType : HASHBASE
-        where PubKeyType : DSAPUBKEYBASE
+    public class NormalBlock : TransactionalBlock { }
+
+    //<未実装>再度行う必要のない検証は行わない
+    public class FoundationalBlock : TransactionalBlock
     {
-        public NormalBlock() : base(0) { }
+        public override void LoadVersion0(BlockHeader _header, CoinbaseTransaction _coinbaseTxToMiner, TransferTransaction[] _transferTxs) { throw new NotSupportedException(); }
 
-        public NormalBlock(BlockHeader<BlockidHashType, TxidHashType> _header, CoinbaseTransaction<TxidHashType, PubKeyHashType, PubKeyType> _coinbaseTxToMiner, TransferTransaction<TxidHashType, PubKeyHashType, PubKeyType>[] _transferTransactions) : base(0, _header, _coinbaseTxToMiner, _transferTransactions) { }
-
-        protected override Func<ReaderWriter, IEnumerable<MainDataInfomation>> StreamInfo
+        public virtual void LoadVersion0(BlockHeader _header, CoinbaseTransaction _coinbaseTxToMiner, CoinbaseTransaction _coinbaseTxToFoundation, TransferTransaction[] _transferTxs)
         {
-            get
-            {
-                if (Version == 0)
-                    return base.StreamInfo;
-                else
-                    throw new NotSupportedException("normal_block_main_data_info");
-            }
+            if (_coinbaseTxToFoundation.Version != 0)
+                throw new ArgumentException();
+
+            base.LoadVersion0(_header, _coinbaseTxToMiner, _transferTxs);
+
+            LoadCommon(_coinbaseTxToFoundation);
         }
 
-        public override bool IsVersioned { get { return true; } }
+        public override void LoadVersion1(BlockHeader _header, CoinbaseTransaction _coinbaseTxToMiner, TransferTransaction[] _transferTxs) { throw new NotSupportedException(); }
 
-        public override bool IsCorruptionChecked
+        public virtual void LoadVersion1(BlockHeader _header, CoinbaseTransaction _coinbaseTxToMiner, CoinbaseTransaction _coinbaseTxToFoundation, TransferTransaction[] _transferTxs)
         {
-            get
-            {
-                if (Version <= 0)
-                    return true;
-                else
-                    throw new NotSupportedException("normal_block_check");
-            }
-        }
-    }
+            if (_coinbaseTxToFoundation.Version != 1)
+                throw new ArgumentException();
 
-    public class FoundationalBlock<BlockidHashType, TxidHashType, PubKeyHashType, PubKeyType> : TransactionalBlock<BlockidHashType, TxidHashType, PubKeyHashType, PubKeyType>
-        where BlockidHashType : HASHBASE
-        where TxidHashType : HASHBASE
-        where PubKeyHashType : HASHBASE
-        where PubKeyType : DSAPUBKEYBASE
-    {
-        public FoundationalBlock() : base(0) { }
+            base.LoadVersion1(_header, _coinbaseTxToMiner, _transferTxs);
 
-        public FoundationalBlock(BlockHeader<BlockidHashType, TxidHashType> _header, CoinbaseTransaction<TxidHashType, PubKeyHashType, PubKeyType> _coinbaseTxToMiner, CoinbaseTransaction<TxidHashType, PubKeyHashType, PubKeyType> _coinbaseTxToFoundation, TransferTransaction<TxidHashType, PubKeyHashType, PubKeyType>[] _transferTransactions)
-            : base(0, _header, _coinbaseTxToMiner, _transferTransactions)
-        {
-            coinbaseTxToFoundation = _coinbaseTxToFoundation;
+            LoadCommon(_coinbaseTxToFoundation);
         }
 
-        public CoinbaseTransaction<TxidHashType, PubKeyHashType, PubKeyType> coinbaseTxToFoundation { get; private set; }
+        private void LoadCommon(CoinbaseTransaction _coinbaseTxToFoundation) { coinbaseTxToFoundation = _coinbaseTxToFoundation; }
 
-        public override Transaction<TxidHashType, PubKeyHashType, PubKeyType>[] Transactions
+        private CoinbaseTransaction _coinbaseTxToFoundation;
+        public CoinbaseTransaction coinbaseTxToFoundation
         {
-            get
+            get { return _coinbaseTxToFoundation; }
+            private set
             {
-                if (isTransactionsModified || transactionsCache == null)
+                if (value != _coinbaseTxToFoundation)
                 {
-                    transactionsCache = new Transaction<TxidHashType, PubKeyHashType, PubKeyType>[transferTxs.Length + 2];
-                    transactionsCache[0] = coinbaseTxToMiner;
-                    transactionsCache[1] = coinbaseTxToFoundation;
+                    _coinbaseTxToFoundation = value;
+                    idCache.IsModified = true;
+                    transactionsCache.IsModified = true;
+                    merkleTreeCache.IsModified = true;
+                }
+            }
+        }
+
+        protected override Func<Transaction[]> TransactionsGenerator
+        {
+            get
+            {
+                return () =>
+                {
+                    Transaction[] transactions = new Transaction[transferTxs.Length + 2];
+                    transactions[0] = coinbaseTxToMiner;
+                    transactions[1] = coinbaseTxToFoundation;
                     for (int i = 0; i < transferTxs.Length; i++)
-                        transactionsCache[i + 2] = transferTxs[i];
-                    isTransactionsModified = false;
-                }
-                return transactionsCache;
-            }
-        }
-
-        public override bool IsValid
-        {
-            get
-            {
-                if (!base.IsValid)
-                    return false;
-
-                if (Version == 0)
-                {
-                    if (!coinbaseTxToFoundation.outputs.All((e) => e.receiverPubKeyHash.Equals(foundationPubKeyHash)))
-                        return false;
-
-                    return true;
-                }
-                else
-                    throw new NotSupportedException("foundation_block_is_valid_not_supported");
+                        transactions[i + 2] = transferTxs[i];
+                    return transactions;
+                };
             }
         }
 
@@ -7444,27 +7838,44 @@ namespace CREA2014
             {
                 if (Version == 0)
                     return (msrw) => base.StreamInfo(msrw).Concat(new MainDataInfomation[]{
-                        new MainDataInfomation(typeof(CoinbaseTransaction<TxidHashType, PubKeyHashType, PubKeyType>), 0, () => coinbaseTxToFoundation, (o) => coinbaseTxToFoundation = (CoinbaseTransaction<TxidHashType, PubKeyHashType, PubKeyType>)o),
+                        new MainDataInfomation(typeof(CoinbaseTransaction), 0, () => coinbaseTxToFoundation, (o) => 
+                        {
+                            coinbaseTxToFoundation = (CoinbaseTransaction)o;
+                            if (coinbaseTxToFoundation.Version != 0)
+                                throw new NotSupportedException();
+                        }),
+                    });
+                else if (Version == 1)
+                    return (msrw) => base.StreamInfo(msrw).Concat(new MainDataInfomation[]{
+                        new MainDataInfomation(typeof(CoinbaseTransaction), 1, () => coinbaseTxToFoundation, (o) => 
+                        {
+                            coinbaseTxToFoundation = (CoinbaseTransaction)o;
+                            if (coinbaseTxToFoundation.Version != 1)
+                                throw new NotSupportedException();
+                        }),
                     });
                 else
-                    throw new NotSupportedException("foundational_block_main_data_info");
+                    throw new NotSupportedException();
             }
         }
 
-        public override bool IsVersioned { get { return true; } }
-
-        public override bool IsCorruptionChecked
+        public override bool Verify(TransactionOutput[][] prevTxOutputss, Func<long, TransactionalBlock> indexToTxBlock)
         {
-            get
-            {
-                if (Version <= 0)
-                    return true;
-                else
-                    throw new NotSupportedException("normal_block_check");
-            }
+            if (Version != 0 && Version != 1)
+                throw new NotSupportedException();
+
+            return base.Verify(prevTxOutputss, indexToTxBlock) && VerifyCoinbaseTxToFoundationPubKey();
         }
 
-        public override bool VerifyRewardAndTxFee(TransactionOutput<PubKeyHashType>[][] prevTxOutputss)
+        public bool VerifyCoinbaseTxToFoundationPubKey()
+        {
+            if (Version != 0 && Version != 1)
+                throw new NotSupportedException();
+
+            return coinbaseTxToFoundation.TxOutputs.All((e) => e.ReceiverPubKeyHash.Equals(foundationPubKeyHash));
+        }
+
+        public override bool VerifyRewardAndTxFee(TransactionOutput[][] prevTxOutputss)
         {
             if (!base.VerifyRewardAndTxFee(prevTxOutputss))
                 return false;
@@ -7472,81 +7883,14 @@ namespace CREA2014
             return GetActualRewardToFoundation().rawAmount == GetValidRewardToFoundation().rawAmount;
         }
 
-        public CurrencyUnit GetValidRewardToFoundation()
-        {
-            return GetRewardToFoundationInterval(header.index, Version);
-        }
+        public CurrencyUnit GetValidRewardToFoundation() { return GetRewardToFoundationInterval(header.index, Version); }
 
         public CurrencyUnit GetActualRewardToFoundation()
         {
             long rawTxFee = 0;
-            for (int i = 0; i < coinbaseTxToFoundation.outputs.Length; i++)
-                rawTxFee += coinbaseTxToFoundation.outputs[i].amount.rawAmount;
+            for (int i = 0; i < coinbaseTxToFoundation.TxOutputs.Length; i++)
+                rawTxFee += coinbaseTxToFoundation.TxOutputs[i].Amount.rawAmount;
             return new CurrencyUnit(rawTxFee);
-        }
-    }
-
-    public class BlockHeader<BlockidHashType, TxidHashType> : SHAREDDATA
-        where BlockidHashType : HASHBASE
-        where TxidHashType : HASHBASE
-    {
-        public BlockHeader() : base(null) { }
-
-        public BlockHeader(long _index, BlockidHashType _prevBlockHash, DateTime _timestamp, Difficulty<BlockidHashType> _difficulty, byte[] _nonce)
-            : base(null)
-        {
-            if (_index < 1)
-                throw new ArgumentOutOfRangeException("block_header_index_out");
-            if (_nonce.Length > maxNonceLength)
-                throw new ArgumentOutOfRangeException("block_header_nonce_out");
-
-            index = _index;
-            prevBlockHash = _prevBlockHash;
-            timestamp = _timestamp;
-            difficulty = _difficulty;
-            nonce = _nonce;
-        }
-
-        public static readonly int maxNonceLength = 10;
-
-        public long index { get; private set; }
-        public BlockidHashType prevBlockHash { get; private set; }
-        public TxidHashType merkleRootHash { get; private set; }
-        public DateTime timestamp { get; private set; }
-        public Difficulty<BlockidHashType> difficulty { get; private set; }
-        public byte[] nonce { get; private set; }
-
-        protected override Func<ReaderWriter, IEnumerable<MainDataInfomation>> StreamInfo
-        {
-            get
-            {
-                return (msrw) => new MainDataInfomation[]{
-                    new MainDataInfomation(typeof(long), () => index, (o) => index = (long)o),
-                    new MainDataInfomation(typeof(BlockidHashType), null, () => prevBlockHash, (o) => prevBlockHash = (BlockidHashType)o),
-                    new MainDataInfomation(typeof(TxidHashType), null, () => merkleRootHash, (o) => merkleRootHash = (TxidHashType)o),
-                    new MainDataInfomation(typeof(DateTime), () => timestamp, (o) => timestamp = (DateTime)o),
-                    new MainDataInfomation(typeof(byte[]), 4, () => difficulty.CompactTarget, (o) => difficulty = new Difficulty<BlockidHashType>((byte[])o)),
-                    new MainDataInfomation(typeof(byte[]), null, () => nonce, (o) => nonce = (byte[])o),
-                };
-            }
-        }
-
-        public void UpdateMerkleRootHash(TxidHashType newmerkleRootHash)
-        {
-            merkleRootHash = newmerkleRootHash;
-        }
-
-        public void UpdateTimestamp(DateTime newTimestamp)
-        {
-            timestamp = newTimestamp;
-        }
-
-        public void UpdateNonce(byte[] newNonce)
-        {
-            if (newNonce.Length > maxNonceLength)
-                throw new ArgumentOutOfRangeException("block_header_nonce_out");
-
-            nonce = newNonce;
         }
     }
 
