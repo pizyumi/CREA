@@ -23,15 +23,9 @@ using System.Windows.Media;
 
 namespace CREA2014
 {
-    public abstract class COREBASE<KeyPairType, DsaPubKeyType, DsaPrivKeyType, BlockidHashType, TxidHashType, PubKeyHashType>
-        where KeyPairType : DSAKEYPAIRBASE<DsaPubKeyType, DsaPrivKeyType>
-        where DsaPubKeyType : DSAPUBKEYBASE
-        where DsaPrivKeyType : DSAPRIVKEYBASE
-        where BlockidHashType : HASHBASE
-        where TxidHashType : HASHBASE
-        where PubKeyHashType : HASHBASE
+    public class Core
     {
-        public COREBASE(string _basePath)
+        public Core(string _basePath)
         {
             //Coreが2回以上実体化されないことを保証する
             //2回以上呼ばれた際には例外が発生する
@@ -59,9 +53,9 @@ namespace CREA2014
         private AccountHoldersFactory accountHoldersFactory;
         public IAccountHoldersFactory iAccountHoldersFactory { get { return accountHoldersFactory; } }
 
-        private BlockChain<BlockidHashType, TxidHashType, PubKeyHashType, DsaPubKeyType> blockChain;
+        private BlockChain blockChain;
 
-        private Mining<BlockidHashType, TxidHashType, PubKeyHashType, DsaPubKeyType> mining;
+        private Mining mining;
 
         private string basepath;
         private string databaseBasepath;
@@ -177,7 +171,7 @@ namespace CREA2014
 
             //_UpdateBalance();
 
-            mining = new Mining<BlockidHashType, TxidHashType, PubKeyHashType, DsaPubKeyType>();
+            mining = new Mining();
 
             isSystemStarted = true;
         }
@@ -204,7 +198,7 @@ namespace CREA2014
 
             Action _Mine = () =>
             {
-                mining.NewMiningBlock(TransactionalBlock.GetBlockTemplate(blockChain.head + 1, Activator.CreateInstance(typeof(PubKeyHashType), account.pubKey.pubKey) as PubKeyHashType, (index) => blockChain.GetMainBlock(index)));
+                mining.NewMiningBlock(TransactionalBlock.GetBlockTemplate(blockChain.head + 1, account.Address.Hash, (index) => blockChain.GetMainBlock(index)));
             };
 
             _ContinueMine = (sender, e) =>
@@ -227,16 +221,11 @@ namespace CREA2014
         }
     }
 
-    public class Core : COREBASE<Ecdsa256KeyPair, Ecdsa256PubKey, Ecdsa256PrivKey, X15Hash, Sha256Sha256Hash, Sha256Ripemd160Hash>
+    public class AddressEvent
     {
-        public Core(string _basePath) : base(_basePath) { }
-    }
+        public AddressEvent(Sha256Ripemd160Hash _address) { address = _address; }
 
-    public class AddressEvent<PubKeyHashType> where PubKeyHashType : HASHBASE
-    {
-        public AddressEvent(PubKeyHashType _address) { address = _address; }
-
-        public PubKeyHashType address { get; private set; }
+        public Sha256Ripemd160Hash address { get; private set; }
 
         public event EventHandler<Tuple<CurrencyUnit, CurrencyUnit>> BalanceUpdated = delegate { };
         public event EventHandler<CurrencyUnit> UsableBalanceUpdated = delegate { };
@@ -6534,30 +6523,6 @@ namespace CREA2014
         }
     }
 
-    public abstract class TXBLOCKBASE<TxidBlockidHashType> : SHAREDDATA
-        where TxidBlockidHashType : HASHBASE
-    {
-        public TXBLOCKBASE(int? _version) : base(_version) { }
-
-        protected bool isModified;
-
-        protected TxidBlockidHashType idCache;
-        public virtual TxidBlockidHashType Id
-        {
-            get
-            {
-                if (isModified || idCache == null)
-                {
-                    idCache = Activator.CreateInstance(typeof(TxidBlockidHashType), ToBinary()) as TxidBlockidHashType;
-                    isModified = false;
-                }
-                return idCache;
-            }
-        }
-
-        public virtual bool IsValid { get { return true; } }
-    }
-
     #region 取引
 
     //<未実装>Load部分の抽象化
@@ -6731,7 +6696,8 @@ namespace CREA2014
         public Sha256Ripemd160Hash Sha256Ripemd160Hash { get { return receiverPubKeyHash; } }
         public CurrencyUnit Amount { get { return amount; } }
 
-        public HASHBASE ReceiverPubKeyHash { get { return receiverPubKeyHash; } }
+        //<未改良>本来HASHBASEにすべきだが・・・
+        public Sha256Ripemd160Hash ReceiverPubKeyHash { get { return receiverPubKeyHash; } }
 
         protected override Func<ReaderWriter, IEnumerable<MainDataInfomation>> StreamInfo
         {
@@ -7896,11 +7862,7 @@ namespace CREA2014
 
     #endregion
 
-    public class Mining<BlockidHashType, TxidHashType, PubKeyHashType, PubKeyType>
-        where BlockidHashType : HASHBASE
-        where TxidHashType : HASHBASE
-        where PubKeyHashType : HASHBASE
-        where PubKeyType : DSAPUBKEYBASE
+    public class Mining
     {
         public Mining()
         {
@@ -7915,7 +7877,7 @@ namespace CREA2014
 
                 while (true)
                 {
-                    TransactionalBlock<BlockidHashType, TxidHashType, PubKeyHashType, PubKeyType> txBlockCopy = txBlock;
+                    TransactionalBlock txBlockCopy = txBlock;
 
                     while (!isStarted || txBlockCopy == null)
                     {
@@ -7969,12 +7931,12 @@ namespace CREA2014
             });
         }
 
-        private TransactionalBlock<BlockidHashType, TxidHashType, PubKeyHashType, PubKeyType> txBlock;
+        private TransactionalBlock txBlock;
         private AutoResetEvent are;
 
         public bool isStarted { get; private set; }
 
-        public event EventHandler<TransactionalBlock<BlockidHashType, TxidHashType, PubKeyHashType, PubKeyType>> FoundNonce = delegate { };
+        public event EventHandler<TransactionalBlock> FoundNonce = delegate { };
 
         public void Start()
         {
@@ -7992,7 +7954,7 @@ namespace CREA2014
             isStarted = false;
         }
 
-        public void NewMiningBlock(TransactionalBlock<BlockidHashType, TxidHashType, PubKeyHashType, PubKeyType> newTxBlock)
+        public void NewMiningBlock(TransactionalBlock newTxBlock)
         {
             txBlock = newTxBlock;
 
@@ -8003,11 +7965,7 @@ namespace CREA2014
     //2014/08/18
     //何とかしてデータ操作部分を分離できないか？
     //データ操作の汎用的な仕組みは作れないか？
-    public class BlockChain<BlockidHashType, TxidHashType, PubKeyHashType, PubKeyType> : SHAREDDATA
-        where BlockidHashType : HASHBASE
-        where TxidHashType : HASHBASE
-        where PubKeyHashType : HASHBASE
-        where PubKeyType : DSAPUBKEYBASE
+    public class BlockChain : SHAREDDATA
     {
         public BlockChain(BlockChainDatabase _bcDatabase, BlockNodesGroupDatabase _bngDatabase, BlockGroupDatabase _bgDatabase, UtxoDatabase _utxoDatabase, AddressEventDatabase _addressEventDatabase)
         {
@@ -8024,9 +7982,9 @@ namespace CREA2014
             if (bcDataBytes.Length != 0)
                 FromBinary(bcDataBytes);
 
-            blockGroups = new SortedDictionary<long, List<TransactionalBlock<BlockidHashType, TxidHashType, PubKeyHashType, PubKeyType>>>();
-            mainBlocks = new SortedDictionary<long, TransactionalBlock<BlockidHashType, TxidHashType, PubKeyHashType, PubKeyType>>();
-            isVerifieds = new Dictionary<BlockidHashType, bool>();
+            blockGroups = new SortedDictionary<long, List<TransactionalBlock>>();
+            mainBlocks = new SortedDictionary<long, TransactionalBlock>();
+            isVerifieds = new Dictionary<X15Hash, bool>();
             numOfMainBlocksWhenSaveNext = numOfMainBlocksWhenSave;
 
             currentBngIndex = head / blockNodesGroupDiv;
@@ -8040,11 +7998,11 @@ namespace CREA2014
                     currentBng.FromBinary(currentBngBytes);
             }
 
-            Dictionary<PubKeyHashType, List<Utxo>> utxosDict = new Dictionary<PubKeyHashType, List<Utxo>>();
+            Dictionary<Sha256Ripemd160Hash, List<Utxo>> utxosDict = new Dictionary<Sha256Ripemd160Hash, List<Utxo>>();
             byte[] utxosBytes = utxoDatabase.GetData();
             if (utxosBytes.Length != 0)
             {
-                int addressLength = (Activator.CreateInstance(typeof(PubKeyHashType)) as PubKeyHashType).SizeByte;
+                int addressLength = new Sha256Ripemd160Hash().SizeByte;
                 int utxoLength = new Utxo().LengthAll.Value;
                 int pointer = 0;
 
@@ -8059,7 +8017,7 @@ namespace CREA2014
 
                     pointer += addressLength;
 
-                    PubKeyHashType address = Activator.CreateInstance(typeof(PubKeyHashType)) as PubKeyHashType;
+                    Sha256Ripemd160Hash address = new Sha256Ripemd160Hash();
                     address.FromHash(addressBytes);
 
                     int length2 = BitConverter.ToInt32(utxosBytes, pointer);
@@ -8081,16 +8039,16 @@ namespace CREA2014
                 }
             }
 
-            utxos = new Utxos<PubKeyHashType>(utxosDict);
+            utxos = new Utxos(utxosDict);
 
-            addedUtxosInMemory = new List<Dictionary<PubKeyHashType, List<Utxo>>>();
-            removedUtxosInMemory = new List<Dictionary<PubKeyHashType, List<Utxo>>>();
+            addedUtxosInMemory = new List<Dictionary<Sha256Ripemd160Hash, List<Utxo>>>();
+            removedUtxosInMemory = new List<Dictionary<Sha256Ripemd160Hash, List<Utxo>>>();
 
-            Dictionary<PubKeyHashType, List<AddressEventData>> addressEventDataDict = new Dictionary<PubKeyHashType, List<AddressEventData>>();
+            Dictionary<Sha256Ripemd160Hash, List<AddressEventData>> addressEventDataDict = new Dictionary<Sha256Ripemd160Hash, List<AddressEventData>>();
             byte[] addressEventDatasBytes = addressEventDatabase.GetData();
             if (addressEventDatasBytes.Length != 0)
             {
-                int addressLength = (Activator.CreateInstance(typeof(PubKeyHashType)) as PubKeyHashType).SizeByte;
+                int addressLength = new Sha256Ripemd160Hash().SizeByte;
                 int addressEventDataLength = new AddressEventData().LengthAll.Value;
                 int pointer = 0;
 
@@ -8105,7 +8063,7 @@ namespace CREA2014
 
                     pointer += addressLength;
 
-                    PubKeyHashType address = Activator.CreateInstance(typeof(PubKeyHashType)) as PubKeyHashType;
+                    Sha256Ripemd160Hash address = new Sha256Ripemd160Hash();
                     address.FromHash(addressBytes);
 
                     int length2 = BitConverter.ToInt32(addressEventDatasBytes, pointer);
@@ -8127,8 +8085,8 @@ namespace CREA2014
                 }
             }
 
-            addressEventDatas = new AddressEventDatas<PubKeyHashType>(addressEventDataDict);
-            addressEvents = new Dictionary<AddressEvent<PubKeyHashType>, Tuple<CurrencyUnit, CurrencyUnit>>();
+            addressEventDatas = new AddressEventDatas(addressEventDataDict);
+            addressEvents = new Dictionary<AddressEvent, Tuple<CurrencyUnit, CurrencyUnit>>();
 
             Initialized += (sender, e) =>
             {
@@ -8156,14 +8114,14 @@ namespace CREA2014
         //未保存のブロックの集まり
         //保存したら削除しなければならない
         //鍵：bIndex（ブロックの高さ）
-        private SortedDictionary<long, List<TransactionalBlock<BlockidHashType, TxidHashType, PubKeyHashType, PubKeyType>>> blockGroups;
+        private SortedDictionary<long, List<TransactionalBlock>> blockGroups;
         //未保存の主ブロックの集まり
         //保存したら削除しなければならない
         //鍵：bIndex（ブロックの高さ）
-        private SortedDictionary<long, TransactionalBlock<BlockidHashType, TxidHashType, PubKeyHashType, PubKeyType>> mainBlocks;
+        private SortedDictionary<long, TransactionalBlock> mainBlocks;
         //検証したら結果を格納する
         //<未実装>保存したら（或いは、参照される可能性が低くなったら）削除しなければならない
-        private Dictionary<BlockidHashType, bool> isVerifieds;
+        private Dictionary<X15Hash, bool> isVerifieds;
 
         private long cacheBgIndex;
         //bgPosition1（ブロック群のファイル上の位置）
@@ -8172,7 +8130,7 @@ namespace CREA2014
         //性能向上のためのブロック群の一時的な保持
         //必要なものだけ逆直列化する
         private byte[][] cacheBgBytes;
-        private TransactionalBlock<BlockidHashType, TxidHashType, PubKeyHashType, PubKeyType>[] cacheBg;
+        private TransactionalBlock[] cacheBg;
 
         //更新された主ブロックがこれ以上溜まると1度保存が試行される
         private int numOfMainBlocksWhenSaveNext;
@@ -8185,14 +8143,14 @@ namespace CREA2014
         private long cacheBngIndex;
         private BlockNodesGroup cacheBng;
 
-        private Utxos<PubKeyHashType> utxos;
-        private List<Dictionary<PubKeyHashType, List<Utxo>>> addedUtxosInMemory;
-        private List<Dictionary<PubKeyHashType, List<Utxo>>> removedUtxosInMemory;
-        private Dictionary<PubKeyHashType, List<Utxo>> currentAddedUtxos;
-        private Dictionary<PubKeyHashType, List<Utxo>> currentRemovedUtxos;
+        private Utxos utxos;
+        private List<Dictionary<Sha256Ripemd160Hash, List<Utxo>>> addedUtxosInMemory;
+        private List<Dictionary<Sha256Ripemd160Hash, List<Utxo>>> removedUtxosInMemory;
+        private Dictionary<Sha256Ripemd160Hash, List<Utxo>> currentAddedUtxos;
+        private Dictionary<Sha256Ripemd160Hash, List<Utxo>> currentRemovedUtxos;
 
-        private AddressEventDatas<PubKeyHashType> addressEventDatas;
-        private Dictionary<AddressEvent<PubKeyHashType>, Tuple<CurrencyUnit, CurrencyUnit>> addressEvents;
+        private AddressEventDatas addressEventDatas;
+        private Dictionary<AddressEvent, Tuple<CurrencyUnit, CurrencyUnit>> addressEvents;
 
         private BlockChainDatabase bcDatabase;
         private BlockNodesGroupDatabase bngDatabase;
@@ -8200,7 +8158,7 @@ namespace CREA2014
         private UtxoDatabase utxoDatabase;
         private AddressEventDatabase addressEventDatabase;
 
-        private GenesisBlock<BlockidHashType> genesisBlock = new GenesisBlock<BlockidHashType>();
+        private GenesisBlock genesisBlock = new GenesisBlock();
 
         //2014/07/08
         //許容されるブロック鎖分岐は最大でも200ブロック（それより長い分岐は拒否される）
@@ -8247,9 +8205,9 @@ namespace CREA2014
             }
         }
 
-        private TransactionalBlock<BlockidHashType, TxidHashType, PubKeyHashType, PubKeyType> GetSavedOrCachedBlock(long bgIndex, long bgPosition1, long bgPosition2)
+        private TransactionalBlock GetSavedOrCachedBlock(long bgIndex, long bgPosition1, long bgPosition2)
         {
-            Func<TransactionalBlock<BlockidHashType, TxidHashType, PubKeyHashType, PubKeyType>> _GetBlockFromCache = () =>
+            Func<TransactionalBlock> _GetBlockFromCache = () =>
             {
                 byte[] txBlockTypeBytes = new byte[4];
                 byte[] txBlockBytes = new byte[cacheBgBytes[bgPosition2].Length - 4];
@@ -8259,11 +8217,11 @@ namespace CREA2014
 
                 TransactionType txType = (TransactionType)BitConverter.ToInt32(txBlockTypeBytes, 0);
 
-                TransactionalBlock<BlockidHashType, TxidHashType, PubKeyHashType, PubKeyType> txBlock;
+                TransactionalBlock txBlock;
                 if (txType == TransactionType.normal)
-                    txBlock = new NormalBlock<BlockidHashType, TxidHashType, PubKeyHashType, PubKeyType>();
+                    txBlock = new NormalBlock();
                 else if (txType == TransactionType.foundational)
-                    txBlock = new FoundationalBlock<BlockidHashType, TxidHashType, PubKeyHashType, PubKeyType>();
+                    txBlock = new FoundationalBlock();
                 else
                     throw new NotSupportedException("not_supported_tx_block_type");
 
@@ -8297,7 +8255,7 @@ namespace CREA2014
                     }
 
                     cacheBgBytes = bgDatasBytes;
-                    cacheBg = new TransactionalBlock<BlockidHashType, TxidHashType, PubKeyHashType, PubKeyType>[cacheBgBytes.Length];
+                    cacheBg = new TransactionalBlock[cacheBgBytes.Length];
                     cacheBgIndex = bgIndex;
                     cacheBgPosition1 = bgPosition1;
                 }
@@ -8334,9 +8292,9 @@ namespace CREA2014
                 cacheBng.FromBinary(cacheBngBytes);
         }
 
-        private TransactionalBlock<BlockidHashType, TxidHashType, PubKeyHashType, PubKeyType>[] GetBlocksAtBIndex(long bIndex)
+        private TransactionalBlock[] GetBlocksAtBIndex(long bIndex)
         {
-            List<TransactionalBlock<BlockidHashType, TxidHashType, PubKeyHashType, PubKeyType>> blocks = new List<TransactionalBlock<BlockidHashType, TxidHashType, PubKeyHashType, PubKeyType>>();
+            List<TransactionalBlock> blocks = new List<TransactionalBlock>();
 
             if (blockGroups.ContainsKey(bIndex))
                 foreach (var block in blockGroups[bIndex])
@@ -8367,7 +8325,7 @@ namespace CREA2014
             return blocks.ToArray();
         }
 
-        private TransactionalBlock<BlockidHashType, TxidHashType, PubKeyHashType, PubKeyType> GetMainBlockAtBIndex(long bIndex)
+        private TransactionalBlock GetMainBlockAtBIndex(long bIndex)
         {
             if (mainBlocks.ContainsKey(bIndex))
                 return mainBlocks[bIndex];
@@ -8397,7 +8355,7 @@ namespace CREA2014
             return null;
         }
 
-        public TransactionalBlock<BlockidHashType, TxidHashType, PubKeyHashType, PubKeyType>[] GetHeadBlocks()
+        public TransactionalBlock[] GetHeadBlocks()
         {
             if (!isInitialized)
                 throw new InvalidOperationException("not_initialized");
@@ -8407,7 +8365,7 @@ namespace CREA2014
             return GetBlocksAtBIndex(head);
         }
 
-        public TransactionalBlock<BlockidHashType, TxidHashType, PubKeyHashType, PubKeyType> GetHeadMainBlock()
+        public TransactionalBlock GetHeadMainBlock()
         {
             if (!isInitialized)
                 throw new InvalidOperationException("not_initialized");
@@ -8417,7 +8375,7 @@ namespace CREA2014
             return GetMainBlockAtBIndex(head);
         }
 
-        public TransactionalBlock<BlockidHashType, TxidHashType, PubKeyHashType, PubKeyType>[] GetBlocks(long bIndex)
+        public TransactionalBlock[] GetBlocks(long bIndex)
         {
             if (!isInitialized)
                 throw new InvalidOperationException("not_initialized");
@@ -8427,7 +8385,7 @@ namespace CREA2014
             return GetBlocksAtBIndex(bIndex);
         }
 
-        public TransactionalBlock<BlockidHashType, TxidHashType, PubKeyHashType, PubKeyType> GetMainBlock(long bIndex)
+        public TransactionalBlock GetMainBlock(long bIndex)
         {
             if (!isInitialized)
                 throw new InvalidOperationException("not_initialized");
@@ -8439,7 +8397,7 @@ namespace CREA2014
             return GetMainBlockAtBIndex(bIndex);
         }
 
-        public void AddBlock(TransactionalBlock<BlockidHashType, TxidHashType, PubKeyHashType, PubKeyType> txBlock)
+        public void AddBlock(TransactionalBlock txBlock)
         {
             if (!isInitialized)
                 throw new InvalidOperationException("not_initialized");
@@ -8468,21 +8426,21 @@ namespace CREA2014
                 return;
             }
 
-            List<TransactionalBlock<BlockidHashType, TxidHashType, PubKeyHashType, PubKeyType>> list;
+            List<TransactionalBlock> list;
             if (blockGroups.ContainsKey(txBlock.header.index))
                 list = blockGroups[txBlock.header.index];
             else
-                blockGroups.Add(txBlock.header.index, list = new List<TransactionalBlock<BlockidHashType, TxidHashType, PubKeyHashType, PubKeyType>>());
+                blockGroups.Add(txBlock.header.index, list = new List<TransactionalBlock>());
 
             list.Add(txBlock);
 
             //<未改良>若干無駄がある
-            TransactionalBlock<BlockidHashType, TxidHashType, PubKeyHashType, PubKeyType> target = txBlock;
-            TransactionalBlock<BlockidHashType, TxidHashType, PubKeyHashType, PubKeyType> main = null;
+            TransactionalBlock target = txBlock;
+            TransactionalBlock main = null;
             while (true)
             {
                 //<未改良>連続した番号のブロックを一気に取得する
-                TransactionalBlock<BlockidHashType, TxidHashType, PubKeyHashType, PubKeyType> next = GetBlocks(target.header.index + 1).Where((e) => e.header.prevBlockHash.Equals(target.Id)).FirstOrDefault();
+                TransactionalBlock next = GetBlocks(target.header.index + 1).Where((e) => e.header.prevBlockHash.Equals(target.Id)).FirstOrDefault();
                 if (next != null)
                     target = next;
                 else
@@ -8491,9 +8449,9 @@ namespace CREA2014
 
             double branchCumulativeDifficulty = 0.0;
             double mainCumulativeDifficulty = 0.0;
-            Stack<TransactionalBlock<BlockidHashType, TxidHashType, PubKeyHashType, PubKeyType>> stack = new Stack<TransactionalBlock<BlockidHashType, TxidHashType, PubKeyHashType, PubKeyType>>();
-            Dictionary<PubKeyHashType, List<Utxo>> addedBranchUtxos = new Dictionary<PubKeyHashType, List<Utxo>>();
-            Dictionary<PubKeyHashType, List<Utxo>> removedBranchUtxos = new Dictionary<PubKeyHashType, List<Utxo>>();
+            Stack<TransactionalBlock> stack = new Stack<TransactionalBlock>();
+            Dictionary<Sha256Ripemd160Hash, List<Utxo>> addedBranchUtxos = new Dictionary<Sha256Ripemd160Hash, List<Utxo>>();
+            Dictionary<Sha256Ripemd160Hash, List<Utxo>> removedBranchUtxos = new Dictionary<Sha256Ripemd160Hash, List<Utxo>>();
             if (target.header.index > head)
             {
                 while (target.header.index > head)
@@ -8505,7 +8463,7 @@ namespace CREA2014
                         break;
 
                     //<未改良>連続した番号のブロックを一気に取得する
-                    TransactionalBlock<BlockidHashType, TxidHashType, PubKeyHashType, PubKeyType> prev = GetBlocks(target.header.index - 1).Where((e) => e.Id.Equals(target.header.prevBlockHash)).FirstOrDefault();
+                    TransactionalBlock prev = GetBlocks(target.header.index - 1).Where((e) => e.Id.Equals(target.header.prevBlockHash)).FirstOrDefault();
                     if (prev == null)
                     {
                         this.RaiseWarning("blk_not_connected", 3);
@@ -8517,8 +8475,8 @@ namespace CREA2014
 
                 if (head == 0 || target.Id.Equals((main = GetHeadMainBlock()).Id))
                 {
-                    Dictionary<AddressEvent<PubKeyHashType>, bool> balanceUpdatedFlag1 = new Dictionary<AddressEvent<PubKeyHashType>, bool>();
-                    Dictionary<AddressEvent<PubKeyHashType>, long?> balanceUpdatedBefore = new Dictionary<AddressEvent<PubKeyHashType>, long?>();
+                    Dictionary<AddressEvent, bool> balanceUpdatedFlag1 = new Dictionary<AddressEvent, bool>();
+                    Dictionary<AddressEvent, long?> balanceUpdatedBefore = new Dictionary<AddressEvent, long?>();
 
                     UpdateBalanceBefore(balanceUpdatedFlag1, balanceUpdatedBefore);
 
@@ -8528,7 +8486,7 @@ namespace CREA2014
                         if (isVerifieds.ContainsKey(newBlock.Id)) //常に偽が返るはず
                             isValid = isVerifieds[newBlock.Id];
                         else
-                            isVerifieds.Add(newBlock.Id, isValid = VerifyBlock(newBlock, addedUtxosInMemory.Concat(new List<Dictionary<PubKeyHashType, List<Utxo>>>() { currentAddedUtxos }), removedUtxosInMemory.Concat(new List<Dictionary<PubKeyHashType, List<Utxo>>>() { currentRemovedUtxos })));
+                            isVerifieds.Add(newBlock.Id, isValid = VerifyBlock(newBlock, addedUtxosInMemory.Concat(new List<Dictionary<Sha256Ripemd160Hash, List<Utxo>>>() { currentAddedUtxos }), removedUtxosInMemory.Concat(new List<Dictionary<Sha256Ripemd160Hash, List<Utxo>>>() { currentRemovedUtxos })));
 
                         if (!isValid)
                             break;
@@ -8559,7 +8517,7 @@ namespace CREA2014
                         mainCumulativeDifficulty += main.header.difficulty.Diff;
 
                         //<未改良>連続した番号のブロックを一気に取得する
-                        TransactionalBlock<BlockidHashType, TxidHashType, PubKeyHashType, PubKeyType> prev = GetMainBlock(main.header.index - 1);
+                        TransactionalBlock prev = GetMainBlock(main.header.index - 1);
                         if (prev == null)
                         {
                             this.RaiseError("blk_main_not_connected", 3);
@@ -8594,7 +8552,7 @@ namespace CREA2014
                         break;
 
                     //<未改良>連続した番号のブロックを一気に取得する
-                    TransactionalBlock<BlockidHashType, TxidHashType, PubKeyHashType, PubKeyType> prev = GetBlocks(target.header.index - 1).Where((e) => e.Id.Equals(target.header.prevBlockHash)).FirstOrDefault();
+                    TransactionalBlock prev = GetBlocks(target.header.index - 1).Where((e) => e.Id.Equals(target.header.prevBlockHash)).FirstOrDefault();
                     if (prev == null)
                     {
                         this.RaiseWarning("blk_not_connected", 3);
@@ -8621,14 +8579,14 @@ namespace CREA2014
                 if (branchCumulativeDifficulty > mainCumulativeDifficulty)
                 {
                     double cumulativeDifficulty = 0.0;
-                    TransactionalBlock<BlockidHashType, TxidHashType, PubKeyHashType, PubKeyType> validHead = null;
+                    TransactionalBlock validHead = null;
                     foreach (var newBlock in stack)
                     {
                         bool isValid;
                         if (isVerifieds.ContainsKey(newBlock.Id))
                             isValid = isVerifieds[newBlock.Id];
                         else
-                            isVerifieds.Add(newBlock.Id, isValid = VerifyBlock(newBlock, addedUtxosInMemory.Concat(new List<Dictionary<PubKeyHashType, List<Utxo>>>() { currentAddedUtxos, addedBranchUtxos }), removedUtxosInMemory.Concat(new List<Dictionary<PubKeyHashType, List<Utxo>>>() { currentRemovedUtxos, removedBranchUtxos })));
+                            isVerifieds.Add(newBlock.Id, isValid = VerifyBlock(newBlock, addedUtxosInMemory.Concat(new List<Dictionary<Sha256Ripemd160Hash, List<Utxo>>>() { currentAddedUtxos, addedBranchUtxos }), removedUtxosInMemory.Concat(new List<Dictionary<Sha256Ripemd160Hash, List<Utxo>>>() { currentRemovedUtxos, removedBranchUtxos })));
 
                         if (!isValid)
                             break;
@@ -8641,12 +8599,12 @@ namespace CREA2014
 
                     if (cumulativeDifficulty > mainCumulativeDifficulty)
                     {
-                        Dictionary<AddressEvent<PubKeyHashType>, bool> balanceUpdatedFlag1 = new Dictionary<AddressEvent<PubKeyHashType>, bool>();
-                        Dictionary<AddressEvent<PubKeyHashType>, long?> balanceUpdatedBefore = new Dictionary<AddressEvent<PubKeyHashType>, long?>();
+                        Dictionary<AddressEvent, bool> balanceUpdatedFlag1 = new Dictionary<AddressEvent, bool>();
+                        Dictionary<AddressEvent, long?> balanceUpdatedBefore = new Dictionary<AddressEvent, long?>();
 
                         UpdateBalanceBefore(balanceUpdatedFlag1, balanceUpdatedBefore);
 
-                        TransactionalBlock<BlockidHashType, TxidHashType, PubKeyHashType, PubKeyType> fork = GetHeadMainBlock();
+                        TransactionalBlock fork = GetHeadMainBlock();
                         while (!fork.Id.Equals(main.Id))
                         {
                             GoBackwardUtxosCurrent(fork);
@@ -8682,7 +8640,7 @@ namespace CREA2014
 
             if (mainBlocks.Count > numOfMainBlocksWhenSaveNext)
             {
-                SortedDictionary<long, List<TransactionalBlock<BlockidHashType, TxidHashType, PubKeyHashType, PubKeyType>>> tobeSavedBlockss = GetToBeSavedBlockss();
+                SortedDictionary<long, List<TransactionalBlock>> tobeSavedBlockss = GetToBeSavedBlockss();
 
                 long? last = null;
                 foreach (var tobeSavedBlocks in tobeSavedBlockss)
@@ -8701,13 +8659,13 @@ namespace CREA2014
                     if (mainBlock.Key <= last.Value && blockGroups.ContainsKey(mainBlock.Key) && blockGroups[mainBlock.Key].Contains(mainBlock.Value))
                         blockGroups[mainBlock.Key].Remove(mainBlock.Value);
 
-                SortedDictionary<long, List<TransactionalBlock<BlockidHashType, TxidHashType, PubKeyHashType, PubKeyType>>> newBlockGroups = new SortedDictionary<long, List<TransactionalBlock<BlockidHashType, TxidHashType, PubKeyHashType, PubKeyType>>>();
+                SortedDictionary<long, List<TransactionalBlock>> newBlockGroups = new SortedDictionary<long, List<TransactionalBlock>>();
                 foreach (var blockGroup in blockGroups)
                     if (blockGroup.Key >= head - discardOldBlock)
                         newBlockGroups.Add(blockGroup.Key, blockGroup.Value);
                 blockGroups = newBlockGroups;
 
-                SortedDictionary<long, TransactionalBlock<BlockidHashType, TxidHashType, PubKeyHashType, PubKeyType>> newMainBlocks = new SortedDictionary<long, TransactionalBlock<BlockidHashType, TxidHashType, PubKeyHashType, PubKeyType>>();
+                SortedDictionary<long, TransactionalBlock> newMainBlocks = new SortedDictionary<long, TransactionalBlock>();
                 foreach (var mainBlock in mainBlocks)
                     if (mainBlock.Key > last.Value)
                         newMainBlocks.Add(mainBlock.Key, mainBlock.Value);
@@ -8717,29 +8675,29 @@ namespace CREA2014
             }
         }
 
-        private void GoForwardAddressEventdata(TransactionalBlock<BlockidHashType, TxidHashType, PubKeyHashType, PubKeyType> txBlock)
+        private void GoForwardAddressEventdata(TransactionalBlock txBlock)
         {
             foreach (var txi in txBlock.Transactions.Select((tx, i) => new { tx, i }))
             {
-                for (int i = 0; i < txi.tx.Inputs.Length; i++)
-                    addressEventDatas.Remove(Activator.CreateInstance(typeof(PubKeyHashType), txi.tx.Inputs[i].senderPubKey) as PubKeyHashType, txi.tx.Inputs[i].prevTxBlockIndex, txi.tx.Inputs[i].prevTxIndex, txi.tx.Inputs[i].prevTxOutputIndex);
-                for (int i = 0; i < txi.tx.Outputs.Length; i++)
-                    addressEventDatas.Add(txi.tx.Outputs[i].receiverPubKeyHash, new AddressEventData(txBlock.header.index, txi.i, i, txi.tx.Outputs[i].amount));
+                for (int i = 0; i < txi.tx.TxInputs.Length; i++)
+                    addressEventDatas.Remove(new Sha256Ripemd160Hash(txi.tx.TxInputs[i].SenderPubKey.pubKey), txi.tx.TxInputs[i].PrevTxBlockIndex, txi.tx.TxInputs[i].PrevTxIndex, txi.tx.TxInputs[i].PrevTxOutputIndex);
+                for (int i = 0; i < txi.tx.TxOutputs.Length; i++)
+                    addressEventDatas.Add(txi.tx.TxOutputs[i].ReceiverPubKeyHash, new AddressEventData(txBlock.header.index, txi.i, i, txi.tx.TxOutputs[i].Amount));
             }
         }
 
-        private void GoBackwardAddressEventData(TransactionalBlock<BlockidHashType, TxidHashType, PubKeyHashType, PubKeyType> txBlock)
+        private void GoBackwardAddressEventData(TransactionalBlock txBlock)
         {
             foreach (var txi in txBlock.Transactions.Select((tx, i) => new { tx, i }))
             {
-                for (int i = 0; i < txi.tx.Inputs.Length; i++)
-                    addressEventDatas.Add(Activator.CreateInstance(typeof(PubKeyHashType), txi.tx.Inputs[i].senderPubKey) as PubKeyHashType, new AddressEventData(txi.tx.Inputs[i].prevTxBlockIndex, txi.tx.Inputs[i].prevTxIndex, txi.tx.Inputs[i].prevTxOutputIndex, GetMainBlock(txi.tx.Inputs[i].prevTxBlockIndex).Transactions[txi.tx.Inputs[i].prevTxIndex].Outputs[txi.tx.Inputs[i].prevTxOutputIndex].amount));
-                for (int i = 0; i < txi.tx.Outputs.Length; i++)
-                    addressEventDatas.Remove(txi.tx.Outputs[i].receiverPubKeyHash, txBlock.header.index, txi.i, i);
+                for (int i = 0; i < txi.tx.TxInputs.Length; i++)
+                    addressEventDatas.Add(new Sha256Ripemd160Hash(txi.tx.TxInputs[i].SenderPubKey.pubKey), new AddressEventData(txi.tx.TxInputs[i].PrevTxBlockIndex, txi.tx.TxInputs[i].PrevTxIndex, txi.tx.TxInputs[i].PrevTxOutputIndex, GetMainBlock(txi.tx.TxInputs[i].PrevTxBlockIndex).Transactions[txi.tx.TxInputs[i].PrevTxIndex].TxOutputs[txi.tx.TxInputs[i].PrevTxOutputIndex].Amount));
+                for (int i = 0; i < txi.tx.TxOutputs.Length; i++)
+                    addressEventDatas.Remove(txi.tx.TxOutputs[i].ReceiverPubKeyHash, txBlock.header.index, txi.i, i);
             }
         }
 
-        public void AddAddressEvent(AddressEvent<PubKeyHashType> addressEvent)
+        public void AddAddressEvent(AddressEvent addressEvent)
         {
             if (addressEvents.ContainsKey(addressEvent))
                 throw new ArgumentException("already_added");
@@ -8751,12 +8709,12 @@ namespace CREA2014
             {
                 List<Utxo> listUtxo = utxos.ContainsAddress(addressEvent.address) ? utxos.GetAddressUtxos(addressEvent.address) : new List<Utxo>() { };
 
-                foreach (var added in addedUtxosInMemory.Concat(new List<Dictionary<PubKeyHashType, List<Utxo>>>() { currentAddedUtxos }))
+                foreach (var added in addedUtxosInMemory.Concat(new List<Dictionary<Sha256Ripemd160Hash, List<Utxo>>>() { currentAddedUtxos }))
                     if (added.ContainsKey(addressEvent.address))
                         foreach (var utxo in added[addressEvent.address])
                             listUtxo.Add(utxo);
 
-                foreach (var removed in removedUtxosInMemory.Concat(new List<Dictionary<PubKeyHashType, List<Utxo>>>() { currentRemovedUtxos }))
+                foreach (var removed in removedUtxosInMemory.Concat(new List<Dictionary<Sha256Ripemd160Hash, List<Utxo>>>() { currentRemovedUtxos }))
                     if (removed.ContainsKey(addressEvent.address))
                         foreach (var utxo in removed[addressEvent.address])
                         {
@@ -8768,7 +8726,7 @@ namespace CREA2014
 
                 listAddressEventData = new List<AddressEventData>();
                 foreach (var utxo in listUtxo)
-                    listAddressEventData.Add(new AddressEventData(utxo.blockIndex, utxo.txIndex, utxo.txOutIndex, GetMainBlock(utxo.blockIndex).Transactions[utxo.txIndex].Outputs[utxo.txOutIndex].amount));
+                    listAddressEventData.Add(new AddressEventData(utxo.blockIndex, utxo.txIndex, utxo.txOutIndex, GetMainBlock(utxo.blockIndex).Transactions[utxo.txIndex].TxOutputs[utxo.txOutIndex].Amount));
 
                 addressEventDatas.Add(addressEvent.address, listAddressEventData);
             }
@@ -8782,9 +8740,9 @@ namespace CREA2014
             addressEvent.RaiseUnusableBalanceUpdated(balance.Item2);
         }
 
-        public AddressEvent<PubKeyHashType> RemoveAddressEvent(PubKeyHashType address)
+        public AddressEvent RemoveAddressEvent(Sha256Ripemd160Hash address)
         {
-            AddressEvent<PubKeyHashType> addressEvent;
+            AddressEvent addressEvent;
             if ((addressEvent = addressEvents.Keys.FirstOrDefault((elem) => elem.address.Equals(address))) == null)
                 throw new ArgumentException("not_added");
 
@@ -8810,7 +8768,7 @@ namespace CREA2014
             return new Tuple<CurrencyUnit, CurrencyUnit>(usable, unusable);
         }
 
-        private void UpdateBalanceBefore(Dictionary<AddressEvent<PubKeyHashType>, bool> balanceUpdatedFlag1, Dictionary<AddressEvent<PubKeyHashType>, long?> balanceUpdatedBefore)
+        private void UpdateBalanceBefore(Dictionary<AddressEvent, bool> balanceUpdatedFlag1, Dictionary<AddressEvent, long?> balanceUpdatedBefore)
         {
             foreach (var addressEvent in addressEvents)
             {
@@ -8820,11 +8778,11 @@ namespace CREA2014
             }
         }
 
-        private void UpdateBalanceAfter(Dictionary<AddressEvent<PubKeyHashType>, bool> balanceUpdatedFlag1, Dictionary<AddressEvent<PubKeyHashType>, long?> balanceUpdatedBefore)
+        private void UpdateBalanceAfter(Dictionary<AddressEvent, bool> balanceUpdatedFlag1, Dictionary<AddressEvent, long?> balanceUpdatedBefore)
         {
             bool flag = false;
 
-            List<AddressEvent<PubKeyHashType>> addressEventsCopy = new List<AddressEvent<PubKeyHashType>>(addressEvents.Keys);
+            List<AddressEvent> addressEventsCopy = new List<AddressEvent>(addressEvents.Keys);
             foreach (var addressEvent in addressEventsCopy)
             {
                 List<AddressEventData> listAddressEventData = addressEventDatas.GetAddressEventDatas(addressEvent.address);
@@ -8857,7 +8815,7 @@ namespace CREA2014
                 BalanceUpdated(this, EventArgs.Empty);
         }
 
-        private void GoForwardUtxosCurrent(TransactionalBlock<BlockidHashType, TxidHashType, PubKeyHashType, PubKeyType> txBlock)
+        private void GoForwardUtxosCurrent(TransactionalBlock txBlock)
         {
             if (txBlock.header.index == 1 || txBlock.header.index % utxosInMemoryDiv == 0)
             {
@@ -8867,14 +8825,14 @@ namespace CREA2014
                     removedUtxosInMemory.Add(currentRemovedUtxos);
                 }
 
-                currentAddedUtxos = new Dictionary<PubKeyHashType, List<Utxo>>();
-                currentRemovedUtxos = new Dictionary<PubKeyHashType, List<Utxo>>();
+                currentAddedUtxos = new Dictionary<Sha256Ripemd160Hash, List<Utxo>>();
+                currentRemovedUtxos = new Dictionary<Sha256Ripemd160Hash, List<Utxo>>();
             }
 
             GoForwardUtxosInMemory(txBlock, currentAddedUtxos, currentRemovedUtxos);
         }
 
-        private void GoBackwardUtxosCurrent(TransactionalBlock<BlockidHashType, TxidHashType, PubKeyHashType, PubKeyType> txBlock)
+        private void GoBackwardUtxosCurrent(TransactionalBlock txBlock)
         {
             GoBackwardUtxosInMemory(txBlock, currentAddedUtxos, currentRemovedUtxos);
 
@@ -8909,7 +8867,7 @@ namespace CREA2014
             }
         }
 
-        private void UpdateUtxosTemp(Dictionary<PubKeyHashType, List<Utxo>> utxos1, Dictionary<PubKeyHashType, List<Utxo>> utxos2, PubKeyHashType address, long blockIndex, int txIndex, int txOutputIndex)
+        private void UpdateUtxosTemp(Dictionary<Sha256Ripemd160Hash, List<Utxo>> utxos1, Dictionary<Sha256Ripemd160Hash, List<Utxo>> utxos2, Sha256Ripemd160Hash address, long blockIndex, int txIndex, int txOutputIndex)
         {
             if (utxos1.ContainsKey(address))
             {
@@ -8929,25 +8887,25 @@ namespace CREA2014
                 utxos2.Add(address, new List<Utxo>() { new Utxo(blockIndex, txIndex, txOutputIndex) });
         }
 
-        private void GoForwardUtxosInMemory(TransactionalBlock<BlockidHashType, TxidHashType, PubKeyHashType, PubKeyType> txBlock, Dictionary<PubKeyHashType, List<Utxo>> addedUtxos, Dictionary<PubKeyHashType, List<Utxo>> removedUtxos)
+        private void GoForwardUtxosInMemory(TransactionalBlock txBlock, Dictionary<Sha256Ripemd160Hash, List<Utxo>> addedUtxos, Dictionary<Sha256Ripemd160Hash, List<Utxo>> removedUtxos)
         {
             foreach (var txi in txBlock.Transactions.Select((tx, i) => new { tx, i }))
             {
-                for (int i = 0; i < txi.tx.Inputs.Length; i++)
-                    UpdateUtxosTemp(addedUtxos, removedUtxos, Activator.CreateInstance(typeof(PubKeyHashType), txi.tx.Inputs[i].senderPubKey) as PubKeyHashType, txi.tx.Inputs[i].prevTxBlockIndex, txi.tx.Inputs[i].prevTxIndex, txi.tx.Inputs[i].prevTxOutputIndex);
-                for (int i = 0; i < txi.tx.Outputs.Length; i++)
-                    UpdateUtxosTemp(removedUtxos, addedUtxos, txi.tx.Outputs[i].receiverPubKeyHash, txBlock.header.index, txi.i, i);
+                for (int i = 0; i < txi.tx.TxInputs.Length; i++)
+                    UpdateUtxosTemp(addedUtxos, removedUtxos, new Sha256Ripemd160Hash(txi.tx.TxInputs[i].SenderPubKey.pubKey), txi.tx.TxInputs[i].PrevTxBlockIndex, txi.tx.TxInputs[i].PrevTxIndex, txi.tx.TxInputs[i].PrevTxOutputIndex);
+                for (int i = 0; i < txi.tx.TxOutputs.Length; i++)
+                    UpdateUtxosTemp(removedUtxos, addedUtxos, txi.tx.TxOutputs[i].ReceiverPubKeyHash, txBlock.header.index, txi.i, i);
             }
         }
 
-        private void GoBackwardUtxosInMemory(TransactionalBlock<BlockidHashType, TxidHashType, PubKeyHashType, PubKeyType> txBlock, Dictionary<PubKeyHashType, List<Utxo>> addedUtxos, Dictionary<PubKeyHashType, List<Utxo>> removedUtxos)
+        private void GoBackwardUtxosInMemory(TransactionalBlock txBlock, Dictionary<Sha256Ripemd160Hash, List<Utxo>> addedUtxos, Dictionary<Sha256Ripemd160Hash, List<Utxo>> removedUtxos)
         {
             foreach (var txi in txBlock.Transactions.Select((tx, i) => new { tx, i }))
             {
-                for (int i = 0; i < txi.tx.Inputs.Length; i++)
-                    UpdateUtxosTemp(removedUtxos, addedUtxos, Activator.CreateInstance(typeof(PubKeyHashType), txi.tx.Inputs[i].senderPubKey) as PubKeyHashType, txi.tx.Inputs[i].prevTxBlockIndex, txi.tx.Inputs[i].prevTxIndex, txi.tx.Inputs[i].prevTxOutputIndex);
-                for (int i = 0; i < txi.tx.Outputs.Length; i++)
-                    UpdateUtxosTemp(addedUtxos, removedUtxos, txi.tx.Outputs[i].receiverPubKeyHash, txBlock.header.index, txi.i, i);
+                for (int i = 0; i < txi.tx.TxInputs.Length; i++)
+                    UpdateUtxosTemp(removedUtxos, addedUtxos, new Sha256Ripemd160Hash(txi.tx.TxInputs[i].SenderPubKey.pubKey), txi.tx.TxInputs[i].PrevTxBlockIndex, txi.tx.TxInputs[i].PrevTxIndex, txi.tx.TxInputs[i].PrevTxOutputIndex);
+                for (int i = 0; i < txi.tx.TxOutputs.Length; i++)
+                    UpdateUtxosTemp(addedUtxos, removedUtxos, txi.tx.TxOutputs[i].ReceiverPubKeyHash, txBlock.header.index, txi.i, i);
             }
         }
 
@@ -9002,9 +8960,9 @@ namespace CREA2014
             bcDatabase.UpdateData(ToBinary());
         }
 
-        private SortedDictionary<long, List<TransactionalBlock<BlockidHashType, TxidHashType, PubKeyHashType, PubKeyType>>> GetToBeSavedBlockss()
+        private SortedDictionary<long, List<TransactionalBlock>> GetToBeSavedBlockss()
         {
-            SortedDictionary<long, List<TransactionalBlock<BlockidHashType, TxidHashType, PubKeyHashType, PubKeyType>>> tobeSavedBlockss = new SortedDictionary<long, List<TransactionalBlock<BlockidHashType, TxidHashType, PubKeyHashType, PubKeyType>>>();
+            SortedDictionary<long, List<TransactionalBlock>> tobeSavedBlockss = new SortedDictionary<long, List<TransactionalBlock>>();
 
             foreach (var mainBlock in mainBlocks)
             {
@@ -9015,14 +8973,14 @@ namespace CREA2014
                     if (tobeSavedBlockss.ContainsKey(bgIndex))
                         tobeSavedBlockss[bgIndex].Add(mainBlock.Value);
                     else
-                        tobeSavedBlockss.Add(bgIndex, new List<TransactionalBlock<BlockidHashType, TxidHashType, PubKeyHashType, PubKeyType>>() { mainBlock.Value });
+                        tobeSavedBlockss.Add(bgIndex, new List<TransactionalBlock>() { mainBlock.Value });
                 }
             }
 
             return tobeSavedBlockss;
         }
 
-        private void SaveBgAndBng(SortedDictionary<long, List<TransactionalBlock<BlockidHashType, TxidHashType, PubKeyHashType, PubKeyType>>> tobeSavedBlockss, long last)
+        private void SaveBgAndBng(SortedDictionary<long, List<TransactionalBlock>> tobeSavedBlockss, long last)
         {
             SortedDictionary<long, BlockNode> newBlockNodes = new SortedDictionary<long, BlockNode>();
             long lastBgIndex = last / blockGroupDiv;
@@ -9037,7 +8995,7 @@ namespace CREA2014
                     if (tobeSavedBlock.header.index > last)
                         break;
 
-                    bgDatas.Add(BitConverter.GetBytes((int)(tobeSavedBlock is NormalBlock<BlockidHashType, TxidHashType, PubKeyHashType, PubKeyType> ? TransactionType.normal : TransactionType.foundational)).Combine(tobeSavedBlock.ToBinary()));
+                    bgDatas.Add(BitConverter.GetBytes((int)(tobeSavedBlock is NormalBlock ? TransactionType.normal : TransactionType.foundational)).Combine(tobeSavedBlock.ToBinary()));
                 }
 
                 long bgPosition1 = SaveBlockGroup(tobeSavedBlocks.Key, bgDatas.ToArray());
@@ -9092,7 +9050,7 @@ namespace CREA2014
                     bool flag = false;
                     foreach (var blockNode in currentBng.nodess[bngPosition].nodes)
                     {
-                        TransactionalBlock<BlockidHashType, TxidHashType, PubKeyHashType, PubKeyType> block = GetSavedOrCachedBlock(bgIndex, blockNode.position1, blockNode.position2);
+                        TransactionalBlock block = GetSavedOrCachedBlock(bgIndex, blockNode.position1, blockNode.position2);
                         if (block.Id.Equals(mainBlock.Value.Id))
                             blockNode.isMain = flag = true;
                         else
@@ -9107,49 +9065,46 @@ namespace CREA2014
             bngDatabase.UpdateBlockNodesGroupData(currentBng.ToBinary(), currentBngIndex);
         }
 
-        public bool VerifyBlock(TransactionalBlock<BlockidHashType, TxidHashType, PubKeyHashType, PubKeyType> txBlock, IEnumerable<Dictionary<PubKeyHashType, List<Utxo>>> addeds, IEnumerable<Dictionary<PubKeyHashType, List<Utxo>>> removeds)
+        public bool VerifyBlock(TransactionalBlock txBlock, IEnumerable<Dictionary<Sha256Ripemd160Hash, List<Utxo>>> addeds, IEnumerable<Dictionary<Sha256Ripemd160Hash, List<Utxo>>> removeds)
         {
             if (!isInitialized)
                 throw new InvalidOperationException("not_initialized");
 
-            if (!txBlock.IsValid)
-                return false;
-
-            TransactionOutput<PubKeyHashType>[][] prevTxOutputs = new TransactionOutput<PubKeyHashType>[txBlock.transferTxs.Length][];
+            TransactionOutput[][] prevTxOutputs = new TransactionOutput[txBlock.transferTxs.Length][];
             foreach (var transrferTx in txBlock.transferTxs.Select((v, i) => new { v, i }))
             {
-                prevTxOutputs[transrferTx.i] = new TransactionOutput<PubKeyHashType>[transrferTx.v.Inputs.Length];
-                foreach (var txInput in transrferTx.v.Inputs.Select((v, i) => new { v, i }))
+                prevTxOutputs[transrferTx.i] = new TransactionOutput[transrferTx.v.txInputs.Length];
+                foreach (var txInput in transrferTx.v.txInputs.Select((v, i) => new { v, i }))
                 {
-                    PubKeyHashType address = Activator.CreateInstance(typeof(PubKeyHashType), txInput.v.senderPubKey.pubKey) as PubKeyHashType;
-                    if (utxos.Contains(address, txInput.v.prevTxBlockIndex, txInput.v.prevTxIndex, txInput.v.prevTxOutputIndex))
+                    Sha256Ripemd160Hash address = new Sha256Ripemd160Hash(txInput.v.SenderPubKey.pubKey);
+                    if (utxos.Contains(address, txInput.v.PrevTxBlockIndex, txInput.v.PrevTxIndex, txInput.v.PrevTxOutputIndex))
                     {
                         foreach (var removed in removeds)
                             if (removed.ContainsKey(address))
                                 foreach (var removedUtxo in removed[address])
-                                    if (removedUtxo.blockIndex == txInput.v.prevTxBlockIndex && removedUtxo.txIndex == txInput.v.prevTxIndex && removedUtxo.txOutIndex == txInput.v.prevTxOutputIndex)
+                                    if (removedUtxo.blockIndex == txInput.v.PrevTxBlockIndex && removedUtxo.txIndex == txInput.v.PrevTxIndex && removedUtxo.txOutIndex == txInput.v.PrevTxOutputIndex)
                                         return false;
-                        prevTxOutputs[transrferTx.i][txInput.i] = GetMainBlock(txInput.v.prevTxBlockIndex).Transactions[txInput.v.prevTxIndex].Outputs[txInput.v.prevTxOutputIndex];
+                        prevTxOutputs[transrferTx.i][txInput.i] = GetMainBlock(txInput.v.PrevTxBlockIndex).Transactions[txInput.v.PrevTxIndex].TxOutputs[txInput.v.PrevTxOutputIndex];
                     }
                     else
                     {
                         foreach (var added in addeds)
                             if (added.ContainsKey(address))
                                 foreach (var addedUtxo in added[address])
-                                    if (addedUtxo.blockIndex == txInput.v.prevTxBlockIndex && addedUtxo.txIndex == txInput.v.prevTxIndex && addedUtxo.txOutIndex == txInput.v.prevTxOutputIndex)
-                                        prevTxOutputs[transrferTx.i][txInput.i] = GetMainBlock(txInput.v.prevTxBlockIndex).Transactions[txInput.v.prevTxIndex].Outputs[txInput.v.prevTxOutputIndex];
+                                    if (addedUtxo.blockIndex == txInput.v.PrevTxBlockIndex && addedUtxo.txIndex == txInput.v.PrevTxIndex && addedUtxo.txOutIndex == txInput.v.PrevTxOutputIndex)
+                                        prevTxOutputs[transrferTx.i][txInput.i] = GetMainBlock(txInput.v.PrevTxBlockIndex).Transactions[txInput.v.PrevTxIndex].TxOutputs[txInput.v.PrevTxOutputIndex];
                         if (prevTxOutputs[transrferTx.i][txInput.i] == null)
                             return false;
                         foreach (var removed in removeds)
                             if (removed.ContainsKey(address))
                                 foreach (var removedUtxo in removed[address])
-                                    if (removedUtxo.blockIndex == txInput.v.prevTxBlockIndex && removedUtxo.txIndex == txInput.v.prevTxIndex && removedUtxo.txOutIndex == txInput.v.prevTxOutputIndex)
+                                    if (removedUtxo.blockIndex == txInput.v.PrevTxBlockIndex && removedUtxo.txIndex == txInput.v.PrevTxIndex && removedUtxo.txOutIndex == txInput.v.PrevTxOutputIndex)
                                         return false;
                     }
                 }
             }
 
-            txBlock.VerifyAll(prevTxOutputs, (index) => GetMainBlock(index));
+            txBlock.Verify(prevTxOutputs, (index) => GetMainBlock(index));
 
             return true;
         }
@@ -9186,15 +9141,15 @@ namespace CREA2014
         }
     }
 
-    public class AddressEventDatas<PubKeyHashType>
+    public class AddressEventDatas
     {
         public AddressEventDatas() { }
 
-        public AddressEventDatas(Dictionary<PubKeyHashType, List<AddressEventData>> _addressEventData) { addressEventDatas = _addressEventData; }
+        public AddressEventDatas(Dictionary<Sha256Ripemd160Hash, List<AddressEventData>> _addressEventData) { addressEventDatas = _addressEventData; }
 
-        public Dictionary<PubKeyHashType, List<AddressEventData>> addressEventDatas { get; private set; }
+        public Dictionary<Sha256Ripemd160Hash, List<AddressEventData>> addressEventDatas { get; private set; }
 
-        public void Add(PubKeyHashType address, AddressEventData addressEventData)
+        public void Add(Sha256Ripemd160Hash address, AddressEventData addressEventData)
         {
             List<AddressEventData> list = null;
             if (addressEventDatas.Keys.Contains(address))
@@ -9208,7 +9163,7 @@ namespace CREA2014
             list.Add(addressEventData);
         }
 
-        public void Add(PubKeyHashType address, List<AddressEventData> list)
+        public void Add(Sha256Ripemd160Hash address, List<AddressEventData> list)
         {
             if (addressEventDatas.Keys.Contains(address))
                 throw new InvalidOperationException("already_existed");
@@ -9216,7 +9171,7 @@ namespace CREA2014
             addressEventDatas.Add(address, list);
         }
 
-        public void Remove(PubKeyHashType address, long blockIndex, int txIndex, int txOutIndex)
+        public void Remove(Sha256Ripemd160Hash address, long blockIndex, int txIndex, int txOutIndex)
         {
             if (!addressEventDatas.Keys.Contains(address))
                 throw new InvalidOperationException("not_existed");
@@ -9233,7 +9188,7 @@ namespace CREA2014
                 addressEventDatas.Remove(address);
         }
 
-        public void Remove(PubKeyHashType address)
+        public void Remove(Sha256Ripemd160Hash address)
         {
             if (!addressEventDatas.Keys.Contains(address))
                 throw new InvalidOperationException("not_existed");
@@ -9241,7 +9196,7 @@ namespace CREA2014
             addressEventDatas.Remove(address);
         }
 
-        public void Update(Dictionary<PubKeyHashType, List<AddressEventData>> addedUtxos, Dictionary<PubKeyHashType, List<AddressEventData>> removedUtxos)
+        public void Update(Dictionary<Sha256Ripemd160Hash, List<AddressEventData>> addedUtxos, Dictionary<Sha256Ripemd160Hash, List<AddressEventData>> removedUtxos)
         {
             foreach (var addedUtxos2 in addedUtxos)
                 foreach (var addedUtxo in addedUtxos2.Value)
@@ -9251,7 +9206,7 @@ namespace CREA2014
                     Remove(removedUtxos2.Key, removedUtxo.blockIndex, removedUtxo.txIndex, removedUtxo.txOutIndex);
         }
 
-        public bool Contains(PubKeyHashType address, long blockIndex, int txIndex, int txOutIndex)
+        public bool Contains(Sha256Ripemd160Hash address, long blockIndex, int txIndex, int txOutIndex)
         {
             if (!addressEventDatas.Keys.Contains(address))
                 return false;
@@ -9261,9 +9216,9 @@ namespace CREA2014
             return list.FirstOrDefault((elem) => elem.blockIndex == blockIndex && elem.txIndex == txIndex && elem.txOutIndex == txOutIndex) != null;
         }
 
-        public bool ContainsAddress(PubKeyHashType address) { return addressEventDatas.Keys.Contains(address); }
+        public bool ContainsAddress(Sha256Ripemd160Hash address) { return addressEventDatas.Keys.Contains(address); }
 
-        public List<AddressEventData> GetAddressEventDatas(PubKeyHashType address)
+        public List<AddressEventData> GetAddressEventDatas(Sha256Ripemd160Hash address)
         {
             if (!addressEventDatas.Keys.Contains(address))
                 throw new InvalidOperationException("not_existed");
@@ -9300,15 +9255,15 @@ namespace CREA2014
         }
     }
 
-    public class Utxos<PubKeyHashType>
+    public class Utxos
     {
         public Utxos() { }
 
-        public Utxos(Dictionary<PubKeyHashType, List<Utxo>> _utxos) { utxos = _utxos; }
+        public Utxos(Dictionary<Sha256Ripemd160Hash, List<Utxo>> _utxos) { utxos = _utxos; }
 
-        public Dictionary<PubKeyHashType, List<Utxo>> utxos { get; private set; }
+        public Dictionary<Sha256Ripemd160Hash, List<Utxo>> utxos { get; private set; }
 
-        public void Add(PubKeyHashType address, Utxo utxo)
+        public void Add(Sha256Ripemd160Hash address, Utxo utxo)
         {
             List<Utxo> list = null;
             if (utxos.Keys.Contains(address))
@@ -9322,7 +9277,7 @@ namespace CREA2014
             list.Add(utxo);
         }
 
-        public void Remove(PubKeyHashType address, long blockIndex, int txIndex, int txOutIndex)
+        public void Remove(Sha256Ripemd160Hash address, long blockIndex, int txIndex, int txOutIndex)
         {
             if (!utxos.Keys.Contains(address))
                 throw new InvalidOperationException("not_existed");
@@ -9339,7 +9294,7 @@ namespace CREA2014
                 utxos.Remove(address);
         }
 
-        public void Update(Dictionary<PubKeyHashType, List<Utxo>> addedUtxos, Dictionary<PubKeyHashType, List<Utxo>> removedUtxos)
+        public void Update(Dictionary<Sha256Ripemd160Hash, List<Utxo>> addedUtxos, Dictionary<Sha256Ripemd160Hash, List<Utxo>> removedUtxos)
         {
             foreach (var addedUtxos2 in addedUtxos)
                 foreach (var addedUtxo in addedUtxos2.Value)
@@ -9349,7 +9304,7 @@ namespace CREA2014
                     Remove(removedUtxos2.Key, removedUtxo.blockIndex, removedUtxo.txIndex, removedUtxo.txOutIndex);
         }
 
-        public bool Contains(PubKeyHashType address, long blockIndex, int txIndex, int txOutIndex)
+        public bool Contains(Sha256Ripemd160Hash address, long blockIndex, int txIndex, int txOutIndex)
         {
             if (!utxos.Keys.Contains(address))
                 return false;
@@ -9359,9 +9314,9 @@ namespace CREA2014
             return list.FirstOrDefault((elem) => elem.blockIndex == blockIndex && elem.txIndex == txIndex && elem.txOutIndex == txOutIndex) != null;
         }
 
-        public bool ContainsAddress(PubKeyHashType address) { return utxos.Keys.Contains(address); }
+        public bool ContainsAddress(Sha256Ripemd160Hash address) { return utxos.Keys.Contains(address); }
 
-        public List<Utxo> GetAddressUtxos(PubKeyHashType address)
+        public List<Utxo> GetAddressUtxos(Sha256Ripemd160Hash address)
         {
             if (!utxos.Keys.Contains(address))
                 throw new InvalidOperationException("not_existed");

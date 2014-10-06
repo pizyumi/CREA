@@ -790,10 +790,3 @@ namespace CREA2014
 
     #endregion
 }
-
-namespace New
-{
-    using CREA2014;
-    using System.IO;
-
-}

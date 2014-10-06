@@ -3679,7 +3679,7 @@ namespace CREA2014
 
                 //2014/10/01
                 //設定しなければならない設定値などが設定されているかを確認する
-                if (New.TransactionalBlock.foundationPubKeyHash == null)
+                if (TransactionalBlock.foundationPubKeyHash == null)
                     throw new ApplicationException("not_setted_foundation_pubkey_hash");
 
                 if (testApplication == null || testApplication.IsUseCore)
