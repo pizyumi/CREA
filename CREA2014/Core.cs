@@ -2405,6 +2405,7 @@ namespace CREA2014
         public NodeInformation myNodeInfo { get; private set; }
 
         protected abstract bool IsContinue { get; }
+        protected abstract bool IsTemporaryContinue { get; }
 
         protected abstract bool IsAlreadyConnected(NodeInformation nodeInfo);
         protected abstract void UpdateNodeState(NodeInformation nodeInfo, bool isSucceeded);
@@ -2479,7 +2480,7 @@ namespace CREA2014
                 {
                     InboundProtocol(sc, _ConsoleWriteLine);
 
-                    if (IsContinue)
+                    if (IsTemporaryContinue)
                     {
                         bool isWantToContinue = IsWantToContinue(header.nodeInfo);
                         sc.WriteBytes(BitConverter.GetBytes(isWantToContinue));
@@ -2594,7 +2595,7 @@ namespace CREA2014
                     {
                         MessageBase[] resMessages = OutboundProtocol(reqMessages, sc, _ConsoleWriteLine);
 
-                        if (IsContinue)
+                        if (IsTemporaryContinue)
                         {
                             bool isWantToContinue = BitConverter.ToBoolean(sc.ReadBytes(), 0);
                             if (isWantToContinue)
@@ -2924,6 +2925,7 @@ namespace CREA2014
         public CreaNodeLocalTestNotContinue(ushort _portNumber, int _creaVersion, string _appnameWithVersion) : base(_portNumber, _creaVersion, _appnameWithVersion) { }
 
         protected override bool IsContinue { get { return false; } }
+        protected override bool IsTemporaryContinue { get { return false; } }
 
         protected override bool IsAlreadyConnected(NodeInformation nodeInfo) { return false; }
 
@@ -2984,6 +2986,7 @@ namespace CREA2014
         }
 
         protected override bool IsContinue { get { return true; } }
+        protected override bool IsTemporaryContinue { get { return true; } }
 
         protected override bool IsAlreadyConnected(NodeInformation nodeInfo)
         {
@@ -3238,6 +3241,7 @@ namespace CREA2014
         }
 
         protected override bool IsContinue { get { return true; } }
+        protected override bool IsTemporaryContinue { get { return true; } }
 
         protected override bool IsAlreadyConnected(NodeInformation nodeInfo)
         {
@@ -3332,9 +3336,9 @@ namespace CREA2014
             List<NodeInformation> nodeInfos;
             List<NodeInformation> nodeInfosConnected;
             lock (kbucketsLocks[distanceLevel])
-                nodeInfos = kbuckets[distanceLevel];
+                nodeInfos = new List<NodeInformation>(kbuckets[distanceLevel]);
             lock (outboundConnectionsLock[distanceLevel])
-                nodeInfosConnected = outboundConnections[distanceLevel].Select((elem) => elem.nodeInfo).ToList();
+                nodeInfosConnected = new List<NodeInformation>(outboundConnections[distanceLevel].Select((elem) => elem.nodeInfo));
             lock (inboundConnections[distanceLevel])
                 nodeInfosConnected.AddRange(inboundConnections[distanceLevel].Select((elem) => elem.nodeInfo));
 
@@ -3520,7 +3524,7 @@ namespace CREA2014
                 return;
             }
 
-            if (myNodeInfo != null)
+            if (myNodeInfo == null)
             {
                 dhtNodeInfo = nodeInfos[0];
 
@@ -3541,11 +3545,14 @@ namespace CREA2014
                     continue;
 
                 lock (kbucketsLocks[i])
-                    nodeInfos = kbuckets[i];
+                    nodeInfos = new List<NodeInformation>(kbuckets[i]);
 
                 foreach (var nodeInfo in nodeInfos)
                     if (outboundConnections[i].Count < outboundConnectionsMax)
-                        Connect(nodeInfo, false, () => { });
+                    {
+                        if (!IsAlreadyConnected(nodeInfo))
+                            Connect(nodeInfo, false, () => { });
+                    }
                     else
                         break;
             }
@@ -7861,6 +7868,63 @@ namespace CREA2014
     }
 
     #endregion
+
+    public class TransactionCollection : SHAREDDATA
+    {
+        public TransactionCollection()
+            : base(null)
+        {
+            transactions = new List<Transaction>();
+            transactionsCache = new CachedData<Transaction[]>(() =>
+            {
+                lock (transactionsLock)
+                    return transactions.ToArray();
+            });
+        }
+
+        private readonly object transactionsLock = new object();
+        private List<Transaction> transactions;
+        private readonly CachedData<Transaction[]> transactionsCache;
+        public Transaction[] Transactions { get { return transactionsCache.Data; } }
+
+        public event EventHandler<Transaction> TransactionAdded = delegate { };
+        public event EventHandler<Transaction> TransactionRemoved = delegate { };
+
+        public void AddAccount(Transaction transaction)
+        {
+            lock (transactionsLock)
+            {
+                if (transactions.Contains(transaction))
+                    throw new InvalidOperationException("exist_account");
+
+                this.ExecuteBeforeEvent(() =>
+                {
+                    transactions.Add(transaction);
+                    transactionsCache.IsModified = true;
+                }, transaction, TransactionAdded);
+            }
+        }
+
+        public void RemoveAccount(Transaction transaction)
+        {
+            lock (transactionsLock)
+            {
+                if (!transactions.Contains(transaction))
+                    throw new InvalidOperationException("not_exist_account");
+
+                this.ExecuteBeforeEvent(() =>
+                {
+                    transactions.Remove(transaction);
+                    transactionsCache.IsModified = true;
+                }, transaction, TransactionRemoved);
+            }
+        }
+
+        protected override Func<ReaderWriter, IEnumerable<MainDataInfomation>> StreamInfo
+        {
+            get { throw new NotImplementedException(); }
+        }
+    }
 
     public class Mining
     {
