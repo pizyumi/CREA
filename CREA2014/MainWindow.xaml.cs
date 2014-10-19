@@ -676,17 +676,60 @@ namespace CREA2014
                 }
             };
 
-            //<未実装>一旦コメントアウト
-            //core.iAccountHolders.iAccountHoldersChanged += (sender2, e2) =>
-            //{
-            //    foreach (var wssession in wss.GetAllSessions())
-            //        wssession.Send("acc_hols " + _GetAccountHolderHtml());
-            //};
+            Action _SendAccountHolders = () =>
+            {
+                foreach (var wssession in wss.GetAllSessions())
+                    wssession.Send("acc_hols " + _GetAccountHolderHtml());
+            };
+
+            EventHandler _AccountChanged = (sender2, e2) => _SendAccountHolders();
+            EventHandler<IAccount> _AccountAdded = (sender2, e2) =>
+            {
+                _SendAccountHolders();
+
+                e2.iAccountChanged += _AccountChanged;
+            };
+            EventHandler<IAccount> _AccountRemoved = (sender2, e2) =>
+            {
+                _SendAccountHolders();
+
+                e2.iAccountChanged -= _AccountChanged;
+            };
+
+            Action<IAccountHolder> _SubscribeEvents = (accountHolder) =>
+            {
+                accountHolder.iAccountAdded += _AccountAdded;
+                accountHolder.iAccountRemoved += _AccountRemoved;
+                foreach (var account in accountHolder.iAccounts)
+                    account.iAccountChanged += _AccountChanged;
+            };
+
+            _SubscribeEvents(core.iAccountHolders.iAnonymousAccountHolder);
+            foreach (var pseudonymousAccountHolder in core.iAccountHolders.iPseudonymousAccountHolders)
+                _SubscribeEvents(pseudonymousAccountHolder);
+
+            core.iAccountHolders.iAccountHolderAdded += (sender2, e2) =>
+            {
+                _SendAccountHolders();
+
+                _SubscribeEvents(e2);
+            };
+            core.iAccountHolders.iAccountHolderRemoved += (sender2, e2) =>
+            {
+                _SendAccountHolders();
+
+                e2.iAccountAdded -= _AccountAdded;
+                e2.iAccountRemoved -= _AccountRemoved;
+                foreach (var account in e2.iAccounts)
+                    account.iAccountChanged -= _AccountChanged;
+            };
+
             logger.LogAdded += (sender2, e2) =>
             {
                 foreach (var wssession in wss.GetAllSessions())
                     wssession.Send("log " + _GetLogHtml(e2));
             };
+
             core.BalanceUpdated += (sender2, e2) =>
             {
                 foreach (var wssession in wss.GetAllSessions())

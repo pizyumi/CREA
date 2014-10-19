@@ -89,87 +89,93 @@ namespace CREA2014
             byte[] ahDataBytes = ahDatabase.GetData();
             if (ahDataBytes.Length != 0)
                 accountHolders.FromBinary(ahDataBytes);
+            else
+                accountHolders.LoadVersion1();
 
-            //<未実装>一旦コメントアウト
-            //usableBalanceCache = new CachedData<CurrencyUnit>(() =>
-            //{
-            //    CurrencyUnit cu = new CurrencyUnit(0);
-            //    foreach (var accountHolder in accountHolders.AllAccountHolders)
-            //        foreach (var account in accountHolder.Accounts)
-            //            cu = new CurrencyUnit(cu.rawAmount + account.usableAmount.rawAmount);
-            //    return cu;
-            //});
-            //unusableBalanceCache = new CachedData<CurrencyUnit>(() =>
-            //{
-            //    CurrencyUnit cu = new CurrencyUnit(0);
-            //    foreach (var accountHolder in accountHolders.AllAccountHolders)
-            //        foreach (var account in accountHolder.Accounts)
-            //            cu = new CurrencyUnit(cu.rawAmount + account.unusableAmount.rawAmount);
-            //    return cu;
-            //});
+            usableBalanceCache = new CachedData<CurrencyUnit>(() =>
+            {
+                CurrencyUnit cu = new CurrencyUnit(0);
+                foreach (var accountHolder in accountHolders.AllAccountHolders)
+                    foreach (var account in accountHolder.Accounts)
+                        cu = new CurrencyUnit(cu.rawAmount + account.accountStatus.usableAmount.rawAmount);
+                return cu;
+            });
+            unusableBalanceCache = new CachedData<CurrencyUnit>(() =>
+            {
+                CurrencyUnit cu = new CurrencyUnit(0);
+                foreach (var accountHolder in accountHolders.AllAccountHolders)
+                    foreach (var account in accountHolder.Accounts)
+                        cu = new CurrencyUnit(cu.rawAmount + account.accountStatus.unusableAmount.rawAmount);
+                return cu;
+            });
 
-            //blockChain = new BlockChain<BlockidHashType, TxidHashType, PubKeyHashType, DsaPubKeyType>(bcDatabase, bngDatabase, bgDatabase, utxoDatabase, addressEventDatabase);
-            //blockChain.Initialize();
+            blockChain = new BlockChain(bcDatabase, bngDatabase, bgDatabase, utxoDatabase, addressEventDatabase);
+            blockChain.Initialize();
 
-            //Dictionary<Account, EventHandler<Tuple<CurrencyUnit, CurrencyUnit>>> changeAmountDict = new Dictionary<Account, EventHandler<Tuple<CurrencyUnit, CurrencyUnit>>>();
+            Dictionary<Account, EventHandler<Tuple<CurrencyUnit, CurrencyUnit>>> changeAmountDict = new Dictionary<Account, EventHandler<Tuple<CurrencyUnit, CurrencyUnit>>>();
 
-            //Action _UpdateBalance = () =>
-            //{
-            //    usableBalanceCache.IsModified = true;
-            //    unusableBalanceCache.IsModified = true;
+            Action _UpdateBalance = () =>
+            {
+                usableBalanceCache.IsModified = true;
+                unusableBalanceCache.IsModified = true;
 
-            //    BalanceUpdated(this, EventArgs.Empty);
-            //};
+                BalanceUpdated(this, EventArgs.Empty);
+            };
 
-            //Action<Account> _AddAddressEvent = (account) =>
-            //{
-            //    EventHandler<Tuple<CurrencyUnit, CurrencyUnit>> eh = (sender, e) => account.ChangeAmount(e.Item1, e.Item2);
+            Action<Account> _AddAddressEvent = (account) =>
+            {
+                EventHandler<Tuple<CurrencyUnit, CurrencyUnit>> eh = (sender, e) =>
+                {
+                    account.accountStatus.usableAmount = e.Item1;
+                    account.accountStatus.unusableAmount = e.Item2;
+                };
 
-            //    changeAmountDict.Add(account, eh);
+                changeAmountDict.Add(account, eh);
 
-            //    AddressEvent<PubKeyHashType> addressEvent = new AddressEvent<PubKeyHashType>(Activator.CreateInstance(typeof(PubKeyHashType), account.keyPair.pubKey.pubKey) as PubKeyHashType);
-            //    addressEvent.BalanceUpdated += eh;
+                AddressEvent addressEvent = new AddressEvent(account.Address.Hash);
+                addressEvent.BalanceUpdated += eh;
 
-            //    blockChain.AddAddressEvent(addressEvent);
+                blockChain.AddAddressEvent(addressEvent);
 
-            //    _UpdateBalance();
-            //};
+                _UpdateBalance();
+            };
 
-            //EventHandler<Account<KeyPairType, DsaPubKeyType, DsaPrivKeyType>> _AccountAdded = (sender, e) => _AddAddressEvent(e);
-            //EventHandler<Account<KeyPairType, DsaPubKeyType, DsaPrivKeyType>> _AccountRemoved = (sender, e) =>
-            //{
-            //    EventHandler<Tuple<CurrencyUnit, CurrencyUnit>> eh = changeAmountDict[e];
+            EventHandler<Account> _AccountAdded = (sender, e) => _AddAddressEvent(e);
+            EventHandler<Account> _AccountRemoved = (sender, e) =>
+            {
+                EventHandler<Tuple<CurrencyUnit, CurrencyUnit>> eh = changeAmountDict[e];
 
-            //    changeAmountDict.Remove(e);
+                changeAmountDict.Remove(e);
 
-            //    AddressEvent<PubKeyHashType> addressEvent = blockChain.RemoveAddressEvent(Activator.CreateInstance(typeof(PubKeyHashType), e.keyPair.pubKey.pubKey) as PubKeyHashType);
-            //    addressEvent.BalanceUpdated -= eh;
+                AddressEvent addressEvent = blockChain.RemoveAddressEvent(e.Address.Hash);
+                addressEvent.BalanceUpdated -= eh;
 
-            //    _UpdateBalance();
-            //};
+                _UpdateBalance();
+            };
 
-            //foreach (var accountHolder in accountHolders.AllAccountHolders)
-            //{
-            //    foreach (var account in accountHolder.Accounts)
-            //        _AddAddressEvent(account);
+            foreach (var accountHolder in accountHolders.AllAccountHolders)
+            {
+                foreach (var account in accountHolder.Accounts)
+                    _AddAddressEvent(account);
 
-            //    accountHolder.AccountAdded += _AccountAdded;
-            //    accountHolder.AccountRemoved += _AccountRemoved;
-            //}
-            //accountHolders.AccountHolderAdded += (sender, e) =>
-            //{
-            //    e.AccountAdded += _AccountAdded;
-            //    e.AccountRemoved += _AccountRemoved;
-            //};
-            //accountHolders.AccountHolderRemoved += (semder, e) =>
-            //{
-            //    e.AccountAdded -= _AccountAdded;
-            //    e.AccountRemoved -= _AccountRemoved;
-            //};
+                accountHolder.AccountAdded += _AccountAdded;
+                accountHolder.AccountRemoved += _AccountRemoved;
+            }
 
-            //blockChain.BalanceUpdated += (sender, e) => _UpdateBalance();
+            accountHolders.AccountHolderAdded += (sender, e) =>
+            {
+                e.AccountAdded += _AccountAdded;
+                e.AccountRemoved += _AccountRemoved;
+            };
+            accountHolders.AccountHolderRemoved += (semder, e) =>
+            {
+                e.AccountAdded -= _AccountAdded;
+                e.AccountRemoved -= _AccountRemoved;
+            };
 
-            //_UpdateBalance();
+            blockChain.BalanceUpdated += (sender, e) => _UpdateBalance();
+
+            _UpdateBalance();
 
             mining = new Mining();
 
@@ -234,6 +240,12 @@ namespace CREA2014
         public void RaiseBalanceUpdated(Tuple<CurrencyUnit, CurrencyUnit> cus) { BalanceUpdated(this, cus); }
         public void RaiseUsableBalanceUpdated(CurrencyUnit cu) { UsableBalanceUpdated(this, cu); }
         public void RaiseUnusableBalanceUpdated(CurrencyUnit cu) { UnusableBalanceUpdated(this, cu); }
+    }
+
+    public class AccountStatus
+    {
+        public CurrencyUnit usableAmount { get; set; }
+        public CurrencyUnit unusableAmount { get; set; }
     }
 
     #region ソケット通信
@@ -5318,6 +5330,9 @@ namespace CREA2014
         string iDescription { get; }
         string iAddress { get; }
 
+        CurrencyUnit iUsableAmount { get; }
+        CurrencyUnit iUnusableAmount { get; }
+
         event EventHandler iAccountChanged;
     }
 
@@ -5361,7 +5376,7 @@ namespace CREA2014
 
     public class Account : SHAREDDATA, IAccount
     {
-        public Account() : base(0) { }
+        public Account() : base(0) { accountStatus = new AccountStatus(); }
 
         public void LoadVersion0(string _name, string _description)
         {
@@ -5386,6 +5401,8 @@ namespace CREA2014
             name = _name;
             description = _description;
         }
+
+        public AccountStatus accountStatus { get; private set; }
 
         private string name;
         private string description;
@@ -5598,6 +5615,9 @@ namespace CREA2014
         public string iName { get { return Name; } }
         public string iDescription { get { return Description; } }
         public string iAddress { get { return AddressBase58; } }
+
+        public CurrencyUnit iUsableAmount { get { return accountStatus.usableAmount; } }
+        public CurrencyUnit iUnusableAmount { get { return accountStatus.unusableAmount; } }
 
         public event EventHandler iAccountChanged
         {
@@ -7041,7 +7061,7 @@ namespace CREA2014
             if (Version == 0)
             {
                 for (int i = 0; i < txInputs.Length; i++)
-                    if (!(Activator.CreateInstance(typeof(Sha256Ripemd160Hash), txInputs[i].Ecdsa256PubKey.pubKey) as Sha256Ripemd160Hash).Equals(prevTxOutputs[i].ReceiverPubKeyHash))
+                    if (!new Sha256Ripemd160Hash(txInputs[i].Ecdsa256PubKey.pubKey).Equals(prevTxOutputs[i].ReceiverPubKeyHash))
                         return false;
             }
             else if (Version == 1)
@@ -7049,7 +7069,7 @@ namespace CREA2014
                 byte[] bytesToSign = GetBytesToSign(prevTxOutputs);
 
                 for (int i = 0; i < txInputs.Length; i++)
-                    if (!(Activator.CreateInstance(typeof(Sha256Ripemd160Hash), Secp256k1Utility.Recover<Sha256Hash>(bytesToSign, txInputs[i].Secp256k1Signature.signature).pubKey) as Sha256Ripemd160Hash).Equals(prevTxOutputs[i].ReceiverPubKeyHash))
+                    if (!new Sha256Ripemd160Hash(Secp256k1Utility.Recover<Sha256Hash>(bytesToSign, txInputs[i].Secp256k1Signature.signature).pubKey).Equals(prevTxOutputs[i].ReceiverPubKeyHash))
                         return false;
             }
             else
@@ -7208,7 +7228,7 @@ namespace CREA2014
         {
             if (_header.Version != 0)
                 throw new ArgumentException();
-            if (_coinbaseTxToMiner.Version != 1)
+            if (_coinbaseTxToMiner.Version != 0)
                 throw new ArgumentException();
             foreach (var transferTx in _transferTxs)
                 if (transferTx.Version != 1)
@@ -7341,10 +7361,10 @@ namespace CREA2014
                 else if (Version == 1)
                     return (msrw) => new MainDataInfomation[]{
                         new MainDataInfomation(typeof(BlockHeader), 0, () => header, (o) => header = (BlockHeader)o),
-                        new MainDataInfomation(typeof(CoinbaseTransaction), 1, () => coinbaseTxToMiner, (o) => 
+                        new MainDataInfomation(typeof(CoinbaseTransaction), 0, () => coinbaseTxToMiner, (o) => 
                         {
                             coinbaseTxToMiner = (CoinbaseTransaction)o;
-                            if (coinbaseTxToMiner.Version != 1)
+                            if (coinbaseTxToMiner.Version != 0)
                                 throw new NotSupportedException();
                         }),
                         new MainDataInfomation(typeof(TransferTransaction[]), 1, null, () => transferTxs, (o) => 
@@ -7763,7 +7783,7 @@ namespace CREA2014
 
         public virtual void LoadVersion1(BlockHeader _header, CoinbaseTransaction _coinbaseTxToMiner, CoinbaseTransaction _coinbaseTxToFoundation, TransferTransaction[] _transferTxs)
         {
-            if (_coinbaseTxToFoundation.Version != 1)
+            if (_coinbaseTxToFoundation.Version != 0)
                 throw new ArgumentException();
 
             base.LoadVersion1(_header, _coinbaseTxToMiner, _transferTxs);
@@ -7820,10 +7840,10 @@ namespace CREA2014
                     });
                 else if (Version == 1)
                     return (msrw) => base.StreamInfo(msrw).Concat(new MainDataInfomation[]{
-                        new MainDataInfomation(typeof(CoinbaseTransaction), 1, () => coinbaseTxToFoundation, (o) => 
+                        new MainDataInfomation(typeof(CoinbaseTransaction), 0, () => coinbaseTxToFoundation, (o) => 
                         {
                             coinbaseTxToFoundation = (CoinbaseTransaction)o;
-                            if (coinbaseTxToFoundation.Version != 1)
+                            if (coinbaseTxToFoundation.Version != 0)
                                 throw new NotSupportedException();
                         }),
                     });
@@ -8774,12 +8794,12 @@ namespace CREA2014
                 List<Utxo> listUtxo = utxos.ContainsAddress(addressEvent.address) ? utxos.GetAddressUtxos(addressEvent.address) : new List<Utxo>() { };
 
                 foreach (var added in addedUtxosInMemory.Concat(new List<Dictionary<Sha256Ripemd160Hash, List<Utxo>>>() { currentAddedUtxos }))
-                    if (added.ContainsKey(addressEvent.address))
+                    if (added != null && added.ContainsKey(addressEvent.address))
                         foreach (var utxo in added[addressEvent.address])
                             listUtxo.Add(utxo);
 
                 foreach (var removed in removedUtxosInMemory.Concat(new List<Dictionary<Sha256Ripemd160Hash, List<Utxo>>>() { currentRemovedUtxos }))
-                    if (removed.ContainsKey(addressEvent.address))
+                    if (removed != null && removed.ContainsKey(addressEvent.address))
                         foreach (var utxo in removed[addressEvent.address])
                         {
                             Utxo removedUtxo = listUtxo.FirstOrDefault((elem) => elem.blockIndex == utxo.blockIndex && elem.txIndex == utxo.txIndex && elem.txOutIndex == utxo.txOutIndex);
@@ -9153,14 +9173,14 @@ namespace CREA2014
                     else
                     {
                         foreach (var added in addeds)
-                            if (added.ContainsKey(address))
+                            if (added != null && added.ContainsKey(address))
                                 foreach (var addedUtxo in added[address])
                                     if (addedUtxo.blockIndex == txInput.v.PrevTxBlockIndex && addedUtxo.txIndex == txInput.v.PrevTxIndex && addedUtxo.txOutIndex == txInput.v.PrevTxOutputIndex)
                                         prevTxOutputs[transrferTx.i][txInput.i] = GetMainBlock(txInput.v.PrevTxBlockIndex).Transactions[txInput.v.PrevTxIndex].TxOutputs[txInput.v.PrevTxOutputIndex];
                         if (prevTxOutputs[transrferTx.i][txInput.i] == null)
                             return false;
                         foreach (var removed in removeds)
-                            if (removed.ContainsKey(address))
+                            if (removed != null && removed.ContainsKey(address))
                                 foreach (var removedUtxo in removed[address])
                                     if (removedUtxo.blockIndex == txInput.v.PrevTxBlockIndex && removedUtxo.txIndex == txInput.v.PrevTxIndex && removedUtxo.txOutIndex == txInput.v.PrevTxOutputIndex)
                                         return false;
@@ -9545,6 +9565,7 @@ namespace CREA2014
         public readonly string pathBase;
 
         protected abstract string filenameBase { get; }
+        protected abstract int version { get; }
     }
 
     public abstract class SimpleDatabase : DATABASEBASE
@@ -9574,7 +9595,8 @@ namespace CREA2014
     {
         public FirstNodeInfosDatabase(string _pathBase) : base(_pathBase) { }
 
-        protected override string filenameBase { get { return "nodes.txt"; } }
+        protected override string filenameBase { get { return "nodes" + version.ToString() + ".txt"; } }
+        protected override int version { get { return 0; } }
 
         public string[] GetFirstNodeInfosData() { return Encoding.UTF8.GetString(GetData()).Split(new string[] { Environment.NewLine }, StringSplitOptions.RemoveEmptyEntries); }
 
@@ -9585,8 +9607,10 @@ namespace CREA2014
     {
         public AccountHoldersDatabase(string _pathBase) : base(_pathBase) { }
 
+        protected override int version { get { return 0; } }
+
 #if TEST
-        protected override string filenameBase { get { return "acc_test"; } }
+        protected override string filenameBase { get { return "acc_test" + version.ToString(); } }
 #else
         protected override string filenameBase { get { return "acc"; } }
 #endif
@@ -9596,8 +9620,10 @@ namespace CREA2014
     {
         public BlockChainDatabase(string _pathBase) : base(_pathBase) { }
 
+        protected override int version { get { return 0; } }
+
 #if TEST
-        protected override string filenameBase { get { return "blkchn_test"; } }
+        protected override string filenameBase { get { return "blkchn_test" + version.ToString(); } }
 #else
         protected override string filenameBase { get { return "blkchn"; } }
 #endif
@@ -9607,8 +9633,10 @@ namespace CREA2014
     {
         public AddressEventDatabase(string _pathBase) : base(_pathBase) { }
 
+        protected override int version { get { return 0; } }
+
 #if TEST
-        protected override string filenameBase { get { return "address_event_test"; } }
+        protected override string filenameBase { get { return "address_event_test" + version.ToString(); } }
 #else
         protected override string filenameBase { get { return "address_event"; } }
 #endif
@@ -9618,8 +9646,10 @@ namespace CREA2014
     {
         public UtxoDatabase(string _pathBase) : base(_pathBase) { }
 
+        protected override int version { get { return 0; } }
+
 #if TEST
-        protected override string filenameBase { get { return "utxo_test"; } }
+        protected override string filenameBase { get { return "utxo_test" + version.ToString(); } }
 #else
         protected override string filenameBase { get { return "utxo"; } }
 #endif
@@ -9629,8 +9659,10 @@ namespace CREA2014
     {
         public BlockNodesGroupDatabase(string _pathBase) : base(_pathBase) { }
 
+        protected override int version { get { return 0; } }
+
 #if TEST
-        protected override string filenameBase { get { return "blkng_test"; } }
+        protected override string filenameBase { get { return "blkng_test" + version.ToString(); } }
 #else
         protected override string filenameBase { get { return "blkng"; } }
 #endif
@@ -9658,8 +9690,10 @@ namespace CREA2014
     {
         public BlockGroupDatabase(string _pathBase) : base(_pathBase) { }
 
+        protected override int version { get { return 0; } }
+
 #if TEST
-        protected override string filenameBase { get { return "blkg_test"; } }
+        protected override string filenameBase { get { return "blkg_test" + version.ToString(); } }
 #else
         protected override string filenameBase { get { return "blkg"; } }
 #endif

@@ -3303,8 +3303,6 @@ namespace CREA2014
             Tasker tasker = new Tasker();
             int taskNumber = 0;
 
-            Mutex mutex;
-
             Core core = null;
 
             if (File.Exists(pstatusFilepath))
@@ -3596,22 +3594,15 @@ namespace CREA2014
             Thread.CurrentThread.CurrentCulture = new CultureInfo(psettings.Culture);
             Thread.CurrentThread.CurrentUICulture = new CultureInfo(psettings.Culture);
 
-            // Windows 2000（NT 5.0）以降のみグローバル・ミューテックス利用可
-            string appNameMutex = appname + " by Piz Yumina";
-            OperatingSystem os = Environment.OSVersion;
-            if ((os.Platform == PlatformID.Win32NT) && (os.Version.Major >= 5))
-                appNameMutex = @"Global\" + appNameMutex;
+            TestApplication testApplication;
+#if TEST
+            testApplication = null;
+            //testApplication = new CreaNetworkLocalTestApplication(logger);
+#else
+                testApplication = null;
+#endif
 
-            try
-            {
-                mutex = new Mutex(false, appNameMutex);
-            }
-            catch (ApplicationException)
-            {
-                throw new ApplicationException("already_starting");
-            }
-
-            if (mutex.WaitOne(0, false))
+            Action _Start = () =>
             {
                 string ieRegPath = @"SOFTWARE\Microsoft\Internet Explorer";
                 int ieVersion;
@@ -3670,13 +3661,6 @@ namespace CREA2014
                     _FeatureControl("FEATURE_XMLHTTP", 1);
                 }
 
-                TestApplication testApplication;
-#if TEST
-                testApplication = new CreaNetworkLocalTestApplication(logger);
-#else
-                testApplication = null;
-#endif
-
                 //2014/10/01
                 //設定しなければならない設定値などが設定されているかを確認する
                 if (TransactionalBlock.foundationPubKeyHash == null)
@@ -3717,34 +3701,60 @@ namespace CREA2014
                 psettings.Save();
 
                 File.WriteAllBytes(pstatusFilepath, pstatus.ToBinary());
+            };
 
-                mutex.ReleaseMutex();
-            }
-            else
+            if (testApplication == null)
             {
-                Process preveousProcess = null;
-                Process currentProcess = Process.GetCurrentProcess();
-                Process[] allProcesses = Process.GetProcessesByName(currentProcess.ProcessName);
+                // Windows 2000（NT 5.0）以降のみグローバル・ミューテックス利用可
+                string appNameMutex = appname + " by Piz Yumina";
+                OperatingSystem os = Environment.OSVersion;
+                if ((os.Platform == PlatformID.Win32NT) && (os.Version.Major >= 5))
+                    appNameMutex = @"Global\" + appNameMutex;
 
-                foreach (var p in allProcesses)
-                    if (p.Id != currentProcess.Id && string.Compare(p.MainModule.FileName, currentProcess.MainModule.FileName, true) == 0)
-                    {
-                        preveousProcess = p;
-                        break;
-                    }
-
-                if (preveousProcess != null && preveousProcess.MainWindowHandle != IntPtr.Zero)
+                Mutex mutex;
+                try
                 {
-                    if (API.IsIconic(preveousProcess.MainWindowHandle))
-                        API.ShowWindowAsync(preveousProcess.MainWindowHandle, API.SW_RESTORE);
+                    mutex = new Mutex(false, appNameMutex);
+                }
+                catch (ApplicationException)
+                {
+                    throw new ApplicationException("already_starting");
+                }
 
-                    API.SetForegroundWindow(preveousProcess.MainWindowHandle);
+                if (mutex.WaitOne(0, false))
+                {
+                    _Start();
+
+                    mutex.ReleaseMutex();
                 }
                 else
-                    throw new ApplicationException("already_starting");
-            }
+                {
+                    Process preveousProcess = null;
+                    Process currentProcess = Process.GetCurrentProcess();
+                    Process[] allProcesses = Process.GetProcessesByName(currentProcess.ProcessName);
 
-            mutex.Close();
+                    foreach (var p in allProcesses)
+                        if (p.Id != currentProcess.Id && string.Compare(p.MainModule.FileName, currentProcess.MainModule.FileName, true) == 0)
+                        {
+                            preveousProcess = p;
+                            break;
+                        }
+
+                    if (preveousProcess != null && preveousProcess.MainWindowHandle != IntPtr.Zero)
+                    {
+                        if (API.IsIconic(preveousProcess.MainWindowHandle))
+                            API.ShowWindowAsync(preveousProcess.MainWindowHandle, API.SW_RESTORE);
+
+                        API.SetForegroundWindow(preveousProcess.MainWindowHandle);
+                    }
+                    else
+                        throw new ApplicationException("already_starting");
+                }
+
+                mutex.Close();
+            }
+            else
+                _Start();
         }
     }
 
