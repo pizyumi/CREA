@@ -1636,13 +1636,11 @@ namespace CREA2014
     public enum MessageName
     {
         reqNodeInfos = 1,
-        resNodeInfos = 2,
 
-        inv = 10,
-        getdata = 11,
-        tx = 12,
-        block = 13,
-        notfound = 14,
+        notifyNewTransaction = 10,
+        reqTransactions = 11,
+        notifyNewBlock = 12,
+        reqBlocks = 13,
 
         PingReq = 100,
         PingRes = 101,
@@ -1655,60 +1653,32 @@ namespace CREA2014
         IdsAndValues = 108,
     }
 
-    public class Message : SHAREDDATA
+    public class Message2 : SHAREDDATA
     {
-        public Message() : this(null) { }
+        public Message2() : base(0) { }
 
-        public Message(MessageBase _messageBase) : base(0) { messageBase = _messageBase; }
+        public Message2(MessageName _name, int _version)
+            : base(0)
+        {
+            name = _name;
+            version = _version;
+        }
 
-        public MessageBase messageBase { get; private set; }
+        public MessageName name { get; private set; }
+        public int version { get; private set; }
 
-        public MessageName Name
+        protected override Func<ReaderWriter, IEnumerable<MainDataInfomation>> StreamInfo
         {
             get
             {
-                if (messageBase is ReqNodeInfos)
-                    return MessageName.reqNodeInfos;
-                else if (messageBase is ResNodeInfos)
-                    return MessageName.resNodeInfos;
-                else if (messageBase is NotifyNewTransactions)
-                    return MessageName.inv;
-                else if (messageBase is ReqTransactions)
-                    return MessageName.getdata;
-                else if (messageBase is TxTest)
-                    return MessageName.tx;
+                if (Version == 0)
+                    return (msrw) => new MainDataInfomation[]{
+                        new MainDataInfomation(typeof(int), () => (int)name, (o) => name = (MessageName)o),
+                        new MainDataInfomation(typeof(int), () => version, (o) => version = (int)o),
+                    };
                 else
-                    throw new NotSupportedException("massage_base_not_supported");
+                    throw new NotSupportedException("node_infos_main_data_info");
             }
-        }
-
-        protected override Func<ReaderWriter, IEnumerable<MainDataInfomation>> StreamInfo { get { return (msrw) => StreamInfoInner(msrw); } }
-        private IEnumerable<MainDataInfomation> StreamInfoInner(ReaderWriter msrw)
-        {
-            if (Version == 0)
-            {
-                MessageName mn;
-                yield return new MainDataInfomation(typeof(int), () => (int)Name, (o) =>
-                {
-                    mn = (MessageName)o;
-                    if (mn == MessageName.reqNodeInfos)
-                        messageBase = new ReqNodeInfos();
-                    else if (mn == MessageName.resNodeInfos)
-                        messageBase = new ResNodeInfos();
-                    else if (mn == MessageName.inv)
-                        messageBase = new NotifyNewTransactions();
-                    else if (mn == MessageName.getdata)
-                        messageBase = new ReqTransactions();
-                    else if (mn == MessageName.tx)
-                        messageBase = new TxTest();
-                    else
-                        throw new NotSupportedException("message_name_not_supported");
-                });
-                foreach (var mdi in messageBase.PublicStreamInfo(null))
-                    yield return mdi;
-            }
-            else
-                throw new NotSupportedException("message_main_data_info");
         }
         public override bool IsVersioned { get { return true; } }
         public override bool IsCorruptionChecked
@@ -1723,43 +1693,7 @@ namespace CREA2014
         }
     }
 
-    public abstract class MessageBase : SHAREDDATA
-    {
-        public MessageBase() : base(null) { }
-
-        public MessageBase(int? _version) : base(_version) { }
-
-        public Func<ReaderWriter, IEnumerable<MainDataInfomation>> PublicStreamInfo { get { return StreamInfo; } }
-    }
-
-    public class ReqNodeInfos : MessageBase
-    {
-        public ReqNodeInfos() : base(0) { }
-
-        protected override Func<ReaderWriter, IEnumerable<MainDataInfomation>> StreamInfo
-        {
-            get
-            {
-                if (Version == 0)
-                    return (msrw) => new MainDataInfomation[] { };
-                else
-                    throw new NotSupportedException("node_infos_main_data_info");
-            }
-        }
-        public override bool IsVersioned { get { return true; } }
-        public override bool IsCorruptionChecked
-        {
-            get
-            {
-                if (Version <= 0)
-                    return false;
-                else
-                    throw new NotSupportedException("node_infos_check");
-            }
-        }
-    }
-
-    public class ResNodeInfos : MessageBase
+    public class ResNodeInfos : SHAREDDATA
     {
         public ResNodeInfos() : base(0) { }
 
@@ -1792,7 +1726,7 @@ namespace CREA2014
         }
     }
 
-    public abstract class MessageHash<HashType> : MessageBase where HashType : HASHBASE
+    public abstract class MessageHash<HashType> : SHAREDDATA where HashType : HASHBASE
     {
         public MessageHash(HashType _hash) : this(null, _hash) { }
 
@@ -1811,7 +1745,7 @@ namespace CREA2014
         }
     }
 
-    public abstract class MessageHashes<HashType> : MessageBase where HashType : HASHBASE
+    public abstract class MessageHashes<HashType> : SHAREDDATA where HashType : HASHBASE
     {
         public MessageHashes(HashType[] _hashes) : this(null, _hashes) { }
 
@@ -1830,11 +1764,11 @@ namespace CREA2014
         }
     }
 
-    public class NotifyNewTransactions : MessageHashes<Sha256Sha256Hash>
+    public class NotifyNewTransaction : MessageHash<Sha256Sha256Hash>
     {
-        public NotifyNewTransactions() : this(new Sha256Sha256Hash[] { }) { }
+        public NotifyNewTransaction() : this(new Sha256Sha256Hash()) { }
 
-        public NotifyNewTransactions(Sha256Sha256Hash[] _hashes) : base(0, _hashes) { }
+        public NotifyNewTransaction(Sha256Sha256Hash _hash) : base(0, _hash) { }
 
         protected override Func<ReaderWriter, IEnumerable<MainDataInfomation>> StreamInfo
         {
@@ -1888,37 +1822,55 @@ namespace CREA2014
         }
     }
 
-    //試験用
-    public class TxTest : MessageBase
+    public class ResTransactions : SHAREDDATA
     {
-        public TxTest()
-            : base(0)
-        {
-            data = new byte[1024];
-            for (int i = 0; i < data.Length; i++)
-                data[i] = (byte)256.RandomNum();
-        }
+        public ResTransactions() : base(0) { }
 
-        public byte[] data { get; private set; }
+        public ResTransactions(Transaction[] _transactions) : base(0) { transactions = _transactions; }
 
-        protected override Func<ReaderWriter, IEnumerable<MainDataInfomation>> StreamInfo
+        public Transaction[] transactions { get; private set; }
+
+        protected override Func<ReaderWriter, IEnumerable<MainDataInfomation>> StreamInfo { get { return (msrw) => StreamInfoInner; } }
+        private IEnumerable<MainDataInfomation> StreamInfoInner
         {
             get
             {
                 if (Version == 0)
-                    return (msrw) => new MainDataInfomation[]{
-                        new MainDataInfomation(typeof(byte[]), 1024, () => data, (o) => data = (byte[])o),
-                    };
+                {
+                    int length = transactions.Length;
+
+                    yield return new MainDataInfomation(typeof(int), () => length, (o) => length = (int)o);
+
+                    if (transactions.Length != length)
+                        transactions = new Transaction[length];
+
+                    for (int i = 0; i < length; i++)
+                    {
+                        int? typeInt = null;
+                        Type type = null;
+                        if (transactions[i] != null)
+                            if (transactions[i] is CoinbaseTransaction)
+                            {
+                                typeInt = 0;
+                                type = typeof(CoinbaseTransaction);
+                            }
+                            else if (transactions[i] is TransferTransaction)
+                            {
+                                typeInt = 1;
+                                type = typeof(TransferTransaction);
+                            }
+                            else
+                                throw new NotSupportedException();
+
+                        yield return new MainDataInfomation(typeof(int), () => typeInt.Value, (o) => typeInt = (int)o);
+                        yield return new MainDataInfomation(type, () => transactions[i], (o) => transactions[i] = o as Transaction);
+                    }
+                }
                 else
-                    throw new NotSupportedException("tx_test_main_data_info");
+                    throw new NotSupportedException("header_stream_info");
             }
         }
-
-        public override bool IsVersioned
-        {
-            get { return true; }
-        }
-
+        public override bool IsVersioned { get { return true; } }
         public override bool IsCorruptionChecked
         {
             get
@@ -1926,7 +1878,7 @@ namespace CREA2014
                 if (Version <= 0)
                     return false;
                 else
-                    throw new NotSupportedException("tx_test_check");
+                    throw new NotSupportedException("res_txs_check");
             }
         }
     }
@@ -2050,7 +2002,7 @@ namespace CREA2014
         }
     }
 
-    public class PingReq : MessageBase
+    public class PingReq : SHAREDDATA
     {
         public PingReq() : base(0) { }
 
@@ -2082,7 +2034,7 @@ namespace CREA2014
         }
     }
 
-    public class PingRes : MessageBase
+    public class PingRes : SHAREDDATA
     {
         public PingRes() : base(0) { }
 
@@ -2114,7 +2066,7 @@ namespace CREA2014
         }
     }
 
-    public class StoreReq<IdType> : MessageBase where IdType : HASHBASE
+    public class StoreReq<IdType> : SHAREDDATA where IdType : HASHBASE
     {
         public StoreReq(IdType _id, byte[] _data)
             : base(0)
@@ -2157,7 +2109,7 @@ namespace CREA2014
         }
     }
 
-    public class FindNodesReq<IdType> : MessageBase where IdType : HASHBASE
+    public class FindNodesReq<IdType> : SHAREDDATA where IdType : HASHBASE
     {
         public FindNodesReq(IdType _id)
             : base(0)
@@ -2197,7 +2149,7 @@ namespace CREA2014
         }
     }
 
-    public class NeighborNodes : MessageBase
+    public class NeighborNodes : SHAREDDATA
     {
         public NeighborNodes(NodeInformation[] _nodeInfos)
             : base(0)
@@ -2241,7 +2193,7 @@ namespace CREA2014
         }
     }
 
-    public class FindValueReq<IdType> : MessageBase where IdType : HASHBASE
+    public class FindValueReq<IdType> : SHAREDDATA where IdType : HASHBASE
     {
         public FindValueReq(IdType _id)
             : base(0)
@@ -2281,7 +2233,7 @@ namespace CREA2014
         }
     }
 
-    public class Value : MessageBase
+    public class Value : SHAREDDATA
     {
         public Value(byte[] _data)
             : base(0)
@@ -2321,7 +2273,7 @@ namespace CREA2014
         }
     }
 
-    public class GetIdsAndValuesReq : MessageBase
+    public class GetIdsAndValuesReq : SHAREDDATA
     {
         public GetIdsAndValuesReq() : base(0) { }
 
@@ -2353,7 +2305,7 @@ namespace CREA2014
         }
     }
 
-    public class IdsAndValues<IdType> : MessageBase where IdType : HASHBASE
+    public class IdsAndValues<IdType> : SHAREDDATA where IdType : HASHBASE
     {
         public IdsAndValues() : base(0) { }
 
@@ -2426,11 +2378,11 @@ namespace CREA2014
         protected abstract bool IsWantToContinue(NodeInformation nodeInfo);
         protected abstract bool IsClientCanContinue(NodeInformation nodeInfo);
         protected abstract void InboundProtocol(IChannel sc, Action<string> _ConsoleWriteLine);
-        protected abstract MessageBase[] OutboundProtocol(MessageBase[] messages, IChannel sc, Action<string> _ConsoleWriteLine);
+        protected abstract SHAREDDATA[] OutboundProtocol(Message2 message, SHAREDDATA[] datas, IChannel sc, Action<string> _ConsoleWriteLine);
         protected abstract void InboundContinue(NodeInformation nodeInfo, SocketChannel sc, Action<string> _ConsoleWriteLine);
         protected abstract void OutboundContinue(NodeInformation nodeInfo, SocketChannel sc, Action<string> _ConsoleWriteLine);
-        protected abstract MessageBase[] Request(NodeInformation nodeinfo, params MessageBase[] messages);
-        protected abstract void Diffuse(params MessageBase[] messages);
+        protected abstract SHAREDDATA[] Request(NodeInformation nodeinfo, Message2 message, params SHAREDDATA[] datas);
+        protected abstract void Diffuse(Message2 message, params SHAREDDATA[] datas);
 
         protected override void CreateNodeInfo()
         {
@@ -2528,11 +2480,11 @@ namespace CREA2014
                 throw new NotSupportedException("not_supported_protocol_ver");
         }
 
-        protected MessageBase[] Connect(NodeInformation aiteNodeInfo, bool isTemporary, Action _Continued, params MessageBase[] reqMessages)
+        protected SHAREDDATA[] Connect(NodeInformation aiteNodeInfo, bool isTemporary, Action _Continued, Message2 message, params SHAREDDATA[] reqDatas)
         {
             try
             {
-                return ConnectInner(aiteNodeInfo.ipAddress, aiteNodeInfo.portNumber, isTemporary, _Continued, reqMessages);
+                return ConnectInner(aiteNodeInfo.ipAddress, aiteNodeInfo.portNumber, isTemporary, _Continued, message, reqDatas);
             }
             catch (Exception ex)
             {
@@ -2544,11 +2496,11 @@ namespace CREA2014
             }
         }
 
-        protected MessageBase[] Connect(IPAddress aiteIpAddress, ushort aitePortNumber, bool isTemporary, Action _Continued, params MessageBase[] reqMessages)
+        protected SHAREDDATA[] Connect(IPAddress aiteIpAddress, ushort aitePortNumber, bool isTemporary, Action _Continued, Message2 message, params SHAREDDATA[] reqDatas)
         {
             try
             {
-                return ConnectInner(aiteIpAddress, aitePortNumber, isTemporary, _Continued, reqMessages);
+                return ConnectInner(aiteIpAddress, aitePortNumber, isTemporary, _Continued, message, reqDatas);
             }
             catch (Exception ex)
             {
@@ -2561,7 +2513,7 @@ namespace CREA2014
         }
 
         //このメソッドのどこかで（例外を含む全ての場合において）SocketChannelのCloseが呼び出されるようにしなければならない
-        private MessageBase[] ConnectInner(IPAddress aiteIpAddress, ushort aitePortNumber, bool isTemporary, Action _Continued, params MessageBase[] reqMessages)
+        private SHAREDDATA[] ConnectInner(IPAddress aiteIpAddress, ushort aitePortNumber, bool isTemporary, Action _Continued, Message2 message, params SHAREDDATA[] reqDatas)
         {
             SocketChannel sc = Connect(aiteIpAddress, aitePortNumber);
 
@@ -2605,7 +2557,7 @@ namespace CREA2014
 
                     if (isTemporary)
                     {
-                        MessageBase[] resMessages = OutboundProtocol(reqMessages, sc, _ConsoleWriteLine);
+                        SHAREDDATA[] resDatas = OutboundProtocol(message, reqDatas, sc, _ConsoleWriteLine);
 
                         if (IsTemporaryContinue)
                         {
@@ -2630,7 +2582,7 @@ namespace CREA2014
                         else
                             sc.Close();
 
-                        return resMessages;
+                        return resDatas;
                     }
                     else if (IsContinue)
                     {
@@ -2754,13 +2706,6 @@ namespace CREA2014
         private static readonly string fnisRegistryFileName = "nodes.txt";
         private static readonly int fnisRegistryMaxNodes = 128;
 
-        //試験用
-        private readonly Dictionary<Sha256Sha256Hash, byte[]> txtests = new Dictionary<Sha256Sha256Hash, byte[]>();
-        private readonly object txtestsLock = new object();
-
-        public event EventHandler<NodeInformation> TxtestReceived = delegate { };
-        public event EventHandler<NodeInformation> TxtestAlreadyExisted = delegate { };
-
         protected abstract NodeInformation[] GetNodeInfos();
 
         static CreaNodeLocalTest()
@@ -2857,9 +2802,19 @@ namespace CREA2014
 
         protected override void InboundProtocol(IChannel sc, Action<string> _ConsoleWriteLine)
         {
-            Message message = SHAREDDATA.FromBinary<Message>(sc.ReadBytes());
-            if (message.Name == MessageName.reqNodeInfos)
-                sc.WriteBytes(new Message(new ResNodeInfos(GetNodeInfos())).ToBinary());
+            Message2 message = SHAREDDATA.FromBinary<Message2>(sc.ReadBytes());
+            if (message.name == MessageName.reqNodeInfos)
+            {
+                if (message.version == 0)
+                    sc.WriteBytes(new ResNodeInfos(GetNodeInfos()).ToBinary());
+                else
+                    throw new NotSupportedException();
+            }
+            else if (message.name == MessageName.notifyNewTransaction)
+            {
+                //NotifyNewTransaction nnt = message.messageBase as NotifyNewTransaction;
+
+            }
             //else if (message.Name == MessageName.inv)
             //{
             //    NotifyNewTransactions inv = message.messageBase as NotifyNewTransactions;
@@ -2891,45 +2846,38 @@ namespace CREA2014
                 throw new NotSupportedException("protocol_not_supported");
         }
 
-        protected override MessageBase[] OutboundProtocol(MessageBase[] messages, IChannel sc, Action<string> _ConsoleWriteLine)
+        protected override SHAREDDATA[] OutboundProtocol(Message2 message, SHAREDDATA[] datas, IChannel sc, Action<string> _ConsoleWriteLine)
         {
-            Message message = new Message(messages[0]);
-
             sc.WriteBytes(message.ToBinary());
-            if (message.Name == MessageName.reqNodeInfos)
-            {
-                Message resNodeInfosMessage = SHAREDDATA.FromBinary<Message>(sc.ReadBytes());
-                if (resNodeInfosMessage.Name != MessageName.resNodeInfos)
-                    throw new InvalidOperationException();
-                return new MessageBase[] { resNodeInfosMessage.messageBase };
-            }
-            else if (message.Name == MessageName.inv)
-            {
-                bool isNew = BitConverter.ToBoolean(sc.ReadBytes(), 0);
-                if (isNew)
-                    sc.WriteBytes(messages[1].ToBinary());
-                return null;
-            }
+            if (message.name == MessageName.reqNodeInfos)
+                return new SHAREDDATA[] { SHAREDDATA.FromBinary<ResNodeInfos>(sc.ReadBytes()) };
+            //else if (message.Name == MessageName.notifyNewTransaction)
+            //{
+            //    bool isNew = BitConverter.ToBoolean(sc.ReadBytes(), 0);
+            //    if (isNew)
+            //        sc.WriteBytes(messages[1].ToBinary());
+            //    return null;
+            //}
             else
                 throw new NotSupportedException("protocol_not_supported");
         }
 
         //試験用
-        public void DiffuseInv(TxTest txtest, NotifyNewTransactions inv)
-        {
-            //if (txtest == null && inv == null)
-            //{
-            //    txtest = new TxTest();
-            //    inv = new NotifyNewTransactions(new Sha256Sha256Hash(txtest.data));
+        //public void DiffuseInv(TxTest txtest, NotifyNewTransaction inv)
+        //{
+        //    if (txtest == null && inv == null)
+        //    {
+        //        txtest = new TxTest();
+        //        inv = new NotifyNewTransactions(new Sha256Sha256Hash(txtest.data));
 
-            //    lock (txtestsLock)
-            //        txtests.Add(inv.hash, txtest.data);
+        //        lock (txtestsLock)
+        //            txtests.Add(inv.hash, txtest.data);
 
-            //    (string.Join(":", myIpAddress.ToString(), myPortNumber.ToString()) + " txtest作成").ConsoleWriteLine();
-            //}
+        //        (string.Join(":", myIpAddress.ToString(), myPortNumber.ToString()) + " txtest作成").ConsoleWriteLine();
+        //    }
 
-            //Diffuse(inv, txtest);
-        }
+        //    Diffuse(inv, txtest);
+        //}
     }
 
     public class CreaNodeLocalTestNotContinue : CreaNodeLocalTest
@@ -2957,15 +2905,15 @@ namespace CREA2014
         //このメソッドのどこかで（例外を除く全ての場合において）SocketChannelのCloseが呼び出されるようにしなければならない
         protected override void OutboundContinue(NodeInformation nodeInfo, SocketChannel sc, Action<string> _ConsoleWriteLine) { sc.Close(); }
 
-        protected override MessageBase[] Request(NodeInformation nodeinfo, params MessageBase[] messages)
+        protected override SHAREDDATA[] Request(NodeInformation nodeinfo, Message2 message, params SHAREDDATA[] datas)
         {
-            return Connect(nodeinfo, true, () => { }, messages);
+            return Connect(nodeinfo, true, () => { }, message, datas);
         }
 
-        protected override void Diffuse(params MessageBase[] messages)
+        protected override void Diffuse(Message2 message, params SHAREDDATA[] datas)
         {
             for (int i = 0; i < 16 && i < firstNodeInfos.Length; i++)
-                Connect(firstNodeInfos[i].ipAddress, firstNodeInfos[i].portNumber, true, () => { }, messages);
+                Connect(firstNodeInfos[i].ipAddress, firstNodeInfos[i].portNumber, true, () => { }, message, datas);
         }
 
         protected override void KeepConnections() { }
@@ -3098,7 +3046,7 @@ namespace CREA2014
             };
         }
 
-        protected override MessageBase[] Request(NodeInformation nodeinfo, params MessageBase[] messages)
+        protected override SHAREDDATA[] Request(NodeInformation nodeinfo, Message2 message, params SHAREDDATA[] datas)
         {
             Connection connection = null;
 
@@ -3118,7 +3066,7 @@ namespace CREA2014
 
                     connection._ConsoleWriteLine("新しいセッション");
 
-                    return OutboundProtocol(messages, sc2, connection._ConsoleWriteLine);
+                    return OutboundProtocol(message, datas, sc2, connection._ConsoleWriteLine);
                 }
                 catch (Exception ex)
                 {
@@ -3137,10 +3085,10 @@ namespace CREA2014
                 }
             }
             else
-                return Connect(nodeinfo, true, () => { }, messages);
+                return Connect(nodeinfo, true, () => { }, message, datas);
         }
 
-        protected override void Diffuse(params MessageBase[] messages)
+        protected override void Diffuse(Message2 message, params SHAREDDATA[] datas)
         {
             List<Connection> connections = new List<Connection>();
             lock (clientNodesLock)
@@ -3159,7 +3107,7 @@ namespace CREA2014
 
                     c._ConsoleWriteLine("新しいセッション");
 
-                    OutboundProtocol(messages, sc2, c._ConsoleWriteLine);
+                    OutboundProtocol(message, datas, sc2, c._ConsoleWriteLine);
                 }
                 catch (Exception ex)
                 {
@@ -3190,7 +3138,7 @@ namespace CREA2014
                         count = clientNodes.Count;
 
                     if (count < maxOutboundConnection)
-                        Connect(firstNodeInfos[i].ipAddress, firstNodeInfos[i].portNumber, false, () => { });
+                        Connect(firstNodeInfos[i].ipAddress, firstNodeInfos[i].portNumber, false, () => { }, null);
                 }
 
                 this.RaiseNotification("keep_conn_completed", 5);
@@ -3358,7 +3306,7 @@ namespace CREA2014
                 if (connections[distanceLevel].Count < max)
                 {
                     if (!nodeInfosConnected.Contains(nodeInfo))
-                        Connect(nodeInfo, false, () => { });
+                        Connect(nodeInfo, false, () => { }, null);
                 }
                 else
                     break;
@@ -3389,7 +3337,7 @@ namespace CREA2014
             };
         }
 
-        protected override MessageBase[] Request(NodeInformation nodeinfo, params MessageBase[] messages)
+        protected override SHAREDDATA[] Request(NodeInformation nodeinfo, Message2 message, params SHAREDDATA[] datas)
         {
             Connection connection = null;
             if (isInitialized)
@@ -3407,7 +3355,7 @@ namespace CREA2014
             }
 
             if (connection == null)
-                return Connect(nodeinfo, true, () => { }, messages);
+                return Connect(nodeinfo, true, () => { }, message, datas);
 
             SessionChannel sc2 = null;
             try
@@ -3416,7 +3364,7 @@ namespace CREA2014
 
                 connection._ConsoleWriteLine("新しいセッション");
 
-                return OutboundProtocol(messages, sc2, connection._ConsoleWriteLine);
+                return OutboundProtocol(message, datas, sc2, connection._ConsoleWriteLine);
             }
             catch (Exception ex)
             {
@@ -3435,7 +3383,7 @@ namespace CREA2014
             return null;
         }
 
-        protected override void Diffuse(params MessageBase[] messages)
+        protected override void Diffuse(Message2 message, params SHAREDDATA[] datas)
         {
             if (!isInitialized)
                 throw new InvalidOperationException("not_yet_connections_keeped");
@@ -3460,7 +3408,7 @@ namespace CREA2014
 
                     connection._ConsoleWriteLine("新しいセッション");
 
-                    OutboundProtocol(messages, sc2, connection._ConsoleWriteLine);
+                    OutboundProtocol(message, datas, sc2, connection._ConsoleWriteLine);
                 }
                 catch (Exception ex)
                 {
@@ -3521,9 +3469,9 @@ namespace CREA2014
             List<NodeInformation> nodeInfos = new List<NodeInformation>();
             for (int i = 0; i < firstNodeInfos.Length && nodeInfos.Count < keepConnectionNodeInfosMin; i++)
             {
-                MessageBase[] resMessages = Connect(firstNodeInfos[i].ipAddress, firstNodeInfos[i].portNumber, true, () => { }, new ReqNodeInfos());
+                SHAREDDATA[] resDatas = Connect(firstNodeInfos[i].ipAddress, firstNodeInfos[i].portNumber, true, () => { }, new Message2(MessageName.reqNodeInfos, 0));
                 ResNodeInfos resNodeInfos;
-                if (resMessages != null && resMessages.Length == 1 && (resNodeInfos = resMessages[0] as ResNodeInfos) != null)
+                if (resDatas != null && resDatas.Length == 1 && (resNodeInfos = resDatas[0] as ResNodeInfos) != null)
                     //<要検討>更新時間順に並び替えるべき？
                     nodeInfos.AddRange(resNodeInfos.nodeInfos);
             }
@@ -3563,7 +3511,7 @@ namespace CREA2014
                     if (outboundConnections[i].Count < outboundConnectionsMax)
                     {
                         if (!IsAlreadyConnected(nodeInfo))
-                            Connect(nodeInfo, false, () => { });
+                            Connect(nodeInfo, false, () => { }, null);
                     }
                     else
                         break;
@@ -3731,50 +3679,6 @@ namespace CREA2014
                     while (!cnlts[i].isStartCompleted)
                         Thread.Sleep(100);
                 }
-            }
-
-            private void Test10NodesInv()
-            {
-                Stopwatch stopwatch = new Stopwatch();
-                int counter = 0;
-
-                int numOfNodes = 5;
-                CreaNodeLocalTestContinue[] cnlts = new CreaNodeLocalTestContinue[numOfNodes];
-                for (int i = 0; i < numOfNodes; i++)
-                {
-                    cnlts[i] = new CreaNodeLocalTestContinue((ushort)(7777 + i), 0, "test");
-                    cnlts[i].TxtestReceived += (sender2, e2) =>
-                    {
-                        counter++;
-                        (string.Join(":", e2.ipAddress.ToString(), e2.portNumber.ToString()) + " " + counter.ToString() + " " + ((double)counter / (double)numOfNodes).ToString() + " " + stopwatch.Elapsed.ToString()).ConsoleWriteLine();
-
-                        if (counter == numOfNodes - 1)
-                            stopwatch.Stop();
-                    };
-                    cnlts[i].Start();
-                    while (!cnlts[i].isStartCompleted)
-                        Thread.Sleep(100);
-                }
-
-                MessageBox.Show("start");
-
-                stopwatch.Start();
-
-                cnlts[numOfNodes - 1].DiffuseInv(null, null);
-            }
-
-            private void Test2NodesInv2()
-            {
-                CreaNodeLocalTestContinue cnlt1 = new CreaNodeLocalTestContinue(7777, 0, "test");
-                cnlt1.Start();
-                while (!cnlt1.isStartCompleted)
-                    Thread.Sleep(100);
-                CreaNodeLocalTestContinue cnlt2 = new CreaNodeLocalTestContinue(7778, 0, "test");
-                cnlt2.Start();
-                while (!cnlt2.isStartCompleted)
-                    Thread.Sleep(100);
-
-                cnlt2.DiffuseInv(null, null);
             }
 
             public class TextBlockStreamWriter : TextWriter
@@ -4821,6 +4725,128 @@ namespace CREA2014
     #endregion
 
     #region データ
+
+    //試験用？
+    public class Chat : SHAREDDATA
+    {
+        public Chat() : base(0) { }
+
+        public void LoadVersion0(String _name, String _message)
+        {
+            this.Version = 0;
+
+            this.Name = _name;
+            this.Message = _message;
+            this.Id = Guid.NewGuid();
+        }
+
+        public String Name { get; private set; }
+        public String Message { get; private set; }
+        public Guid Id { get; private set; }
+        public Secp256k1Signature signature { get; private set; }
+
+        protected override Func<ReaderWriter, IEnumerable<MainDataInfomation>> StreamInfo
+        {
+            get
+            {
+                if (Version == 0)
+                    return (msrw) => new MainDataInfomation[]{
+                        new MainDataInfomation(typeof(string), () => this.Name, (o) => this.Name = (string)o),
+                        new MainDataInfomation(typeof(string), () => this.Message, (o) => this.Message = (string)o),
+                        new MainDataInfomation(typeof(Byte[]), 16, () => this.Id.ToByteArray(), (o) => this.Id = new Guid((byte[])o)),
+                        new MainDataInfomation(typeof(Secp256k1Signature), null, () => this.signature, (o) => this.signature = (Secp256k1Signature)o),
+                    };
+                else
+                    throw new NotSupportedException();
+            }
+        }
+
+        public override bool IsVersioned { get { return true; } }
+        public override bool IsCorruptionChecked { get { return true; } }
+
+        public Func<ReaderWriter, IEnumerable<MainDataInfomation>> StreamInfoToSign
+        {
+            get
+            {
+                if (Version == 0)
+                    return (msrw) => new MainDataInfomation[]{
+                        new MainDataInfomation(typeof(string), () => this.Name, (o) => this.Name = (string)o),
+                        new MainDataInfomation(typeof(string), () => this.Message, (o) => this.Message = (string)o),
+                        new MainDataInfomation(typeof(Byte[]), 16, () => this.Id.ToByteArray(), (o) => this.Id = new Guid((byte[])o))
+                    };
+                else
+                    throw new NotSupportedException();
+            }
+        }
+
+        public void Sign(Secp256k1PrivKey<Sha256Hash> _privateKey)
+        {
+            signature = _privateKey.Sign(ToBinary(StreamInfoToSign)) as Secp256k1Signature;
+        }
+
+        public bool Verify()
+        {
+            var tmp = ToBinary(StreamInfoToSign);
+            return Secp256k1Utility.Recover<Sha256Hash>(tmp, this.signature.signature).Verify(tmp, this.signature.signature);
+        }
+    }
+
+    public class ChatCollection : SHAREDDATA
+    {
+        public ChatCollection()
+            : base(null)
+        {
+            chats = new List<Chat>();
+            chatsCache = new CachedData<Chat[]>(() =>
+            {
+                lock (chatsLock)
+                    return chats.ToArray();
+            });
+        }
+
+        private readonly object chatsLock = new object();
+        private List<Chat> chats;
+        private readonly CachedData<Chat[]> chatsCache;
+        public Chat[] Chats { get { return chatsCache.Data; } }
+
+        public event EventHandler<Chat> ChatAdded = delegate { };
+        public event EventHandler<Chat> ChatRemoved = delegate { };
+
+        public void AddAccount(Chat chat)
+        {
+            lock (chatsLock)
+            {
+                if (chats.Contains(chat))
+                    throw new InvalidOperationException("exist_chat");
+
+                this.ExecuteBeforeEvent(() =>
+                {
+                    chats.Add(chat);
+                    chatsCache.IsModified = true;
+                }, chat, ChatAdded);
+            }
+        }
+
+        public void RemoveAccount(Chat chat)
+        {
+            lock (chatsLock)
+            {
+                if (!chats.Contains(chat))
+                    throw new InvalidOperationException("not_exist_chat");
+
+                this.ExecuteBeforeEvent(() =>
+                {
+                    chats.Remove(chat);
+                    chatsCache.IsModified = true;
+                }, chat, ChatRemoved);
+            }
+        }
+
+        protected override Func<ReaderWriter, IEnumerable<MainDataInfomation>> StreamInfo
+        {
+            get { throw new NotImplementedException(); }
+        }
+    }
 
     #region 要約関数
 
@@ -8087,7 +8113,7 @@ namespace CREA2014
             if (utxosBytes.Length != 0)
             {
                 int addressLength = new Sha256Ripemd160Hash().SizeByte;
-                int utxoLength = new Utxo().LengthAll.Value;
+                int utxoLength = new Utxo().ToBinary().Length;
                 int pointer = 0;
 
                 int length1 = BitConverter.ToInt32(utxosBytes, pointer);
@@ -8133,7 +8159,7 @@ namespace CREA2014
             if (addressEventDatasBytes.Length != 0)
             {
                 int addressLength = new Sha256Ripemd160Hash().SizeByte;
-                int addressEventDataLength = new AddressEventData().LengthAll.Value;
+                int addressEventDataLength = new AddressEventData().ToBinary().Length;
                 int pointer = 0;
 
                 int length1 = BitConverter.ToInt32(addressEventDatasBytes, pointer);
@@ -9015,12 +9041,14 @@ namespace CREA2014
             {
                 ms.Write(BitConverter.GetBytes(addressEventDatas.addressEventDatas.Count), 0, 4);
 
+                int addressEventDataLength = new AddressEventData().ToBinary().Length;
+
                 foreach (var addressEventDatasDict in addressEventDatas.addressEventDatas)
                 {
                     ms.Write(addressEventDatasDict.Key.hash, 0, addressEventDatasDict.Key.SizeByte);
                     ms.Write(BitConverter.GetBytes(addressEventDatasDict.Value.Count), 0, 4);
                     foreach (var addressEventData in addressEventDatasDict.Value)
-                        ms.Write(addressEventData.ToBinary(), 0, addressEventData.LengthAll.Value);
+                        ms.Write(addressEventData.ToBinary(), 0, addressEventDataLength);
                 }
 
                 addressEventDatabase.UpdateData(ms.ToArray());
@@ -9030,12 +9058,14 @@ namespace CREA2014
             {
                 ms.Write(BitConverter.GetBytes(utxos.utxos.Count), 0, 4);
 
+                int utxoLength = new Utxo().ToBinary().Length;
+
                 foreach (var utxosDict in utxos.utxos)
                 {
                     ms.Write(utxosDict.Key.hash, 0, utxosDict.Key.SizeByte);
                     ms.Write(BitConverter.GetBytes(utxosDict.Value.Count), 0, 4);
                     foreach (var utxo in utxosDict.Value)
-                        ms.Write(utxo.ToBinary(), 0, utxo.LengthAll.Value);
+                        ms.Write(utxo.ToBinary(), 0, utxoLength);
                 }
 
                 utxoDatabase.UpdateData(ms.ToArray());

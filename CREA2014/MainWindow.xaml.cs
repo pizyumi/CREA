@@ -621,7 +621,7 @@ namespace CREA2014
             wss.Setup(mws.PortWebSocket);
             wss.Start();
 
-            wb.Navigated += (sender2, e2) => ((mshtml.HTMLDocument)wb.Document).focus();
+            //wb.Navigated += (sender2, e2) => ((mshtml.HTMLDocument)wb.Document).focus();
             wb.Navigate("http://localhost:" + mws.PortWebServer.ToString() + "/");
 
             mws.SettingsChanged += (sender2, e2) =>

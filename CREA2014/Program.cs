@@ -651,6 +651,14 @@ namespace CREA2014
             return haSha256.ComputeHash(bytes);
         }
 
+        public static byte[] ComputeSha256(this Stream stream)
+        {
+            if (haSha256 == null)
+                haSha256 = HashAlgorithm.Create("SHA-256");
+
+            return haSha256.ComputeHash(stream);
+        }
+
         //バイト配列のRIPEMD160ハッシュ値を計算する（拡張：バイト配列型）
         public static byte[] ComputeRipemd160(this byte[] bytes)
         {
@@ -1180,10 +1188,8 @@ namespace CREA2014
 
     public abstract class DATA { }
     public abstract class INTERNALDATA : DATA { }
-    //2014/06/10 配列が上手く読み書きできないバグを修正
-    //2014/08/31
-    //バージョンが保存されるかどうかを設定できるように変更
-    //バージョンが保存されている場合にはそのバージョンを採用し、StreamInfomationのバージョンは無視する
+    //2014/10/26
+    //SHAREDDATAの読み書きはSHAREDDATAクラスで行う
     //<未改良>最終的にはStreamInfomationでバージョン指定が必要なのはバージョンありだが、
     //バージョンが保存されない場合（外部からバージョンを指定してやる必要がある場合）のみにすべき
     public abstract class STREAMDATA<T> : DATA where T : STREAMDATA<T>.StreamInfomation
@@ -1200,7 +1206,6 @@ namespace CREA2014
             public abstract void WriteDouble(double data);
             public abstract void WriteDateTime(DateTime data);
             public abstract void WriteString(string data);
-            public abstract void WriteSHAREDDATA(SHAREDDATA data, int? version);
         }
 
         public abstract class STREAMREADER
@@ -1215,7 +1220,6 @@ namespace CREA2014
             public abstract double ReadDouble();
             public abstract DateTime ReadDateTime();
             public abstract string ReadString();
-            public abstract SHAREDDATA ReadSHAREDDATA(Type type, int? version);
         }
 
         public class ReaderWriter
@@ -1404,13 +1408,6 @@ namespace CREA2014
                     writer.WriteDateTime((DateTime)o);
                 else if (type == typeof(string))
                     writer.WriteString((string)o);
-                else if (type.IsSubclassOf(typeof(SHAREDDATA)))
-                {
-                    SHAREDDATA sd = o as SHAREDDATA;
-
-                    //外部からバージョンを渡さなければならない場合にのみバージョンを渡す
-                    writer.WriteSHAREDDATA(sd, sd.IsVersioned && !sd.IsVersionSaved ? (int?)si.Version : null);
-                }
                 else
                     throw new NotSupportedException("sd_write_not_supported");
             };
@@ -1457,13 +1454,6 @@ namespace CREA2014
                     return reader.ReadDateTime();
                 else if (type == typeof(string))
                     return reader.ReadString();
-                else if (type.IsSubclassOf(typeof(SHAREDDATA)))
-                {
-                    SHAREDDATA sd = Activator.CreateInstance(type) as SHAREDDATA;
-
-                    //外部からバージョンを渡さなければならない場合にのみバージョンを渡す
-                    return reader.ReadSHAREDDATA(type, sd.IsVersioned && !sd.IsVersionSaved ? (int?)si.Version : null);
-                }
                 else
                     throw new NotSupportedException("sd_read_not_supported");
             };
@@ -1513,14 +1503,6 @@ namespace CREA2014
             public override void WriteDateTime(DateTime data) { ca.WriteBytes(BitConverter.GetBytes((data).ToBinary())); }
 
             public override void WriteString(string data) { ca.WriteBytes(Encoding.UTF8.GetBytes(data)); }
-
-            public override void WriteSHAREDDATA(SHAREDDATA sd, int? version)
-            {
-                if (sd.IsVersioned && !sd.IsVersionSaved && sd.Version != version)
-                    throw new ArgumentException("write_sd_version_mismatch");
-
-                ca.WriteBytes(sd.ToBinary());
-            }
         }
 
         public class CommunicationApparatusReader : STREAMREADER
@@ -1548,21 +1530,6 @@ namespace CREA2014
             public override DateTime ReadDateTime() { return DateTime.FromBinary(BitConverter.ToInt64(ca.ReadBytes(), 0)); }
 
             public override string ReadString() { return Encoding.UTF8.GetString(ca.ReadBytes()); }
-
-            public override SHAREDDATA ReadSHAREDDATA(Type type, int? version)
-            {
-                SHAREDDATA sd = Activator.CreateInstance(type) as SHAREDDATA;
-                if (sd.IsVersioned && sd.IsVersionSaved)
-                {
-                    if (version == null)
-                        throw new ArgumentException("read_sd_version_null");
-
-                    sd.Version = version.Value;
-                }
-                sd.FromBinary(ca.ReadBytes());
-
-                return sd;
-            }
         }
 
         public class ProtocolInfomation : StreamInfomation
@@ -1606,6 +1573,9 @@ namespace CREA2014
         //2014/05/07
         //予約領域は廃止
         //データが無駄に大きくなるので、厳格にバージョン管理して対応するべき
+        //2014/10/26
+        //署名関連機能も廃止
+        //別途署名用の抽象クラスでも作るべき
 
         public class MyStreamWriter : STREAMWRITER
         {
@@ -1640,17 +1610,6 @@ namespace CREA2014
             {
                 byte[] bytes = Encoding.UTF8.GetBytes(data);
                 stream.Write(BitConverter.GetBytes(bytes.Length), 0, 4);
-                stream.Write(bytes, 0, bytes.Length);
-            }
-
-            public override void WriteSHAREDDATA(SHAREDDATA data, int? version)
-            {
-                if (data.IsVersioned && !data.IsVersionSaved && data.Version != version)
-                    throw new ArgumentException("write_sd_version_mismatch");
-
-                byte[] bytes = data.ToBinary();
-                if (data.LengthAll == null)
-                    stream.Write(BitConverter.GetBytes(bytes.Length), 0, 4);
                 stream.Write(bytes, 0, bytes.Length);
             }
         }
@@ -1736,33 +1695,6 @@ namespace CREA2014
                 stream.Read(bytes, 0, length);
                 return Encoding.UTF8.GetString(bytes);
             }
-
-            public override SHAREDDATA ReadSHAREDDATA(Type type, int? version)
-            {
-                SHAREDDATA sd = Activator.CreateInstance(type) as SHAREDDATA;
-                if (sd.IsVersioned && !sd.IsVersionSaved)
-                {
-                    if (version == null)
-                        throw new ArgumentException("read_sd_version_null");
-
-                    sd.Version = version.Value;
-                }
-
-                int? length = sd.LengthAll;
-                if (length == null)
-                {
-                    byte[] lengthBytes = new byte[4];
-                    stream.Read(lengthBytes, 0, 4);
-                    length = BitConverter.ToInt32(lengthBytes, 0);
-                }
-
-                byte[] bytes = new byte[length.Value];
-                stream.Read(bytes, 0, length.Value);
-
-                sd.FromBinary(bytes);
-
-                return sd;
-            }
         }
 
         public class MainDataInfomation : StreamInfomation
@@ -1777,6 +1709,19 @@ namespace CREA2014
             public Action<object> Setter { get { return Receiver; } }
         }
 
+        private static readonly Dictionary<Guid, Type> guidsAndTypes = new Dictionary<Guid, Type>();
+
+        static SHAREDDATA()
+        {
+            foreach (Type type in Assembly.GetExecutingAssembly().GetTypes())
+                if (type.IsSubclassOf(typeof(SHAREDDATA)))
+                {
+                    SHAREDDATA sd = Activator.CreateInstance(type) as SHAREDDATA;
+                    if (sd.Guid != Guid.Empty)
+                        guidsAndTypes.Add(sd.Guid, type);
+                }
+        }
+
         public SHAREDDATA() : this(null) { }
 
         public SHAREDDATA(int? _version)
@@ -1788,39 +1733,10 @@ namespace CREA2014
         }
 
         public virtual bool IsVersioned { get { return false; } }
-
         public virtual bool IsVersionSaved { get { return true; } }
-
         public virtual bool IsCorruptionChecked { get { return false; } }
 
-        public virtual bool IsSigned { get { return false; } }
-
-        public virtual bool IsSignatureChecked { get { return false; } }
-
-        public virtual byte[] PubKey
-        {
-            get { throw new NotSupportedException("sd_pubkey"); }
-            protected set { throw new NotSupportedException("sd_pubkey_set"); }
-        }
-
-        public virtual byte[] PrivKey
-        {
-            get { throw new NotSupportedException("sd_privkey"); }
-        }
-
-        private byte[] signature;
-        public bool IsValidSignature
-        {
-            get
-            {
-                if (!IsSigned)
-                    throw new NotSupportedException("sd_is_valid_sig");
-                if (signature == null)
-                    throw new InvalidOperationException("sd_signature");
-
-                return VerifySignature();
-            }
-        }
+        public virtual Guid Guid { get { return Guid.Empty; } }
 
         private int? version;
         public int Version
@@ -1841,88 +1757,85 @@ namespace CREA2014
             }
         }
 
-        public int? LengthAll
+        public void ToBinaryMainData(MemoryStream ms, ref bool isCorruptionCheckNeeded, List<Guid> typeList, Func<ReaderWriter, IEnumerable<MainDataInfomation>> si)
         {
-            get
-            {
-                int? length = LengthMain;
-                //公開鍵や署名は可変長である
-                if (length == null || IsSigned)
-                    return null;
-                else
-                {
-                    if (IsVersioned && IsVersionSaved)
-                        length += 4;
-                    if (IsCorruptionChecked)
-                        length += 4;
-                    return length;
-                }
-            }
-        }
+            MyStreamWriter writer = new MyStreamWriter(ms);
 
-        public int? LengthMain
-        {
-            get
-            {
-                Func<Type, MainDataInfomation, int?> _GetLength = (type, mdi) =>
+            foreach (var mdi in si(new ReaderWriter(writer, new MyStreamReader(ms), ReaderWriter.Mode.write)))
+                if (mdi.Type.IsSubclassOf(typeof(SHAREDDATA)))
                 {
-                    if (type == typeof(bool) || type == typeof(byte))
-                        return 1;
-                    else if (type == typeof(int) || type == typeof(uint) || type == typeof(float))
-                        return 4;
-                    else if (type == typeof(long) || type == typeof(ulong) || type == typeof(double) || type == typeof(DateTime))
-                        return 8;
-                    else if (type == typeof(string))
-                        return null;
-                    else if (type.IsSubclassOf(typeof(SHAREDDATA)))
-                        return (Activator.CreateInstance(type) as SHAREDDATA).LengthAll;
-                    else
-                        throw new NotSupportedException("sd_length_not_supported");
-                };
+                    SHAREDDATA sd = mdi.Getter() as SHAREDDATA;
 
-                if (IsVersioned && IsVersionSaved)
-                    return null;
+                    if (sd.IsVersioned && !sd.IsVersionSaved && sd.Version != mdi.Version)
+                        throw new InvalidOperationException();
 
-                int length = 0;
-                try
-                {
-                    foreach (var mdi in StreamInfo(new ReaderWriter(null, null, ReaderWriter.Mode.neither)))
-                        if (mdi.Type.IsArray)
-                            if (mdi.Length == null)
-                                return null;
-                            else
-                            {
-                                int? innerLength = _GetLength(mdi.Type.GetElementType(), mdi);
-                                if (innerLength == null)
-                                    return null;
-                                else
-                                    length += mdi.Length.Value * innerLength.Value;
-                            }
+                    if (mdi.Type.IsAbstract)
+                    {
+                        int index;
+                        if (typeList.Contains(sd.Guid))
+                            index = typeList.IndexOf(sd.Guid);
                         else
                         {
-                            int? innerLength = _GetLength(mdi.Type, mdi);
-                            if (innerLength == null)
-                                return null;
-                            else
-                                length += innerLength.Value;
+                            index = typeList.Count;
+
+                            typeList.Add(sd.Guid);
                         }
+
+                        writer.WriteInt(index);
+                    }
+
+                    sd.ToBinary(ms, ref isCorruptionCheckNeeded, typeList);
                 }
-                catch (ReaderWriter.CantReadOrWriteException)
+                else if (mdi.Type.IsArray && mdi.Type.GetElementType().IsSubclassOf(typeof(SHAREDDATA)))
                 {
-                    return null;
+                    Type elementType = mdi.Type.GetElementType();
+
+                    SHAREDDATA[] sds = mdi.Getter() as SHAREDDATA[];
+
+                    if (mdi.Length != null && mdi.Length != sds.Length)
+                        throw new InvalidOperationException();
+
+                    if (mdi.Length == null)
+                        writer.WriteInt(sds.Length);
+
+                    foreach (SHAREDDATA sd in sds)
+                    {
+                        if (sd.IsVersioned && !sd.IsVersionSaved && sd.Version != mdi.Version)
+                            throw new InvalidOperationException();
+
+                        if (elementType.IsAbstract)
+                        {
+                            int index;
+                            if (typeList.Contains(sd.Guid))
+                                index = typeList.IndexOf(sd.Guid);
+                            else
+                            {
+                                index = typeList.Count;
+
+                                typeList.Add(sd.Guid);
+                            }
+
+                            writer.WriteInt(index);
+                        }
+
+                        sd.ToBinary(ms, ref isCorruptionCheckNeeded, typeList);
+                    }
                 }
-                return length;
-            }
+                else
+                    Write(writer, mdi);
         }
 
-        protected byte[] ToBinaryMainData(Func<ReaderWriter, IEnumerable<MainDataInfomation>> si)
+        public void ToBinaryMainData(MemoryStream ms, ref bool isCorruptionCheckNeeded, List<Guid> typeList) { ToBinaryMainData(ms, ref isCorruptionCheckNeeded, typeList, StreamInfo); }
+
+        public byte[] ToBinaryMainData(Func<ReaderWriter, IEnumerable<MainDataInfomation>> si)
         {
             using (MemoryStream ms = new MemoryStream())
             {
-                MyStreamWriter writer = new MyStreamWriter(ms);
+                //未使用（ダミー）
+                bool isCorruptionCheckNeeded = false;
+                List<Guid> typeList = new List<System.Guid>();
 
-                foreach (var mdi in si(new ReaderWriter(writer, new MyStreamReader(ms), ReaderWriter.Mode.write)))
-                    Write(writer, mdi);
+                ToBinaryMainData(ms, ref isCorruptionCheckNeeded, typeList, si);
 
                 return ms.ToArray();
             }
@@ -1930,106 +1843,199 @@ namespace CREA2014
 
         public byte[] ToBinaryMainData() { return ToBinaryMainData(StreamInfo); }
 
-        //バージョンに関してはバージョンを保存する構成になっている場合には設定されているバージョンを書き込むだけである
-        //バージョンの妥当性は不可知である
-        protected byte[] ToBinary(Func<ReaderWriter, IEnumerable<MainDataInfomation>> si)
+        public void ToBinary(MemoryStream ms, ref bool isCorruptionCheckNeeded, List<Guid> typeList, Func<ReaderWriter, IEnumerable<MainDataInfomation>> si)
         {
-            byte[] mainDataBytes = ToBinaryMainData(si);
+            if (IsCorruptionChecked)
+                isCorruptionCheckNeeded = true;
 
+            if (IsVersioned && IsVersionSaved)
+                ms.Write(BitConverter.GetBytes(version.Value), 0, 4);
+
+            ToBinaryMainData(ms, ref isCorruptionCheckNeeded, typeList, si);
+        }
+
+        public void ToBinary(MemoryStream ms, ref bool isCorruptionCheckNeeded, List<Guid> typeList) { ToBinary(ms, ref isCorruptionCheckNeeded, typeList, StreamInfo); }
+
+        public byte[] ToBinary(Func<ReaderWriter, IEnumerable<MainDataInfomation>> si)
+        {
             using (MemoryStream ms = new MemoryStream())
             {
-                if (IsVersioned && IsVersionSaved)
-                    ms.Write(BitConverter.GetBytes(version.Value), 0, 4);
-                //破損検査のためのデータ（主データのSha256ハッシュ値の先頭4バイト）
-                if (IsCorruptionChecked)
-                    ms.Write(mainDataBytes.ComputeSha256(), 0, 4);
-                if (IsSigned)
+                bool isCorruptionCheckNeeded = false;
+                List<Guid> typeList = new List<System.Guid>();
+
+                ToBinary(ms, ref isCorruptionCheckNeeded, typeList, si);
+
+                byte[] msBytes = ms.ToArray();
+
+                using (MemoryStream ms2 = new MemoryStream())
                 {
-                    //公開鍵は可変長である
-                    ms.Write(BitConverter.GetBytes(PubKey.Length), 0, 4);
-                    ms.Write(PubKey, 0, PubKey.Length);
-
-                    using (ECDsaCng dsa = new ECDsaCng(CngKey.Import(PrivKey, CngKeyBlobFormat.EccPrivateBlob)))
+                    bool isTypeListNeeded = typeList.Count != 0;
+                    ms2.Write(BitConverter.GetBytes(isTypeListNeeded), 0, 1);
+                    if (isTypeListNeeded)
                     {
-                        dsa.HashAlgorithm = CngAlgorithm.Sha256;
-
-                        //一応主データに加えて公開鍵も結合したものに対して署名することにする
-                        //公開鍵を結合しないと、後で別の鍵ペアで同一データに署名することができる
-                        //だからといって、同一データを別人が署名した新しいデータができるだけで、
-                        //本人が作成していないデータに対して別人が本人として署名することはできないが
-                        signature = dsa.SignData(PubKey.Combine(mainDataBytes));
-
-                        //将来的にハッシュアルゴリズムが変更される可能性もあるので、
-                        //署名は可変長ということにする
-                        ms.Write(BitConverter.GetBytes(signature.Length), 0, 4);
-                        ms.Write(signature, 0, signature.Length);
+                        ms2.Write(BitConverter.GetBytes(typeList.Count), 0, 4);
+                        foreach (Guid typeGuid in typeList)
+                            ms2.Write(typeGuid.ToByteArray(), 0, 16);
                     }
-                }
-                ms.Write(mainDataBytes, 0, mainDataBytes.Length);
+                    ms2.Write(msBytes, 0, msBytes.Length);
 
-                return ms.ToArray();
+                    if (isCorruptionCheckNeeded)
+                        ms2.Write(msBytes.ComputeSha256(), 0, 4);
+
+                    return ms2.ToArray();
+                }
             }
         }
 
         public byte[] ToBinary() { return ToBinary(StreamInfo); }
 
-        //バージョンに関してはバージョンを保存する構成になっている場合には格納されているバージョンを読み取って設定するだけである
-        //バージョンの妥当性には不可知である
-        public void FromBinary(byte[] binary)
+        public void FromBinaryMainData(MemoryStream ms, ref bool isCorruptionCheckNeeded, List<Guid> typeList, Func<ReaderWriter, IEnumerable<MainDataInfomation>> si)
         {
-            byte[] mainDataBytes;
+            MyStreamReader reader = new MyStreamReader(ms);
+
+            foreach (var mdi in StreamInfo(new ReaderWriter(new MyStreamWriter(ms), reader, ReaderWriter.Mode.read)))
+                if (mdi.Type.IsSubclassOf(typeof(SHAREDDATA)))
+                {
+                    Type type;
+                    if (mdi.Type.IsAbstract)
+                    {
+                        int index = reader.ReadInt();
+
+                        if (typeList.Count <= index)
+                            throw new InvalidOperationException();
+                        if (!guidsAndTypes.Keys.Contains(typeList[index]))
+                            throw new InvalidOperationException();
+
+                        type = guidsAndTypes[typeList[index]];
+                    }
+                    else
+                        type = mdi.Type;
+
+                    SHAREDDATA sd = Activator.CreateInstance(type) as SHAREDDATA;
+
+                    if (sd.IsVersioned && !sd.IsVersionSaved)
+                        sd.Version = mdi.Version;
+
+                    sd.FromBinary(ms, ref isCorruptionCheckNeeded, typeList);
+
+                    mdi.Setter(sd);
+                }
+                else if (mdi.Type.IsArray && mdi.Type.GetElementType().IsSubclassOf(typeof(SHAREDDATA)))
+                {
+                    Type elementType = mdi.Type.GetElementType();
+
+                    Array sds = Array.CreateInstance(elementType, mdi.Length ?? reader.ReadInt()) as Array;
+
+                    for (int i = 0; i < sds.Length; i++)
+                    {
+                        Type type;
+                        if (mdi.Type.IsAbstract)
+                        {
+                            int index = reader.ReadInt();
+
+                            if (typeList.Count <= index)
+                                throw new InvalidOperationException();
+                            if (!guidsAndTypes.Keys.Contains(typeList[index]))
+                                throw new InvalidOperationException();
+
+                            type = guidsAndTypes[typeList[index]];
+                        }
+                        else
+                            type = mdi.Type;
+
+                        SHAREDDATA sd = Activator.CreateInstance(type) as SHAREDDATA;
+
+                        if (sd.IsVersioned && !sd.IsVersionSaved)
+                            sd.Version = mdi.Version;
+
+                        sd.FromBinary(ms, ref isCorruptionCheckNeeded, typeList);
+
+                        sds.SetValue(sd, i);
+                    }
+
+                    mdi.Setter(sds);
+                }
+                else
+                    Read(reader, mdi);
+        }
+
+        public void FromBinaryMainData(MemoryStream ms, ref bool isCorruptionCheckNeeded, List<Guid> typeList) { FromBinaryMainData(ms, ref isCorruptionCheckNeeded, typeList, StreamInfo); }
+
+        public void FromBinaryMainData(byte[] binary, Func<ReaderWriter, IEnumerable<MainDataInfomation>> si)
+        {
             using (MemoryStream ms = new MemoryStream(binary))
             {
-                if (IsVersioned && IsVersionSaved)
+                //未使用（ダミー）
+                bool isCorruptionCheckNeeded = false;
+                List<Guid> typeList = new List<System.Guid>();
+
+                FromBinaryMainData(ms, ref isCorruptionCheckNeeded, typeList, si);
+            }
+        }
+
+        public void FromBinaryMainData(byte[] binary) { FromBinaryMainData(binary, StreamInfo); }
+
+        public void FromBinary(MemoryStream ms, ref bool isCorruptionCheckNeeded, List<Guid> typeList, Func<ReaderWriter, IEnumerable<MainDataInfomation>> si)
+        {
+            if (IsCorruptionChecked)
+                isCorruptionCheckNeeded = true;
+
+            if (IsVersioned && IsVersionSaved)
+            {
+                byte[] versionBytes = new byte[4];
+                ms.Read(versionBytes, 0, 4);
+                version = BitConverter.ToInt32(versionBytes, 0);
+            }
+
+            FromBinaryMainData(ms, ref isCorruptionCheckNeeded, typeList, si);
+        }
+
+        public void FromBinary(MemoryStream ms, ref bool isCorruptionCheckNeeded, List<Guid> typeList) { FromBinary(ms, ref isCorruptionCheckNeeded, typeList, StreamInfo); }
+
+        public void FromBinary(byte[] binary, Func<ReaderWriter, IEnumerable<MainDataInfomation>> si)
+        {
+            using (MemoryStream ms = new MemoryStream(binary))
+            {
+                bool isCorruptionCheckNeeded = false;
+                List<Guid> typeList = new List<System.Guid>();
+
+                byte[] isTypeListNeededBytes = new byte[1];
+                ms.Read(isTypeListNeededBytes, 0, 1);
+                if (BitConverter.ToBoolean(isTypeListNeededBytes, 0))
                 {
-                    byte[] versionBytes = new byte[4];
-                    ms.Read(versionBytes, 0, 4);
-                    version = BitConverter.ToInt32(versionBytes, 0);
+                    byte[] typeListLengthBytes = new byte[4];
+                    ms.Read(typeListLengthBytes, 0, 4);
+                    int typeListLength = BitConverter.ToInt32(typeListLengthBytes, 0);
+
+                    for (int i = 0; i < typeListLength; i++)
+                    {
+                        byte[] typeGuidBytes = new byte[16];
+                        ms.Read(typeGuidBytes, 0, 16);
+                        typeList.Add(new Guid(typeGuidBytes));
+                    }
                 }
 
-                int? check = null;
-                if (IsCorruptionChecked)
+                FromBinary(ms, ref isCorruptionCheckNeeded, typeList, si);
+
+                if (isCorruptionCheckNeeded)
                 {
                     byte[] checkBytes = new byte[4];
                     ms.Read(checkBytes, 0, 4);
-                    check = BitConverter.ToInt32(checkBytes, 0);
+                    int check = BitConverter.ToInt32(checkBytes, 0);
+
+                    int typeListBytesLength = typeList.Count == 0 ? 1 : 1 + 4 + typeList.Count * 16;
+
+                    byte[] checkData = new byte[ms.Length - 4 - typeListBytesLength];
+                    ms.Seek(typeListBytesLength, SeekOrigin.Begin);
+                    ms.Read(checkData, 0, checkData.Length);
+
+                    if (check != BitConverter.ToInt32(checkData.ComputeSha256(), 0))
+                        throw new InvalidDataException("from_binary_check");
                 }
-
-                if (IsSigned)
-                {
-                    byte[] pubKeyLengthBytes = new byte[4];
-                    ms.Read(pubKeyLengthBytes, 0, 4);
-                    int publicKeyLength = BitConverter.ToInt32(pubKeyLengthBytes, 0);
-
-                    byte[] pubKey = new byte[publicKeyLength];
-                    ms.Read(pubKey, 0, pubKey.Length);
-                    PubKey = pubKey;
-
-                    byte[] signatureLengthBytes = new byte[4];
-                    ms.Read(signatureLengthBytes, 0, 4);
-                    int signatureLength = BitConverter.ToInt32(signatureLengthBytes, 0);
-
-                    signature = new byte[signatureLength];
-                    ms.Read(signature, 0, signature.Length);
-                }
-
-                int length = (int)(ms.Length - ms.Position);
-                mainDataBytes = new byte[length];
-                ms.Read(mainDataBytes, 0, length);
-
-                if (IsCorruptionChecked && check != BitConverter.ToInt32(mainDataBytes.ComputeSha256(), 0))
-                    throw new InvalidDataException("from_binary_check");
-                if (IsSigned && IsSignatureChecked && !VerifySignature())
-                    throw new InvalidDataException("from_binary_signature");
-            }
-            using (MemoryStream ms = new MemoryStream(mainDataBytes))
-            {
-                MyStreamReader reader = new MyStreamReader(ms);
-
-                foreach (var mdi in StreamInfo(new ReaderWriter(new MyStreamWriter(ms), reader, ReaderWriter.Mode.read)))
-                    Read(reader, mdi);
             }
         }
+
+        public void FromBinary(byte[] binary) { FromBinary(binary, StreamInfo); }
 
         public static T FromBinary<T>(byte[] binary) where T : SHAREDDATA
         {
@@ -2044,17 +2050,6 @@ namespace CREA2014
             sd.Version = version;
             sd.FromBinary(binary);
             return sd;
-        }
-
-        private bool VerifySignature()
-        {
-            using (ECDsaCng dsa = new ECDsaCng(CngKey.Import(PubKey, CngKeyBlobFormat.EccPublicBlob)))
-            {
-                dsa.HashAlgorithm = CngAlgorithm.Sha256;
-
-                //主データに加えて公開鍵も結合したものに対して署名されている
-                return dsa.VerifyData(PubKey.Combine(ToBinaryMainData()), signature);
-            }
         }
     }
     public abstract class SETTINGSDATA : DATA
@@ -3596,8 +3591,8 @@ namespace CREA2014
 
             TestApplication testApplication;
 #if TEST
-            testApplication = null;
-            //testApplication = new CreaNetworkLocalTestApplication(logger);
+            //testApplication = null;
+            testApplication = new CreaNetworkLocalTestApplication(logger);
 #else
                 testApplication = null;
 #endif
