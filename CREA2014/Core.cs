@@ -1822,6 +1822,39 @@ namespace CREA2014
         }
     }
 
+    public class ResTransaction : SHAREDDATA
+    {
+        public ResTransaction() : base(0) { }
+
+        public ResTransaction(Transaction _transaction) : base(0) { transaction = _transaction; }
+
+        public Transaction transaction { get; private set; }
+
+        protected override Func<ReaderWriter, IEnumerable<MainDataInfomation>> StreamInfo
+        {
+            get
+            {
+                if (Version == 0)
+                    return (msrw) => new MainDataInfomation[]{
+                        new MainDataInfomation(typeof(Transaction), 0, null, () => transaction, (o) => transaction = (Transaction)o),
+                    };
+                else
+                    throw new NotSupportedException("res_tx_main_data_info");
+            }
+        }
+        public override bool IsVersioned { get { return true; } }
+        public override bool IsCorruptionChecked
+        {
+            get
+            {
+                if (Version <= 0)
+                    return false;
+                else
+                    throw new NotSupportedException("res_tx_check");
+            }
+        }
+    }
+
     public class ResTransactions : SHAREDDATA
     {
         public ResTransactions() : base(0) { }
@@ -2671,7 +2704,11 @@ namespace CREA2014
 
     public abstract class CreaNodeLocalTest : CREANODEBASE
     {
-        public CreaNodeLocalTest(ushort _portNumber, int _creaVersion, string _appnameWithVersion) : base(_portNumber, _creaVersion, _appnameWithVersion) { }
+        public CreaNodeLocalTest(ushort _portNumber, int _creaVersion, string _appnameWithVersion)
+            : base(_portNumber, _creaVersion, _appnameWithVersion)
+        {
+            receivedTransactions = new TransactionCollection();
+        }
 
         private readonly List<FirstNodeInformation> fnis = new List<FirstNodeInformation>();
 
@@ -2776,19 +2813,20 @@ namespace CREA2014
 
         protected override FirstNodeInformation[] GetFirstNodeInfos() { return fnis.ToArray(); }
 
+        private readonly TransactionCollection receivedTransactions;
+
         protected override void InboundProtocol(IChannel sc, Action<string> _ConsoleWriteLine)
         {
             Message message = SHAREDDATA.FromBinary<Message>(sc.ReadBytes());
+
+            if (message.version != 0)
+                throw new NotSupportedException();
+
             if (message.name == MessageName.reqNodeInfos)
-            {
-                if (message.version == 0)
-                    sc.WriteBytes(new ResNodeInfos(GetNodeInfos()).ToBinary());
-                else
-                    throw new NotSupportedException();
-            }
+                sc.WriteBytes(new ResNodeInfos(GetNodeInfos()).ToBinary());
             else if (message.name == MessageName.notifyNewTransaction)
             {
-                //NotifyNewTransaction nnt = message.messageBase as NotifyNewTransaction;
+                NotifyNewTransaction nnt = SHAREDDATA.FromBinary<NotifyNewTransaction>(sc.ReadBytes());
 
             }
             //else if (message.Name == MessageName.inv)
@@ -2824,16 +2862,26 @@ namespace CREA2014
 
         protected override SHAREDDATA[] OutboundProtocol(Message message, SHAREDDATA[] datas, IChannel sc, Action<string> _ConsoleWriteLine)
         {
+            if (message.version != 0)
+                throw new NotSupportedException();
+
             sc.WriteBytes(message.ToBinary());
             if (message.name == MessageName.reqNodeInfos)
                 return new SHAREDDATA[] { SHAREDDATA.FromBinary<ResNodeInfos>(sc.ReadBytes()) };
-            //else if (message.Name == MessageName.notifyNewTransaction)
-            //{
-            //    bool isNew = BitConverter.ToBoolean(sc.ReadBytes(), 0);
-            //    if (isNew)
-            //        sc.WriteBytes(messages[1].ToBinary());
-            //    return null;
-            //}
+            else if (message.name == MessageName.notifyNewTransaction)
+            {
+                if (datas.Length != 2)
+                    throw new InvalidOperationException();
+                if (datas[0] as NotifyNewTransaction == null)
+                    throw new InvalidOperationException();
+                if (datas[1] as ResTransaction == null)
+                    throw new InvalidOperationException();
+
+                sc.WriteBytes(datas[0].ToBinary());
+                if (BitConverter.ToBoolean(sc.ReadBytes(), 0))
+                    sc.WriteBytes(datas[1].ToBinary());
+                return new SHAREDDATA[] { };
+            }
             else
                 throw new NotSupportedException("protocol_not_supported");
         }

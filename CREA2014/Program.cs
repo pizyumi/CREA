@@ -3210,48 +3210,9 @@ namespace CREA2014
         private static string version = string.Join(".", verMaj.ToString(), verMin.ToString(), verMMin.ToString()) + "(" + verS + ")" + "(" + verR.ToString() + ")" + "(" + verC.ToString() + ")";
         private static string appnameWithVersion = string.Join(" ", appname, version);
 
-        private static void Test()
-        {
-            //string s2 = Guid.NewGuid().ToByteArray().ToHexstring();
-
-            Secp256k1KeyPair<Sha256Hash> secp256k1KeyPair = new Secp256k1KeyPair<Sha256Hash>(true);
-
-            TransactionInput ti1 = new TransactionInput();
-            ti1.LoadVersion1(0, 0, 0);
-
-            TransactionOutput to1 = new TransactionOutput();
-            to1.LoadVersion0(new Sha256Ripemd160Hash(secp256k1KeyPair.pubKey.pubKey), new Creacoin(50m));
-
-            CoinbaseTransaction ct1 = new CoinbaseTransaction();
-            ct1.LoadVersion0(new TransactionOutput[] { to1 });
-
-            byte[] ctBytes1 = ct1.ToBinary();
-
-            CoinbaseTransaction ct2 = SHAREDDATA.FromBinary<CoinbaseTransaction>(ctBytes1);
-
-            TransferTransaction tt1 = new TransferTransaction();
-            tt1.LoadVersion1(new TransactionInput[] { ti1 }, new TransactionOutput[] { to1 });
-            tt1.Sign(new TransactionOutput[] { to1 }, new DSAPRIVKEYBASE[] { secp256k1KeyPair.privKey });
-
-            byte[] ttBytes1 = tt1.ToBinary();
-
-            TransferTransaction tt2 = SHAREDDATA.FromBinary<TransferTransaction>(ttBytes1);
-
-            ResTransactions rt1 = new ResTransactions(new Transaction[] { ct1, tt1 });
-
-            byte[] rtBytes1 = rt1.ToBinary();
-
-            ResTransactions rt2 = SHAREDDATA.FromBinary<ResTransactions>(rtBytes1);
-        }
-
         [STAThread]
         public static void Main(string[] args)
         {
-            Test();
-
-            Console.ReadLine();
-
-
             string argExtract = "extract";
             string argCopy = "copy";
 
