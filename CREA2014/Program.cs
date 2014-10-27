@@ -1255,17 +1255,6 @@ namespace CREA2014
 
         public abstract class StreamInfomation
         {
-            //2014/02/23
-            //抽象クラスには対応しない
-            //抽象クラスの変数に格納されている具象クラスを保存する場合には具象クラスとしてStreamInfomationを作成する
-            //具象クラスが複数ある場合には具象クラス別にStreamInfomationを作成する
-            //2014/05/07
-            //配列の配列には対応しない
-            //対応することは可能だが、実装が複雑になる
-            //又、基本的には配列をラップしたクラスを別途作るべき場合が多いように思える
-            //2014/05/07
-            //<未実装>配列の配列に対応しない代わりに多次元配列には対応すべきかもしれない
-
             //SHAREDDATA（の派生クラス）の配列専用
             public StreamInfomation(Type _type, int? _version, int? _length, Func<object> _sender, Action<object> _receiver)
             {
@@ -1275,14 +1264,18 @@ namespace CREA2014
                 Type elementType = _type.GetElementType();
                 if (!elementType.IsSubclassOf(typeof(SHAREDDATA)))
                     throw new ArgumentException("stream_info_not_sd_array");
-                if (elementType.IsAbstract)
-                    throw new ArgumentException("stream_info_sd_array_abstract");
+                //if (elementType.IsAbstract)
+                //throw new ArgumentException("stream_info_sd_array_abstract");
                 if (elementType.IsArray)
                     throw new ArgumentException("stream_info_array_of_array");
 
-                SHAREDDATA sd = Activator.CreateInstance(elementType) as SHAREDDATA;
-                if ((!sd.IsVersioned && _version != null) || (sd.IsVersioned && _version == null))
-                    throw new ArgumentException("stream_info_not_sd_array_is_versioned");
+                if (!elementType.IsAbstract)
+                {
+                    SHAREDDATA sd = Activator.CreateInstance(elementType) as SHAREDDATA;
+                    if ((!sd.IsVersioned && _version != null) || (sd.IsVersioned && _version == null))
+                        throw new ArgumentException("stream_info_not_sd_array_is_versioned");
+                }
+                //<未実装>抽象型の場合はどうするか？
 
                 version = _version;
                 length = _length;
@@ -1309,12 +1302,16 @@ namespace CREA2014
                 }
                 else if (_type.IsSubclassOf(typeof(SHAREDDATA)))
                 {
-                    if (_type.IsAbstract)
-                        throw new ArgumentException("stream_info_sd_abstract");
+                    //if (_type.IsAbstract)
+                    //throw new ArgumentException("stream_info_sd_abstract");
 
-                    SHAREDDATA sd = Activator.CreateInstance(_type) as SHAREDDATA;
-                    if ((!sd.IsVersioned && _lengthOrVersion != null) || (sd.IsVersioned && _lengthOrVersion == null))
-                        throw new ArgumentException("stream_info_sd_is_versioned");
+                    if (!_type.IsAbstract)
+                    {
+                        SHAREDDATA sd = Activator.CreateInstance(_type) as SHAREDDATA;
+                        if ((!sd.IsVersioned && _lengthOrVersion != null) || (sd.IsVersioned && _lengthOrVersion == null))
+                            throw new ArgumentException("stream_info_sd_is_versioned");
+                    }
+                    //<未実装>抽象型の場合はどうするか？
 
                     version = _lengthOrVersion;
                 }
@@ -1570,12 +1567,28 @@ namespace CREA2014
     public abstract class SHAREDDATA : STREAMDATA<SHAREDDATA.MainDataInfomation>
     {
         //<未実装>圧縮機能
+        //<未実装>配列の配列に対応しない代わりに多次元配列には対応すべきかもしれない
+        //<未実装>総称型への対応（抽象総称型だけでなく、普通の総称型にも対応した方が良い？）
         //2014/05/07
         //予約領域は廃止
         //データが無駄に大きくなるので、厳格にバージョン管理して対応するべき
         //2014/10/26
         //署名関連機能も廃止
         //別途署名用の抽象クラスでも作るべき
+        //2014/02/23
+        //抽象クラスには対応しない
+        //抽象クラスの変数に格納されている具象クラスを保存する場合には具象クラスとしてStreamInfomationを作成する
+        //具象クラスが複数ある場合には具象クラス別にStreamInfomationを作成する
+        //2014/05/07
+        //配列の配列には対応しない
+        //対応することは可能だが、実装が複雑になる
+        //又、基本的には配列をラップしたクラスを別途作るべき場合が多いように思える
+        //2014/10/27
+        //抽象クラスに対応する！
+        //型名を直接保持したら型名が変わった場合に困るのでGuidを使うしかあるまい
+        //そうすると、型とGuidの対応が予め分かっていなければならない
+        //ただし、総称型をどうするかという問題がある
+        //更に、現状ではこのアセンブリの型しか探査しない
 
         public class MyStreamWriter : STREAMWRITER
         {
@@ -1714,7 +1727,8 @@ namespace CREA2014
         static SHAREDDATA()
         {
             foreach (Type type in Assembly.GetExecutingAssembly().GetTypes())
-                if (type.IsSubclassOf(typeof(SHAREDDATA)))
+                //<未実装>総称型への対応
+                if (type.IsSubclassOf(typeof(SHAREDDATA)) && !type.ContainsGenericParameters && !type.IsAbstract)
                 {
                     SHAREDDATA sd = Activator.CreateInstance(type) as SHAREDDATA;
                     if (sd.Guid != Guid.Empty)
@@ -1767,14 +1781,15 @@ namespace CREA2014
                     SHAREDDATA sd = mdi.Getter() as SHAREDDATA;
 
                     if (sd.IsVersioned && !sd.IsVersionSaved && sd.Version != mdi.Version)
-                        throw new InvalidOperationException();
+                        throw new InvalidOperationException("version_mismatch");
 
                     if (mdi.Type.IsAbstract)
                     {
-                        int index;
-                        if (typeList.Contains(sd.Guid))
-                            index = typeList.IndexOf(sd.Guid);
-                        else
+                        if (!sd.GetType().IsSubclassOf(mdi.Type))
+                            throw new InvalidOperationException("type_mismatch");
+
+                        int index = typeList.IndexOf(sd.Guid);
+                        if (index == -1)
                         {
                             index = typeList.Count;
 
@@ -1783,6 +1798,8 @@ namespace CREA2014
 
                         writer.WriteInt(index);
                     }
+                    else if (sd.GetType() != mdi.Type)
+                        throw new InvalidOperationException("type_mismatch");
 
                     sd.ToBinary(ms, ref isCorruptionCheckNeeded, typeList);
                 }
@@ -1792,8 +1809,11 @@ namespace CREA2014
 
                     SHAREDDATA[] sds = mdi.Getter() as SHAREDDATA[];
 
+                    //抽象型の配列が指定されているときに態々具象型の配列を渡すのはおかしくないか？ということで例外発生
+                    if (sds.GetType() != mdi.Type)
+                        throw new InvalidOperationException("type_mismatch");
                     if (mdi.Length != null && mdi.Length != sds.Length)
-                        throw new InvalidOperationException();
+                        throw new InvalidOperationException("length_mismatch");
 
                     if (mdi.Length == null)
                         writer.WriteInt(sds.Length);
@@ -1801,14 +1821,15 @@ namespace CREA2014
                     foreach (SHAREDDATA sd in sds)
                     {
                         if (sd.IsVersioned && !sd.IsVersionSaved && sd.Version != mdi.Version)
-                            throw new InvalidOperationException();
+                            throw new InvalidOperationException("version_mismatch");
 
                         if (elementType.IsAbstract)
                         {
-                            int index;
-                            if (typeList.Contains(sd.Guid))
-                                index = typeList.IndexOf(sd.Guid);
-                            else
+                            if (sd.Guid == Guid.Empty)
+                                throw new NotSupportedException("guid_not_supported");
+
+                            int index = typeList.IndexOf(sd.Guid);
+                            if (index == -1)
                             {
                                 index = typeList.Count;
 
@@ -1874,8 +1895,8 @@ namespace CREA2014
                     if (isTypeListNeeded)
                     {
                         ms2.Write(BitConverter.GetBytes(typeList.Count), 0, 4);
-                        foreach (Guid typeGuid in typeList)
-                            ms2.Write(typeGuid.ToByteArray(), 0, 16);
+                        foreach (Guid guid in typeList)
+                            ms2.Write(guid.ToByteArray(), 0, 16);
                     }
                     ms2.Write(msBytes, 0, msBytes.Length);
 
@@ -1902,9 +1923,9 @@ namespace CREA2014
                         int index = reader.ReadInt();
 
                         if (typeList.Count <= index)
-                            throw new InvalidOperationException();
+                            throw new InvalidOperationException("type_index");
                         if (!guidsAndTypes.Keys.Contains(typeList[index]))
-                            throw new InvalidOperationException();
+                            throw new InvalidOperationException("type_guid_not_found");
 
                         type = guidsAndTypes[typeList[index]];
                     }
@@ -1929,19 +1950,19 @@ namespace CREA2014
                     for (int i = 0; i < sds.Length; i++)
                     {
                         Type type;
-                        if (mdi.Type.IsAbstract)
+                        if (elementType.IsAbstract)
                         {
                             int index = reader.ReadInt();
 
                             if (typeList.Count <= index)
-                                throw new InvalidOperationException();
+                                throw new InvalidOperationException("type_index");
                             if (!guidsAndTypes.Keys.Contains(typeList[index]))
-                                throw new InvalidOperationException();
+                                throw new InvalidOperationException("type_guid_not_found");
 
                             type = guidsAndTypes[typeList[index]];
                         }
                         else
-                            type = mdi.Type;
+                            type = elementType;
 
                         SHAREDDATA sd = Activator.CreateInstance(type) as SHAREDDATA;
 
@@ -2015,6 +2036,8 @@ namespace CREA2014
                     }
                 }
 
+                int typeListBytesLength = (int)ms.Position;
+
                 FromBinary(ms, ref isCorruptionCheckNeeded, typeList, si);
 
                 if (isCorruptionCheckNeeded)
@@ -2022,8 +2045,6 @@ namespace CREA2014
                     byte[] checkBytes = new byte[4];
                     ms.Read(checkBytes, 0, 4);
                     int check = BitConverter.ToInt32(checkBytes, 0);
-
-                    int typeListBytesLength = typeList.Count == 0 ? 1 : 1 + 4 + typeList.Count * 16;
 
                     byte[] checkData = new byte[ms.Length - 4 - typeListBytesLength];
                     ms.Seek(typeListBytesLength, SeekOrigin.Begin);
@@ -3189,9 +3210,48 @@ namespace CREA2014
         private static string version = string.Join(".", verMaj.ToString(), verMin.ToString(), verMMin.ToString()) + "(" + verS + ")" + "(" + verR.ToString() + ")" + "(" + verC.ToString() + ")";
         private static string appnameWithVersion = string.Join(" ", appname, version);
 
+        private static void Test()
+        {
+            //string s2 = Guid.NewGuid().ToByteArray().ToHexstring();
+
+            Secp256k1KeyPair<Sha256Hash> secp256k1KeyPair = new Secp256k1KeyPair<Sha256Hash>(true);
+
+            TransactionInput ti1 = new TransactionInput();
+            ti1.LoadVersion1(0, 0, 0);
+
+            TransactionOutput to1 = new TransactionOutput();
+            to1.LoadVersion0(new Sha256Ripemd160Hash(secp256k1KeyPair.pubKey.pubKey), new Creacoin(50m));
+
+            CoinbaseTransaction ct1 = new CoinbaseTransaction();
+            ct1.LoadVersion0(new TransactionOutput[] { to1 });
+
+            byte[] ctBytes1 = ct1.ToBinary();
+
+            CoinbaseTransaction ct2 = SHAREDDATA.FromBinary<CoinbaseTransaction>(ctBytes1);
+
+            TransferTransaction tt1 = new TransferTransaction();
+            tt1.LoadVersion1(new TransactionInput[] { ti1 }, new TransactionOutput[] { to1 });
+            tt1.Sign(new TransactionOutput[] { to1 }, new DSAPRIVKEYBASE[] { secp256k1KeyPair.privKey });
+
+            byte[] ttBytes1 = tt1.ToBinary();
+
+            TransferTransaction tt2 = SHAREDDATA.FromBinary<TransferTransaction>(ttBytes1);
+
+            ResTransactions rt1 = new ResTransactions(new Transaction[] { ct1, tt1 });
+
+            byte[] rtBytes1 = rt1.ToBinary();
+
+            ResTransactions rt2 = SHAREDDATA.FromBinary<ResTransactions>(rtBytes1);
+        }
+
         [STAThread]
         public static void Main(string[] args)
         {
+            Test();
+
+            Console.ReadLine();
+
+
             string argExtract = "extract";
             string argCopy = "copy";
 

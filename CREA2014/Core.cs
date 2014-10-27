@@ -1653,11 +1653,11 @@ namespace CREA2014
         IdsAndValues = 108,
     }
 
-    public class Message2 : SHAREDDATA
+    public class Message : SHAREDDATA
     {
-        public Message2() : base(0) { }
+        public Message() : base(0) { }
 
-        public Message2(MessageName _name, int _version)
+        public Message(MessageName _name, int _version)
             : base(0)
         {
             name = _name;
@@ -1830,44 +1830,16 @@ namespace CREA2014
 
         public Transaction[] transactions { get; private set; }
 
-        protected override Func<ReaderWriter, IEnumerable<MainDataInfomation>> StreamInfo { get { return (msrw) => StreamInfoInner; } }
-        private IEnumerable<MainDataInfomation> StreamInfoInner
+        protected override Func<ReaderWriter, IEnumerable<MainDataInfomation>> StreamInfo
         {
             get
             {
                 if (Version == 0)
-                {
-                    int length = transactions.Length;
-
-                    yield return new MainDataInfomation(typeof(int), () => length, (o) => length = (int)o);
-
-                    if (transactions.Length != length)
-                        transactions = new Transaction[length];
-
-                    for (int i = 0; i < length; i++)
-                    {
-                        int? typeInt = null;
-                        Type type = null;
-                        if (transactions[i] != null)
-                            if (transactions[i] is CoinbaseTransaction)
-                            {
-                                typeInt = 0;
-                                type = typeof(CoinbaseTransaction);
-                            }
-                            else if (transactions[i] is TransferTransaction)
-                            {
-                                typeInt = 1;
-                                type = typeof(TransferTransaction);
-                            }
-                            else
-                                throw new NotSupportedException();
-
-                        yield return new MainDataInfomation(typeof(int), () => typeInt.Value, (o) => typeInt = (int)o);
-                        yield return new MainDataInfomation(type, () => transactions[i], (o) => transactions[i] = o as Transaction);
-                    }
-                }
+                    return (msrw) => new MainDataInfomation[]{
+                        new MainDataInfomation(typeof(Transaction[]), 0, null, () => transactions, (o) => transactions = (Transaction[])o),
+                    };
                 else
-                    throw new NotSupportedException("header_stream_info");
+                    throw new NotSupportedException("res_txs_main_data_info");
             }
         }
         public override bool IsVersioned { get { return true; } }
@@ -2151,6 +2123,8 @@ namespace CREA2014
 
     public class NeighborNodes : SHAREDDATA
     {
+        public NeighborNodes() : base(0) { }
+
         public NeighborNodes(NodeInformation[] _nodeInfos)
             : base(0)
         {
@@ -2235,6 +2209,8 @@ namespace CREA2014
 
     public class Value : SHAREDDATA
     {
+        public Value() : base(0) { }
+
         public Value(byte[] _data)
             : base(0)
         {
@@ -2378,11 +2354,11 @@ namespace CREA2014
         protected abstract bool IsWantToContinue(NodeInformation nodeInfo);
         protected abstract bool IsClientCanContinue(NodeInformation nodeInfo);
         protected abstract void InboundProtocol(IChannel sc, Action<string> _ConsoleWriteLine);
-        protected abstract SHAREDDATA[] OutboundProtocol(Message2 message, SHAREDDATA[] datas, IChannel sc, Action<string> _ConsoleWriteLine);
+        protected abstract SHAREDDATA[] OutboundProtocol(Message message, SHAREDDATA[] datas, IChannel sc, Action<string> _ConsoleWriteLine);
         protected abstract void InboundContinue(NodeInformation nodeInfo, SocketChannel sc, Action<string> _ConsoleWriteLine);
         protected abstract void OutboundContinue(NodeInformation nodeInfo, SocketChannel sc, Action<string> _ConsoleWriteLine);
-        protected abstract SHAREDDATA[] Request(NodeInformation nodeinfo, Message2 message, params SHAREDDATA[] datas);
-        protected abstract void Diffuse(Message2 message, params SHAREDDATA[] datas);
+        protected abstract SHAREDDATA[] Request(NodeInformation nodeinfo, Message message, params SHAREDDATA[] datas);
+        protected abstract void Diffuse(Message message, params SHAREDDATA[] datas);
 
         protected override void CreateNodeInfo()
         {
@@ -2480,7 +2456,7 @@ namespace CREA2014
                 throw new NotSupportedException("not_supported_protocol_ver");
         }
 
-        protected SHAREDDATA[] Connect(NodeInformation aiteNodeInfo, bool isTemporary, Action _Continued, Message2 message, params SHAREDDATA[] reqDatas)
+        protected SHAREDDATA[] Connect(NodeInformation aiteNodeInfo, bool isTemporary, Action _Continued, Message message, params SHAREDDATA[] reqDatas)
         {
             try
             {
@@ -2496,7 +2472,7 @@ namespace CREA2014
             }
         }
 
-        protected SHAREDDATA[] Connect(IPAddress aiteIpAddress, ushort aitePortNumber, bool isTemporary, Action _Continued, Message2 message, params SHAREDDATA[] reqDatas)
+        protected SHAREDDATA[] Connect(IPAddress aiteIpAddress, ushort aitePortNumber, bool isTemporary, Action _Continued, Message message, params SHAREDDATA[] reqDatas)
         {
             try
             {
@@ -2513,7 +2489,7 @@ namespace CREA2014
         }
 
         //このメソッドのどこかで（例外を含む全ての場合において）SocketChannelのCloseが呼び出されるようにしなければならない
-        private SHAREDDATA[] ConnectInner(IPAddress aiteIpAddress, ushort aitePortNumber, bool isTemporary, Action _Continued, Message2 message, params SHAREDDATA[] reqDatas)
+        private SHAREDDATA[] ConnectInner(IPAddress aiteIpAddress, ushort aitePortNumber, bool isTemporary, Action _Continued, Message message, params SHAREDDATA[] reqDatas)
         {
             SocketChannel sc = Connect(aiteIpAddress, aitePortNumber);
 
@@ -2802,7 +2778,7 @@ namespace CREA2014
 
         protected override void InboundProtocol(IChannel sc, Action<string> _ConsoleWriteLine)
         {
-            Message2 message = SHAREDDATA.FromBinary<Message2>(sc.ReadBytes());
+            Message message = SHAREDDATA.FromBinary<Message>(sc.ReadBytes());
             if (message.name == MessageName.reqNodeInfos)
             {
                 if (message.version == 0)
@@ -2846,7 +2822,7 @@ namespace CREA2014
                 throw new NotSupportedException("protocol_not_supported");
         }
 
-        protected override SHAREDDATA[] OutboundProtocol(Message2 message, SHAREDDATA[] datas, IChannel sc, Action<string> _ConsoleWriteLine)
+        protected override SHAREDDATA[] OutboundProtocol(Message message, SHAREDDATA[] datas, IChannel sc, Action<string> _ConsoleWriteLine)
         {
             sc.WriteBytes(message.ToBinary());
             if (message.name == MessageName.reqNodeInfos)
@@ -2905,12 +2881,12 @@ namespace CREA2014
         //このメソッドのどこかで（例外を除く全ての場合において）SocketChannelのCloseが呼び出されるようにしなければならない
         protected override void OutboundContinue(NodeInformation nodeInfo, SocketChannel sc, Action<string> _ConsoleWriteLine) { sc.Close(); }
 
-        protected override SHAREDDATA[] Request(NodeInformation nodeinfo, Message2 message, params SHAREDDATA[] datas)
+        protected override SHAREDDATA[] Request(NodeInformation nodeinfo, Message message, params SHAREDDATA[] datas)
         {
             return Connect(nodeinfo, true, () => { }, message, datas);
         }
 
-        protected override void Diffuse(Message2 message, params SHAREDDATA[] datas)
+        protected override void Diffuse(Message message, params SHAREDDATA[] datas)
         {
             for (int i = 0; i < 16 && i < firstNodeInfos.Length; i++)
                 Connect(firstNodeInfos[i].ipAddress, firstNodeInfos[i].portNumber, true, () => { }, message, datas);
@@ -3046,7 +3022,7 @@ namespace CREA2014
             };
         }
 
-        protected override SHAREDDATA[] Request(NodeInformation nodeinfo, Message2 message, params SHAREDDATA[] datas)
+        protected override SHAREDDATA[] Request(NodeInformation nodeinfo, Message message, params SHAREDDATA[] datas)
         {
             Connection connection = null;
 
@@ -3088,7 +3064,7 @@ namespace CREA2014
                 return Connect(nodeinfo, true, () => { }, message, datas);
         }
 
-        protected override void Diffuse(Message2 message, params SHAREDDATA[] datas)
+        protected override void Diffuse(Message message, params SHAREDDATA[] datas)
         {
             List<Connection> connections = new List<Connection>();
             lock (clientNodesLock)
@@ -3337,7 +3313,7 @@ namespace CREA2014
             };
         }
 
-        protected override SHAREDDATA[] Request(NodeInformation nodeinfo, Message2 message, params SHAREDDATA[] datas)
+        protected override SHAREDDATA[] Request(NodeInformation nodeinfo, Message message, params SHAREDDATA[] datas)
         {
             Connection connection = null;
             if (isInitialized)
@@ -3383,7 +3359,7 @@ namespace CREA2014
             return null;
         }
 
-        protected override void Diffuse(Message2 message, params SHAREDDATA[] datas)
+        protected override void Diffuse(Message message, params SHAREDDATA[] datas)
         {
             if (!isInitialized)
                 throw new InvalidOperationException("not_yet_connections_keeped");
@@ -3469,7 +3445,7 @@ namespace CREA2014
             List<NodeInformation> nodeInfos = new List<NodeInformation>();
             for (int i = 0; i < firstNodeInfos.Length && nodeInfos.Count < keepConnectionNodeInfosMin; i++)
             {
-                SHAREDDATA[] resDatas = Connect(firstNodeInfos[i].ipAddress, firstNodeInfos[i].portNumber, true, () => { }, new Message2(MessageName.reqNodeInfos, 0));
+                SHAREDDATA[] resDatas = Connect(firstNodeInfos[i].ipAddress, firstNodeInfos[i].portNumber, true, () => { }, new Message(MessageName.reqNodeInfos, 0));
                 ResNodeInfos resNodeInfos;
                 if (resDatas != null && resDatas.Length == 1 && (resNodeInfos = resDatas[0] as ResNodeInfos) != null)
                     //<要検討>更新時間順に並び替えるべき？
@@ -6916,6 +6892,9 @@ namespace CREA2014
     {
         public override void LoadVersion1(TransactionOutput[] _txOutputs) { throw new NotSupportedException(); }
 
+        public const string guidString = "784aee51e677e6469ca2ae0d6c72d60e";
+        public override Guid Guid { get { return new Guid(guidString); } }
+
         protected override Func<ReaderWriter, IEnumerable<MainDataInfomation>> StreamInfo
         {
             get
@@ -6980,6 +6959,9 @@ namespace CREA2014
         }
 
         public override TransactionInput[] TxInputs { get { return txInputs; } }
+
+        public const string guidString = "5c5493dff997774db351ae5018844b23";
+        public override Guid Guid { get { return new Guid(guidString); } }
 
         protected override Func<ReaderWriter, IEnumerable<MainDataInfomation>> StreamInfo
         {
@@ -8077,6 +8059,8 @@ namespace CREA2014
     //データ操作の汎用的な仕組みは作れないか？
     public class BlockChain : SHAREDDATA
     {
+        public BlockChain() : base(null) { }
+
         public BlockChain(BlockChainDatabase _bcDatabase, BlockNodesGroupDatabase _bngDatabase, BlockGroupDatabase _bgDatabase, UtxoDatabase _utxoDatabase, AddressEventDatabase _addressEventDatabase)
         {
             bcDatabase = _bcDatabase;
@@ -9523,6 +9507,8 @@ namespace CREA2014
 
     public class BlockNodesGroup : SHAREDDATA
     {
+        public BlockNodesGroup() : base(null) { }
+
         public BlockNodesGroup(long _div) : this(new BlockNodes[] { }, _div) { }
 
         public BlockNodesGroup(BlockNodes[] _nodess, long _div)
