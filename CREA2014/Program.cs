@@ -158,7 +158,16 @@ namespace CREA2014
 
     public class CirculatedInteger
     {
-        public CirculatedInteger(int _value, int _cycle) { value = _value; cycle = _cycle; }
+        public CirculatedInteger(int _cycle) : this(0, _cycle) { }
+
+        public CirculatedInteger(int _value, int _cycle)
+        {
+            if (_value >= _cycle)
+                throw new ArgumentException();
+
+            value = _value;
+            cycle = _cycle;
+        }
 
         private readonly int cycle;
 
@@ -169,6 +178,65 @@ namespace CREA2014
             value++;
             if (value == cycle)
                 value = 0;
+        }
+
+        public void Previous()
+        {
+            value--;
+            if (value == -1)
+                value = cycle - 1;
+        }
+
+        public int GetNext()
+        {
+            int temp = value + 1;
+            if (temp == cycle)
+                temp = 0;
+            return temp;
+        }
+
+        public int GetPrevious()
+        {
+            int temp = value - 1;
+            if (temp == -1)
+                temp = cycle - 1;
+            return temp;
+        }
+
+        public IEnumerable<int> GetCircleForward()
+        {
+            for (int i = value; i < cycle; i++)
+                yield return i;
+            for (int i = 0; i < value; i++)
+                yield return i;
+        }
+
+        public IEnumerable<int> GetCircleBackward()
+        {
+            for (int i = value; i >= 0; i--)
+                yield return i;
+            for (int i = cycle - 1; i > value; i--)
+                yield return i;
+        }
+
+        public IEnumerable<int> GetCircleNext()
+        {
+            int next = GetNext();
+
+            for (int i = next; i < cycle; i++)
+                yield return i;
+            for (int i = 0; i < next; i++)
+                yield return i;
+        }
+
+        public IEnumerable<int> GetCirclePrevious()
+        {
+            int previous = GetPrevious();
+
+            for (int i = previous; i >= 0; i--)
+                yield return i;
+            for (int i = cycle - 1; i > previous; i--)
+                yield return i;
         }
     }
 
@@ -522,27 +590,27 @@ namespace CREA2014
         }
 
         //関数を実行する（拡張：任意型）
-        public static T Operate<T>(this T self, Action operation)
+        public static T Pipe<T>(this T self, Action operation)
         {
             operation();
             return self;
         }
 
         //自分自身を関数に渡してから返す（拡張：任意型）
-        public static T Operate<T>(this T self, Action<T> operation)
+        public static T Pipe<T>(this T self, Action<T> operation)
         {
             operation(self);
             return self;
         }
 
         //自分自身を関数に渡した結果を返す（拡張：任意型）
-        public static S Operate<T, S>(this T self, Func<T, S> operation)
+        public static S Pipe<T, S>(this T self, Func<T, S> operation)
         {
             return operation(self);
         }
 
         //自分自身を関数に渡した結果を永遠に返す（拡張：任意型）
-        public static IEnumerable<S> OperateWhileTrue<T, S>(this T self, Func<T, S> operation)
+        public static IEnumerable<S> PipeForever<T, S>(this T self, Func<T, S> operation)
         {
             while (true)
                 yield return operation(self);
@@ -574,7 +642,7 @@ namespace CREA2014
         //0からiまでの整数が1回ずつ無作為な順番で含まれる配列を作成する（拡張：整数型）
         public static int[] RandomNums(this int i)
         {
-            return random.OperateWhileTrue(r => r.Next(i)).Distinct().Take(i).ToArray();
+            return random.PipeForever(r => r.Next(i)).Distinct().Take(i).ToArray();
         }
 
         //常に同一の0から1までの無作為な浮動小数点数を返す
@@ -583,7 +651,7 @@ namespace CREA2014
             for (int i = 0; ; i++)
             {
                 if (i >= cache.Length)
-                    cache = cache.Combine(random.OperateWhileTrue(r => r.NextDouble()).Take(100).ToArray());
+                    cache = cache.Combine(random.PipeForever(r => r.NextDouble()).Take(100).ToArray());
                 yield return cache[i];
             }
         }
@@ -961,161 +1029,65 @@ namespace CREA2014
         public static event EventHandler<LogInfomation> Warned = delegate { };
         public static event EventHandler<LogInfomation> Errored = delegate { };
 
-        //試験ログイベントを発生させる（拡張：型表現型）
-        public static void RaiseTest<T>(this T self, string rawMessage, int level)
-        {
-            Tested(self.GetType(), new LogInfomation(self.GetType(), rawMessage, GetLogMessage(rawMessage), level));
-        }
+        //試験ログイベントを発生させる（拡張：任意型）
+        public static void RaiseTest<T>(this T self, string rawMessage, int level) { Tested(self.GetType(), new LogInfomation(self.GetType(), rawMessage, GetLogMessage(rawMessage), level)); }
+        public static void RaiseTest<T>(this T self, string rawMessage, int level, params string[] arguments) { Tested(self.GetType(), new LogInfomation(self.GetType(), rawMessage, GetLogMessage(rawMessage, arguments), level)); }
+        public static void RaiseTest(this Type type, string rawMessage, int level) { Tested(type, new LogInfomation(type, rawMessage, GetLogMessage(rawMessage), level)); }
+        public static void RaiseTest(this Type type, string rawMessage, int level, params string[] arguments) { Tested(type, new LogInfomation(type, rawMessage, GetLogMessage(rawMessage, arguments), level)); }
 
-        public static void RaiseTest<T>(this T self, string rawMessage, int level, params string[] arguments)
-        {
-            Tested(self.GetType(), new LogInfomation(self.GetType(), rawMessage, GetLogMessage(rawMessage, arguments), level));
-        }
-
-        //通知ログイベントを発生させる（拡張：型表現型）
-        public static void RaiseNotification<T>(this T self, string rawMessage, int level)
-        {
-            Notified(self.GetType(), new LogInfomation(self.GetType(), rawMessage, GetLogMessage(rawMessage), level));
-        }
-
-        public static void RaiseNotification<T>(this T self, string rawMessage, int level, params string[] arguments)
-        {
-            Notified(self.GetType(), new LogInfomation(self.GetType(), rawMessage, GetLogMessage(rawMessage, arguments), level));
-        }
+        //通知ログイベントを発生させる（拡張：任意型）
+        public static void RaiseNotification<T>(this T self, string rawMessage, int level) { Notified(self.GetType(), new LogInfomation(self.GetType(), rawMessage, GetLogMessage(rawMessage), level)); }
+        public static void RaiseNotification<T>(this T self, string rawMessage, int level, params string[] arguments) { Notified(self.GetType(), new LogInfomation(self.GetType(), rawMessage, GetLogMessage(rawMessage, arguments), level)); }
+        public static void RaiseNotification(this Type type, string rawMessage, int level) { Notified(type, new LogInfomation(type, rawMessage, GetLogMessage(rawMessage), level)); }
+        public static void RaiseNotification(this Type type, string rawMessage, int level, params string[] arguments) { Notified(type, new LogInfomation(type, rawMessage, GetLogMessage(rawMessage, arguments), level)); }
 
         //結果ログイベントを発生させる（拡張：任意型）
-        public static void RaiseResult<T>(this T self, string rawMessage, int level)
-        {
-            Resulted(self.GetType(), new LogInfomation(self.GetType(), rawMessage, GetLogMessage(rawMessage), level));
-        }
-
-        public static void RaiseResult<T>(this T self, string rawMessage, int level, params string[] arguments)
-        {
-            Resulted(self.GetType(), new LogInfomation(self.GetType(), rawMessage, GetLogMessage(rawMessage, arguments), level));
-        }
+        public static void RaiseResult<T>(this T self, string rawMessage, int level) { Resulted(self.GetType(), new LogInfomation(self.GetType(), rawMessage, GetLogMessage(rawMessage), level)); }
+        public static void RaiseResult<T>(this T self, string rawMessage, int level, params string[] arguments) { Resulted(self.GetType(), new LogInfomation(self.GetType(), rawMessage, GetLogMessage(rawMessage, arguments), level)); }
+        public static void RaiseResult(this Type type, string rawMessage, int level) { Resulted(type, new LogInfomation(type, rawMessage, GetLogMessage(rawMessage), level)); }
+        public static void RaiseResult(this Type type, string rawMessage, int level, params string[] arguments) { Resulted(type, new LogInfomation(type, rawMessage, GetLogMessage(rawMessage, arguments), level)); }
 
         //警告ログイベントを発生させる（拡張：任意型）
-        public static void RaiseWarning<T>(this T self, string rawMessage, int level)
-        {
-            Warned(self.GetType(), new LogInfomation(self.GetType(), rawMessage, GetLogMessage(rawMessage), level));
-        }
-
-        public static void RaiseWarning<T>(this T self, string rawMessage, int level, params string[] arguments)
-        {
-            Warned(self.GetType(), new LogInfomation(self.GetType(), rawMessage, GetLogMessage(rawMessage, arguments), level));
-        }
+        public static void RaiseWarning<T>(this T self, string rawMessage, int level) { Warned(self.GetType(), new LogInfomation(self.GetType(), rawMessage, GetLogMessage(rawMessage), level)); }
+        public static void RaiseWarning<T>(this T self, string rawMessage, int level, params string[] arguments) { Warned(self.GetType(), new LogInfomation(self.GetType(), rawMessage, GetLogMessage(rawMessage, arguments), level)); }
+        public static void RaiseWarning(this Type type, string rawMessage, int level) { Warned(type, new LogInfomation(type, rawMessage, GetLogMessage(rawMessage), level)); }
+        public static void RaiseWarning(this Type type, string rawMessage, int level, params string[] arguments) { Warned(type, new LogInfomation(type, rawMessage, GetLogMessage(rawMessage, arguments), level)); }
 
         //過誤ログイベントを発生させる（拡張：任意型）
-        public static void RaiseError<T>(this T self, string rawMessage, int level)
-        {
-            Errored(self.GetType(), new LogInfomation(self.GetType(), rawMessage, GetLogMessage(rawMessage), level));
-        }
-
-        public static void RaiseError<T>(this T self, string rawMessage, int level, params string[] arguments)
-        {
-            Errored(self.GetType(), new LogInfomation(self.GetType(), rawMessage, GetLogMessage(rawMessage, arguments), level));
-        }
+        public static void RaiseError<T>(this T self, string rawMessage, int level) { Errored(self.GetType(), new LogInfomation(self.GetType(), rawMessage, GetLogMessage(rawMessage), level)); }
+        public static void RaiseError<T>(this T self, string rawMessage, int level, params string[] arguments) { Errored(self.GetType(), new LogInfomation(self.GetType(), rawMessage, GetLogMessage(rawMessage, arguments), level)); }
+        public static void RaiseError(this Type type, string rawMessage, int level) { Errored(type, new LogInfomation(type, rawMessage, GetLogMessage(rawMessage), level)); }
+        public static void RaiseError(this Type type, string rawMessage, int level, params string[] arguments) { Errored(type, new LogInfomation(type, rawMessage, GetLogMessage(rawMessage, arguments), level)); }
 
         //例外過誤ログイベントを発生させる（拡張：任意型）
-        public static void RaiseError<T>(this T self, string rawMessage, int level, Exception ex)
-        {
-            Errored(self.GetType(), new LogInfomation(self.GetType(), rawMessage, string.Join(Environment.NewLine, GetLogMessage(rawMessage), ex.CreateMessage(0)), level));
-        }
+        public static void RaiseError<T>(this T self, string rawMessage, int level, Exception ex) { Errored(self.GetType(), new LogInfomation(self.GetType(), rawMessage, string.Join(Environment.NewLine, GetLogMessage(rawMessage), ex.CreateMessage(0)), level)); }
+        public static void RaiseError<T>(this T self, string rawMessage, int level, Exception ex, params string[] arguments) { Errored(self.GetType(), new LogInfomation(self.GetType(), rawMessage, string.Join(Environment.NewLine, GetLogMessage(rawMessage), ex.CreateMessage(0)), level)); }
+        public static void RaiseError(this Type type, string rawMessage, int level, Exception ex) { Errored(type, new LogInfomation(type, rawMessage, string.Join(Environment.NewLine, GetLogMessage(rawMessage), ex.CreateMessage(0)), level)); }
+        public static void RaiseError(this Type type, string rawMessage, int level, Exception ex, params string[] arguments) { Errored(type, new LogInfomation(type, rawMessage, string.Join(Environment.NewLine, GetLogMessage(rawMessage), ex.CreateMessage(0)), level)); }
 
-        public static void RaiseError<T>(this T self, string rawMessage, int level, Exception ex, params string[] arguments)
-        {
-            Errored(self.GetType(), new LogInfomation(self.GetType(), rawMessage, string.Join(Environment.NewLine, GetLogMessage(rawMessage), ex.CreateMessage(0)), level));
-        }
+        //真偽値が真のときのみ各種ログイベントを発生させ、真偽値をそのまま返す（拡張：真偽型）
+        public static bool RaiseTest(this bool flag, Type type, string message, int level) { if (flag) type.RaiseTest(message, level); return flag; }
+        public static bool RaiseTest(this bool flag, Type type, string message, int level, params string[] arguments) { if (flag) type.RaiseTest(message, level, arguments); return flag; }
+        public static bool RaiseNotification(this bool flag, Type type, string message, int level) { if (flag) type.RaiseNotification(message, level); return flag; }
+        public static bool RaiseNotification(this bool flag, Type type, string message, int level, params string[] arguments) { if (flag) type.RaiseNotification(message, level, arguments); return flag; }
+        public static bool RaiseResult(this bool flag, Type type, string message, int level) { if (flag) type.RaiseResult(message, level); return flag; }
+        public static bool RaiseResult(this bool flag, Type type, string message, int level, params string[] arguments) { if (flag) type.RaiseResult(message, level, arguments); return flag; }
+        public static bool RaiseWarning(this bool flag, Type type, string message, int level) { if (flag) type.RaiseWarning(message, level); return flag; }
+        public static bool RaiseWarning(this bool flag, Type type, string message, int level, params string[] arguments) { if (flag) type.RaiseWarning(message, level, arguments); return flag; }
+        public static bool RaiseError(this bool flag, Type type, string message, int level) { if (flag) type.RaiseError(message, level); return flag; }
+        public static bool RaiseError(this bool flag, Type type, string message, int level, params string[] arguments) { if (flag) type.RaiseError(message, level, arguments); return flag; }
 
-        //真偽値が真のときのみ試験ログイベントを発生させ、真偽値をそのまま返す（拡張：真偽型）
-        public static bool RaiseTest(this bool flag, Type type, string message, int level)
-        {
-            if (flag)
-                type.RaiseTest(message, level);
-
-            return flag;
-        }
-
-        //真偽値が真のときのみ通知ログイベントを発生させ、真偽値をそのまま返す（拡張：真偽型）
-        public static bool RaiseNotification(this bool flag, Type type, string message, int level, params string[] arguments)
-        {
-            if (flag)
-                type.RaiseNotification(message, level, arguments);
-
-            return flag;
-        }
-
-        //真偽値が真のときのみ結果ログイベントを発生させ、真偽値をそのまま返す（拡張：真偽型）
-        public static bool RaiseResult(this bool flag, Type type, string message, int level)
-        {
-            if (flag)
-                type.RaiseResult(message, level);
-
-            return flag;
-        }
-
-        //真偽値が真のときのみ警告ログイベントを発生させ、真偽値をそのまま返す（拡張：真偽型）
-        public static bool RaiseWarning(this bool flag, Type type, string message, int level)
-        {
-            if (flag)
-                type.RaiseWarning(message, level);
-
-            return flag;
-        }
-
-        //真偽値が真のときのみ過誤ログイベントを発生させ、真偽値をそのまま返す（拡張：真偽型）
-        public static bool RaiseError(this bool flag, Type type, string message, int level)
-        {
-            if (flag)
-                type.RaiseError(message, level);
-
-            return flag;
-        }
-
-        //真偽値が偽のときのみ試験ログイベントを発生させ、真偽値をそのまま返す（拡張：真偽型）
-        public static bool NotRaiseTest(this bool flag, Type type, string message, int level)
-        {
-            if (!flag)
-                type.RaiseTest(message, level);
-
-            return flag;
-        }
-
-        //真偽値が偽のときのみ通知ログイベントを発生させ、真偽値をそのまま返す（拡張：真偽型）
-        public static bool NotRaiseNotification(this bool flag, Type type, string message, int level, params string[] arguments)
-        {
-            if (!flag)
-                type.RaiseNotification(message, level, arguments);
-
-            return flag;
-        }
-
-        //真偽値が偽のときのみ結果ログイベントを発生させ、真偽値をそのまま返す（拡張：真偽型）
-        public static bool NotRaiseResult(this bool flag, Type type, string message, int level)
-        {
-            if (!flag)
-                type.RaiseResult(message, level);
-
-            return flag;
-        }
-
-        //真偽値が偽のときのみ警告ログイベントを発生させ、真偽値をそのまま返す（拡張：真偽型）
-        public static bool NotRaiseWarning(this bool flag, Type type, string message, int level)
-        {
-            if (!flag)
-                type.RaiseWarning(message, level);
-
-            return flag;
-        }
-
-        //真偽値が偽のときのみ過誤ログイベントを発生させ、真偽値をそのまま返す（拡張：真偽型）
-        public static bool NotRaiseError(this bool flag, Type type, string message, int level)
-        {
-            if (!flag)
-                type.RaiseError(message, level);
-
-            return flag;
-        }
+        //真偽値が偽のときのみ各種ログイベントを発生させ、真偽値をそのまま返す（拡張：真偽型）
+        public static bool NotRaiseTest(this bool flag, Type type, string message, int level) { return !RaiseTest(!flag, type, message, level); }
+        public static bool NotRaiseTest(this bool flag, Type type, string message, int level, params string[] arguments) { return !RaiseTest(!flag, type, message, level, arguments); }
+        public static bool NotRaiseNotification(this bool flag, Type type, string message, int level) { return !RaiseNotification(!flag, type, message, level); }
+        public static bool NotRaiseNotification(this bool flag, Type type, string message, int level, params string[] arguments) { return !RaiseNotification(!flag, type, message, level, arguments); }
+        public static bool NotRaiseResult(this bool flag, Type type, string message, int level) { return !RaiseResult(!flag, type, message, level); }
+        public static bool NotRaiseResult(this bool flag, Type type, string message, int level, params string[] arguments) { return !RaiseResult(!flag, type, message, level, arguments); }
+        public static bool NotRaiseWarning(this bool flag, Type type, string message, int level) { return !RaiseWarning(!flag, type, message, level); }
+        public static bool NotRaiseWarning(this bool flag, Type type, string message, int level, params string[] arguments) { return !RaiseWarning(!flag, type, message, level, arguments); }
+        public static bool NotRaiseError(this bool flag, Type type, string message, int level) { return !RaiseError(!flag, type, message, level); }
+        public static bool NotRaiseError(this bool flag, Type type, string message, int level, params string[] arguments) { return !RaiseError(!flag, type, message, level, arguments); }
 
         //多言語化対応（拡張：文字列型）
         public static string Multilanguage(this string text, int id)
@@ -3431,6 +3403,7 @@ namespace CREA2014
                 {"hash_rate", (args) => string.Format("要約値計算速度：{0}hash/s".Multilanguage(137), args[0])},
                 {"found_block", (args) => "新しいブロックを発見しました。".Multilanguage(138)},
                 {"difficulty", (args) => string.Format("難易度：{0}".Multilanguage(169), args[0])},
+                {"protocol_not_supported", (args) => "処理済みの取引を再び処理しようとしました。".Multilanguage(172)},
             };
 
             exceptionMessages = new Dictionary<string, Func<string>>() {
@@ -3684,7 +3657,7 @@ namespace CREA2014
 
                 if (testApplication == null || testApplication.IsUseCore)
                 {
-                    core = new Core(basepath);
+                    core = new Core(basepath, verC, appnameWithVersion);
                     core.StartSystem();
                 }
 

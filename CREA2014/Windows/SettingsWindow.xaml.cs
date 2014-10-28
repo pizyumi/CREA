@@ -128,7 +128,7 @@ namespace CREA2014.Windows
         private void tbPortWebSocketValidate()
         {
             ushort ush;
-            isValid1 = (ushort.TryParse(tbPortWebSocket.Text, out ush)).Operate((flag) =>
+            isValid1 = (ushort.TryParse(tbPortWebSocket.Text, out ush)).Pipe((flag) =>
             {
                 tbPortWebSocketChk.Text = flag ? string.Empty : "ポート番号は0～65535までの整数でなければなりません。".Multilanguage(147);
             });
@@ -137,7 +137,7 @@ namespace CREA2014.Windows
         private void tbPortWebServerValidate()
         {
             ushort ush;
-            isValid2 = (ushort.TryParse(tbPortWebServer.Text, out ush)).Operate((flag) =>
+            isValid2 = (ushort.TryParse(tbPortWebServer.Text, out ush)).Pipe((flag) =>
             {
                 tbPortWebServerChk.Text = flag ? string.Empty : "ポート番号は0～65535までの整数でなければなりません。".Multilanguage(148);
             });
@@ -145,7 +145,7 @@ namespace CREA2014.Windows
 
         private void tbWallpaperValidate()
         {
-            isValid3 = (File.Exists(tbWallpaper.Text)).Operate((flag) =>
+            isValid3 = (File.Exists(tbWallpaper.Text)).Pipe((flag) =>
             {
                 tbWallpaperChk.Text = flag ? string.Empty : "ファイルが存在しません。".Multilanguage(150);
 
@@ -163,7 +163,7 @@ namespace CREA2014.Windows
         private void tbWallpaperOpacityValidate()
         {
             float flt;
-            isValid4 = (float.TryParse(tbWallpaperOpacity.Text, out flt) && flt >= 0.0 && flt <= 1.0).Operate((flag) =>
+            isValid4 = (float.TryParse(tbWallpaperOpacity.Text, out flt) && flt >= 0.0 && flt <= 1.0).Pipe((flag) =>
             {
                 tbWallpaperOpacityChk.Text = flag ? string.Empty : "不透明度は0.0～1.0までの小数でなければなりません。".Multilanguage(149);
             });
@@ -171,7 +171,7 @@ namespace CREA2014.Windows
 
         private void tbUiFilesDirectoryValidate()
         {
-            isValid5 = (Directory.Exists(tbUiFilesDirectory.Text)).Operate((flag) =>
+            isValid5 = (Directory.Exists(tbUiFilesDirectory.Text)).Pipe((flag) =>
             {
                 tbUiFilesDirectoryChk.Text = flag ? string.Empty : "フォルダが存在しません。".Multilanguage(151);
                 bUiFilesCreate.IsEnabled = rbNotDefault.IsChecked.Value && flag;

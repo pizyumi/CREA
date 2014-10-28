@@ -80,7 +80,7 @@ namespace CREA2014.Windows
 
         private bool PsudonymousAccountHolderValidate()
         {
-            return (cbAccountHolder.SelectedItem != null).Operate((flag) =>
+            return (cbAccountHolder.SelectedItem != null).Pipe((flag) =>
             {
                 tbAccountHolderChk.Text = flag ? string.Empty : "口座名義を選択してください。".Multilanguage(167);
             });
@@ -88,7 +88,7 @@ namespace CREA2014.Windows
 
         private bool AccountValidate()
         {
-            return (cbAccount.SelectedItem != null).Operate((flag) =>
+            return (cbAccount.SelectedItem != null).Pipe((flag) =>
             {
                 tbAccountChk.Text = flag ? string.Empty : "口座を選択してください。".Multilanguage(168);
             });

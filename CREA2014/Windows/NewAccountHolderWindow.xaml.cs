@@ -39,7 +39,7 @@ namespace CREA2014.Windows
 
         private bool tbAccountHolderValidate()
         {
-            return (tbAccountHolder.Text != string.Empty).Operate((flag) =>
+            return (tbAccountHolder.Text != string.Empty).Pipe((flag) =>
             {
                 tbAccountHolderChk.Text = flag ? string.Empty : "口座名義は1文字以上の任意の文字列でなければなりません。".Multilanguage(139);
             });

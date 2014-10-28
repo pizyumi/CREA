@@ -75,7 +75,7 @@ namespace CREA2014.Windows
 
         private bool tbNameValidate()
         {
-            return (tbName.Text != string.Empty).Operate((flag) =>
+            return (tbName.Text != string.Empty).Pipe((flag) =>
             {
                 tbNameChk.Text = flag ? string.Empty : "口座名は1文字以上の任意の文字列でなければなりません。".Multilanguage(140);
             });
@@ -83,7 +83,7 @@ namespace CREA2014.Windows
 
         private bool PsudonymousAccountHolderValidate()
         {
-            return (cbAccountHolder.SelectedItem != null).Operate((flag) =>
+            return (cbAccountHolder.SelectedItem != null).Pipe((flag) =>
             {
                 tbAccountHolderChk.Text = flag ? string.Empty : "口座名義を選択してください。".Multilanguage(141);
             });

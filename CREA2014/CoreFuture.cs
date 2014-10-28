@@ -490,7 +490,7 @@ namespace CREA2014
             sn = new SimulationNetwork();
             sss = new SimulationSocket[numberOfNodes];
             cremlias = new Cremlia[numberOfNodes];
-            randomNumss = numberOfNodes.OperateWhileTrue((non) => non.RandomNums()).Where((ns) => ns.Select((n, i) => new { n, i }).All((ni) => ni.n != ni.i)).Take(numberOfDiffuseNodes).ToArray();
+            randomNumss = numberOfNodes.PipeForever((non) => non.RandomNums()).Where((ns) => ns.Select((n, i) => new { n, i }).All((ni) => ni.n != ni.i)).Take(numberOfDiffuseNodes).ToArray();
             int receiveCounter = 0;
             for (int i = 0; i < numberOfNodes; i++)
             {

@@ -25,7 +25,7 @@ namespace CREA2014
 {
     public class Core
     {
-        public Core(string _basePath)
+        public Core(string _basePath, int _creaVersion, string _appnameWithVersion)
         {
             //Coreが2回以上実体化されないことを保証する
             //2回以上呼ばれた際には例外が発生する
@@ -33,12 +33,22 @@ namespace CREA2014
 
             basepath = _basePath;
             databaseBasepath = Path.Combine(basepath, databaseDirectory);
+            creaVersion = _creaVersion;
+            appnameWithVersion = _appnameWithVersion;
         }
 
         private static readonly Action Instantiate = OneTime.GetOneTime();
 
         private static readonly string databaseDirectory = "database";
         private static readonly string p2pDirectory = "p2p";
+
+        private readonly string basepath;
+        private readonly string databaseBasepath;
+        private readonly int creaVersion;
+        private readonly string appnameWithVersion;
+
+        //試験用
+        private CreaNodeLocalTestContinueDHT creaNode;
 
         private AccountHoldersDatabase ahDatabase;
         private BlockChainDatabase bcDatabase;
@@ -54,11 +64,8 @@ namespace CREA2014
         public IAccountHoldersFactory iAccountHoldersFactory { get { return accountHoldersFactory; } }
 
         private BlockChain blockChain;
-
         private Mining mining;
 
-        private string basepath;
-        private string databaseBasepath;
         private bool isSystemStarted;
 
         private CachedData<CurrencyUnit> usableBalanceCache;
@@ -178,6 +185,12 @@ namespace CREA2014
             _UpdateBalance();
 
             mining = new Mining();
+
+            //試験用（ポート番号は暫定）
+            creaNode = new CreaNodeLocalTestContinueDHT(7777, creaVersion, appnameWithVersion);
+            creaNode.ReceivedNewTransaction += (sender, e) =>
+            {
+            };
 
             isSystemStarted = true;
         }
@@ -2386,12 +2399,12 @@ namespace CREA2014
         protected abstract bool IsListenerCanContinue(NodeInformation nodeInfo);
         protected abstract bool IsWantToContinue(NodeInformation nodeInfo);
         protected abstract bool IsClientCanContinue(NodeInformation nodeInfo);
-        protected abstract void InboundProtocol(IChannel sc, Action<string> _ConsoleWriteLine);
-        protected abstract SHAREDDATA[] OutboundProtocol(Message message, SHAREDDATA[] datas, IChannel sc, Action<string> _ConsoleWriteLine);
+        protected abstract void InboundProtocol(NodeInformation nodeInfo, IChannel sc, Action<string> _ConsoleWriteLine);
+        protected abstract SHAREDDATA[] OutboundProtocol(NodeInformation nodeInfo, Message message, SHAREDDATA[] datas, IChannel sc, Action<string> _ConsoleWriteLine);
         protected abstract void InboundContinue(NodeInformation nodeInfo, SocketChannel sc, Action<string> _ConsoleWriteLine);
         protected abstract void OutboundContinue(NodeInformation nodeInfo, SocketChannel sc, Action<string> _ConsoleWriteLine);
         protected abstract SHAREDDATA[] Request(NodeInformation nodeinfo, Message message, params SHAREDDATA[] datas);
-        protected abstract void Diffuse(Message message, params SHAREDDATA[] datas);
+        protected abstract void Diffuse(NodeInformation source, Message message, params SHAREDDATA[] datas);
 
         protected override void CreateNodeInfo()
         {
@@ -2451,7 +2464,7 @@ namespace CREA2014
 
                 if (header.isTemporary)
                 {
-                    InboundProtocol(sc, _ConsoleWriteLine);
+                    InboundProtocol(aiteNodeInfo, sc, _ConsoleWriteLine);
 
                     if (IsTemporaryContinue)
                     {
@@ -2566,7 +2579,7 @@ namespace CREA2014
 
                     if (isTemporary)
                     {
-                        SHAREDDATA[] resDatas = OutboundProtocol(message, reqDatas, sc, _ConsoleWriteLine);
+                        SHAREDDATA[] resDatas = OutboundProtocol(headerResponse.nodeInfo, message, reqDatas, sc, _ConsoleWriteLine);
 
                         if (IsTemporaryContinue)
                         {
@@ -2707,7 +2720,7 @@ namespace CREA2014
         public CreaNodeLocalTest(ushort _portNumber, int _creaVersion, string _appnameWithVersion)
             : base(_portNumber, _creaVersion, _appnameWithVersion)
         {
-            receivedTransactions = new TransactionCollection();
+            processedTransactions = new TransactionCollection();
         }
 
         private readonly List<FirstNodeInformation> fnis = new List<FirstNodeInformation>();
@@ -2813,9 +2826,11 @@ namespace CREA2014
 
         protected override FirstNodeInformation[] GetFirstNodeInfos() { return fnis.ToArray(); }
 
-        private readonly TransactionCollection receivedTransactions;
+        private readonly TransactionCollection processedTransactions;
 
-        protected override void InboundProtocol(IChannel sc, Action<string> _ConsoleWriteLine)
+        public event EventHandler<Transaction> ReceivedNewTransaction = delegate { };
+
+        protected override void InboundProtocol(NodeInformation nodeInfo, IChannel sc, Action<string> _ConsoleWriteLine)
         {
             Message message = SHAREDDATA.FromBinary<Message>(sc.ReadBytes());
 
@@ -2827,40 +2842,31 @@ namespace CREA2014
             else if (message.name == MessageName.notifyNewTransaction)
             {
                 NotifyNewTransaction nnt = SHAREDDATA.FromBinary<NotifyNewTransaction>(sc.ReadBytes());
+                bool isNew = !processedTransactions.Contains(nnt.hash);
+                sc.WriteBytes(BitConverter.GetBytes(isNew));
+                if (isNew)
+                {
+                    ResTransaction rt = SHAREDDATA.FromBinary<ResTransaction>(sc.ReadBytes());
+                    TransferTransaction tt = rt.transaction as TransferTransaction;
 
+                    if (tt == null)
+                        throw new InvalidOperationException();
+                    if (!nnt.hash.Equals(tt.Id))
+                        throw new InvalidOperationException();
+
+                    if (!processedTransactions.AddTransaction(tt))
+                        return;
+
+                    ReceivedNewTransaction(this, tt);
+
+                    this.StartTask("diffuseNewTransactions", "diffuseNewTransactions", () => DiffuseNewTransaction(nodeInfo, nnt, rt));
+                }
             }
-            //else if (message.Name == MessageName.inv)
-            //{
-            //    NotifyNewTransactions inv = message.messageBase as NotifyNewTransactions;
-            //    bool isNew = !txtests.Keys.Contains(inv.hash);
-            //    sc.WriteBytes(BitConverter.GetBytes(isNew));
-            //    if (isNew)
-            //    {
-            //        TxTest txtest = SHAREDDATA.FromBinary<TxTest>(sc.ReadBytes());
-            //        lock (txtestsLock)
-            //            if (!txtests.Keys.Contains(inv.hash))
-            //                txtests.Add(inv.hash, txtest.data);
-            //            else
-            //                return;
-
-            //        _ConsoleWriteLine("txtest受信");
-
-            //        TxtestReceived(this, myNodeInfo);
-
-            //        this.StartTask(string.Empty, string.Empty, () => DiffuseInv(txtest, inv));
-            //    }
-            //    else
-            //    {
-            //        _ConsoleWriteLine("txtest既に存在する");
-
-            //        TxtestAlreadyExisted(this, myNodeInfo);
-            //    }
-            //}
             else
                 throw new NotSupportedException("protocol_not_supported");
         }
 
-        protected override SHAREDDATA[] OutboundProtocol(Message message, SHAREDDATA[] datas, IChannel sc, Action<string> _ConsoleWriteLine)
+        protected override SHAREDDATA[] OutboundProtocol(NodeInformation nodeInfo, Message message, SHAREDDATA[] datas, IChannel sc, Action<string> _ConsoleWriteLine)
         {
             if (message.version != 0)
                 throw new NotSupportedException();
@@ -2872,36 +2878,37 @@ namespace CREA2014
             {
                 if (datas.Length != 2)
                     throw new InvalidOperationException();
-                if (datas[0] as NotifyNewTransaction == null)
+
+                NotifyNewTransaction nnt = datas[0] as NotifyNewTransaction;
+                ResTransaction rt = datas[1] as ResTransaction;
+                TransferTransaction tt = rt.transaction as TransferTransaction;
+
+                if (nnt == null || rt == null)
                     throw new InvalidOperationException();
-                if (datas[1] as ResTransaction == null)
+                if (tt == null)
+                    throw new InvalidOperationException();
+                if (!nnt.hash.Equals(tt.Id))
                     throw new InvalidOperationException();
 
-                sc.WriteBytes(datas[0].ToBinary());
+                sc.WriteBytes(nnt.ToBinary());
                 if (BitConverter.ToBoolean(sc.ReadBytes(), 0))
-                    sc.WriteBytes(datas[1].ToBinary());
+                    sc.WriteBytes(rt.ToBinary());
+
                 return new SHAREDDATA[] { };
             }
             else
                 throw new NotSupportedException("protocol_not_supported");
         }
 
-        //試験用
-        //public void DiffuseInv(TxTest txtest, NotifyNewTransaction inv)
-        //{
-        //    if (txtest == null && inv == null)
-        //    {
-        //        txtest = new TxTest();
-        //        inv = new NotifyNewTransactions(new Sha256Sha256Hash(txtest.data));
+        public void DiffuseNewTransaction(Transaction transaction)
+        {
+            if (processedTransactions.Contains(transaction.Id).RaiseNotification(this.GetType(), "alredy_processed_tx", 3))
+                return;
 
-        //        lock (txtestsLock)
-        //            txtests.Add(inv.hash, txtest.data);
+            DiffuseNewTransaction(null, new NotifyNewTransaction(transaction.Id), new ResTransaction(transaction));
+        }
 
-        //        (string.Join(":", myIpAddress.ToString(), myPortNumber.ToString()) + " txtest作成").ConsoleWriteLine();
-        //    }
-
-        //    Diffuse(inv, txtest);
-        //}
+        private void DiffuseNewTransaction(NodeInformation source, NotifyNewTransaction nnt, ResTransaction rt) { Diffuse(source, new Message(MessageName.notifyNewTransaction, 0), nnt, rt); }
     }
 
     public class CreaNodeLocalTestNotContinue : CreaNodeLocalTest
@@ -2934,7 +2941,7 @@ namespace CREA2014
             return Connect(nodeinfo, true, () => { }, message, datas);
         }
 
-        protected override void Diffuse(Message message, params SHAREDDATA[] datas)
+        protected override void Diffuse(NodeInformation source, Message message, params SHAREDDATA[] datas)
         {
             for (int i = 0; i < 16 && i < firstNodeInfos.Length; i++)
                 Connect(firstNodeInfos[i].ipAddress, firstNodeInfos[i].portNumber, true, () => { }, message, datas);
@@ -2959,12 +2966,14 @@ namespace CREA2014
 
         public class Connection
         {
-            public Connection(SocketChannel _sc, Action<string> __ConsoleWriteLine)
+            public Connection(NodeInformation _nodeInfo, SocketChannel _sc, Action<string> __ConsoleWriteLine)
             {
+                nodeInfo = _nodeInfo;
                 sc = _sc;
                 _ConsoleWriteLine = __ConsoleWriteLine;
             }
 
+            public readonly NodeInformation nodeInfo;
             public readonly SocketChannel sc;
             public readonly Action<string> _ConsoleWriteLine;
         }
@@ -3009,7 +3018,7 @@ namespace CREA2014
         protected override void InboundContinue(NodeInformation nodeInfo, SocketChannel sc, Action<string> _ConsoleWriteLine)
         {
             lock (listenerNodesLock)
-                listenerNodes.Add(nodeInfo, new Connection(sc, _ConsoleWriteLine));
+                listenerNodes.Add(nodeInfo, new Connection(nodeInfo, sc, _ConsoleWriteLine));
 
             sc.Closed += (sender, e) =>
             {
@@ -3029,7 +3038,7 @@ namespace CREA2014
         protected override void OutboundContinue(NodeInformation nodeInfo, SocketChannel sc, Action<string> _ConsoleWriteLine)
         {
             lock (clientNodesLock)
-                clientNodes.Add(nodeInfo, new Connection(sc, _ConsoleWriteLine));
+                clientNodes.Add(nodeInfo, new Connection(nodeInfo, sc, _ConsoleWriteLine));
 
             sc.Closed += (sender, e) =>
             {
@@ -3055,7 +3064,7 @@ namespace CREA2014
                 {
                     _ConsoleWriteLine("新しいセッション");
 
-                    InboundProtocol(e, _ConsoleWriteLine);
+                    InboundProtocol(nodeInfo, e, _ConsoleWriteLine);
                 }
                 catch (Exception ex)
                 {
@@ -3090,7 +3099,7 @@ namespace CREA2014
 
                     connection._ConsoleWriteLine("新しいセッション");
 
-                    return OutboundProtocol(message, datas, sc2, connection._ConsoleWriteLine);
+                    return OutboundProtocol(nodeinfo, message, datas, sc2, connection._ConsoleWriteLine);
                 }
                 catch (Exception ex)
                 {
@@ -3112,7 +3121,7 @@ namespace CREA2014
                 return Connect(nodeinfo, true, () => { }, message, datas);
         }
 
-        protected override void Diffuse(Message message, params SHAREDDATA[] datas)
+        protected override void Diffuse(NodeInformation source, Message message, params SHAREDDATA[] datas)
         {
             List<Connection> connections = new List<Connection>();
             lock (clientNodesLock)
@@ -3122,16 +3131,16 @@ namespace CREA2014
                 foreach (Connection cq in listenerNodes.Values)
                     connections.Add(cq);
 
-            foreach (Connection c in connections)
+            foreach (Connection connection in connections)
             {
                 SessionChannel sc2 = null;
                 try
                 {
-                    sc2 = c.sc.NewSession();
+                    sc2 = connection.sc.NewSession();
 
-                    c._ConsoleWriteLine("新しいセッション");
+                    connection._ConsoleWriteLine("新しいセッション");
 
-                    OutboundProtocol(message, datas, sc2, c._ConsoleWriteLine);
+                    OutboundProtocol(connection.nodeInfo, message, datas, sc2, connection._ConsoleWriteLine);
                 }
                 catch (Exception ex)
                 {
@@ -3141,7 +3150,7 @@ namespace CREA2014
                 {
                     sc2.Close();
 
-                    c._ConsoleWriteLine("セッション終わり");
+                    connection._ConsoleWriteLine("セッション終わり");
                 }
             }
         }
@@ -3271,17 +3280,17 @@ namespace CREA2014
 
         protected override bool IsListenerCanContinue(NodeInformation nodeInfo)
         {
-            return isInitialized && GetDistanceLevel(nodeInfo).Operate((distanceLevel) => distanceLevel != -1 && inboundConnections[distanceLevel].Count < inboundConnectionsMax);
+            return isInitialized && GetDistanceLevel(nodeInfo).Pipe((distanceLevel) => distanceLevel != -1 && inboundConnections[distanceLevel].Count < inboundConnectionsMax);
         }
 
         protected override bool IsWantToContinue(NodeInformation nodeInfo)
         {
-            return isInitialized && GetDistanceLevel(nodeInfo).Operate((distanceLevel) => distanceLevel != -1 && inboundConnections[distanceLevel].Count < inboundConnectionsMax);
+            return isInitialized && GetDistanceLevel(nodeInfo).Pipe((distanceLevel) => distanceLevel != -1 && inboundConnections[distanceLevel].Count < inboundConnectionsMax);
         }
 
         protected override bool IsClientCanContinue(NodeInformation nodeInfo)
         {
-            return isInitialized && GetDistanceLevel(nodeInfo).Operate((distanceLevel) => distanceLevel != -1 && outboundConnections[distanceLevel].Count < outboundConnectionsMax);
+            return isInitialized && GetDistanceLevel(nodeInfo).Pipe((distanceLevel) => distanceLevel != -1 && outboundConnections[distanceLevel].Count < outboundConnectionsMax);
         }
 
         protected override void InboundContinue(NodeInformation nodeInfo, SocketChannel sc, Action<string> _ConsoleWriteLine)
@@ -3346,7 +3355,7 @@ namespace CREA2014
                 {
                     _ConsoleWriteLine("新しいセッション");
 
-                    InboundProtocol(e, _ConsoleWriteLine);
+                    InboundProtocol(nodeInfo, e, _ConsoleWriteLine);
                 }
                 catch (Exception ex)
                 {
@@ -3361,7 +3370,7 @@ namespace CREA2014
             };
         }
 
-        protected override SHAREDDATA[] Request(NodeInformation nodeinfo, Message message, params SHAREDDATA[] datas)
+        protected override SHAREDDATA[] Request(NodeInformation nodeInfo, Message message, params SHAREDDATA[] datas)
         {
             Connection connection = null;
             if (isInitialized)
@@ -3370,16 +3379,16 @@ namespace CREA2014
 
                 if (outboundConnections[distanceLevel].Count > 0)
                     lock (outboundConnectionsLock[distanceLevel])
-                        connection = outboundConnections[distanceLevel].Where((elem) => elem.nodeInfo.Equals(nodeinfo)).FirstOrDefault();
+                        connection = outboundConnections[distanceLevel].Where((elem) => elem.nodeInfo.Equals(nodeInfo)).FirstOrDefault();
 
                 if (connection == null)
                     if (inboundConnections[distanceLevel].Count > 0)
                         lock (inboundConnectionsLock[distanceLevel])
-                            connection = inboundConnections[distanceLevel].Where((elem) => elem.nodeInfo.Equals(nodeinfo)).FirstOrDefault();
+                            connection = inboundConnections[distanceLevel].Where((elem) => elem.nodeInfo.Equals(nodeInfo)).FirstOrDefault();
             }
 
             if (connection == null)
-                return Connect(nodeinfo, true, () => { }, message, datas);
+                return Connect(nodeInfo, true, () => { }, message, datas);
 
             SessionChannel sc2 = null;
             try
@@ -3388,7 +3397,7 @@ namespace CREA2014
 
                 connection._ConsoleWriteLine("新しいセッション");
 
-                return OutboundProtocol(message, datas, sc2, connection._ConsoleWriteLine);
+                return OutboundProtocol(nodeInfo, message, datas, sc2, connection._ConsoleWriteLine);
             }
             catch (Exception ex)
             {
@@ -3407,7 +3416,7 @@ namespace CREA2014
             return null;
         }
 
-        protected override void Diffuse(Message message, params SHAREDDATA[] datas)
+        protected override void Diffuse(NodeInformation source, Message message, params SHAREDDATA[] datas)
         {
             if (!isInitialized)
                 throw new InvalidOperationException("not_yet_connections_keeped");
@@ -3432,7 +3441,7 @@ namespace CREA2014
 
                     connection._ConsoleWriteLine("新しいセッション");
 
-                    OutboundProtocol(message, datas, sc2, connection._ConsoleWriteLine);
+                    OutboundProtocol(connection.nodeInfo, message, datas, sc2, connection._ConsoleWriteLine);
                 }
                 catch (Exception ex)
                 {
@@ -3858,7 +3867,7 @@ namespace CREA2014
             }
         }
 
-        public override bool Equals(object obj) { return (obj as FirstNodeInformation).Operate((o) => o != null && Equals(o)); }
+        public override bool Equals(object obj) { return (obj as FirstNodeInformation).Pipe((o) => o != null && Equals(o)); }
 
         public override int GetHashCode() { return ipAddress.GetHashCode() ^ portNumber.GetHashCode(); }
 
@@ -3919,7 +3928,7 @@ namespace CREA2014
             }
         }
 
-        public override bool Equals(object obj) { return (obj as NodeInformation).Operate((o) => o != null && Equals(o)); }
+        public override bool Equals(object obj) { return (obj as NodeInformation).Pipe((o) => o != null && Equals(o)); }
 
         public override int GetHashCode() { return Id.GetHashCode(); }
 
@@ -4005,7 +4014,7 @@ namespace CREA2014
 
         public override ICremliaId Id { get { return new CremliaId<Sha256Hash>(nodeInfo.Id); } }
 
-        public override bool Equals(object obj) { return (obj as CremliaNodeInfomationSha256).Operate((o) => o != null && Equals(o)); }
+        public override bool Equals(object obj) { return (obj as CremliaNodeInfomationSha256).Pipe((o) => o != null && Equals(o)); }
 
         public override int GetHashCode() { return Id.GetHashCode(); }
 
@@ -4947,7 +4956,7 @@ namespace CREA2014
             }
         }
 
-        public override bool Equals(object obj) { return (obj as HASHBASE).Operate((o) => o != null && Equals(o)); }
+        public override bool Equals(object obj) { return (obj as HASHBASE).Pipe((o) => o != null && Equals(o)); }
 
         public bool Equals(HASHBASE other) { return hash.BytesEquals(other.hash); }
 
@@ -5943,7 +5952,7 @@ namespace CREA2014
             {
                 if (Version != 0 && Version != 1)
                     throw new NotSupportedException();
-                return "◆" + Convert.ToBase64String(pubKey.pubKey).Operate((s) => s.Substring(s.Length - 12, 12));
+                return "◆" + Convert.ToBase64String(pubKey.pubKey).Pipe((s) => s.Substring(s.Length - 12, 12));
             }
         }
         public string Sign { get { return name + Trip; } }
@@ -6233,12 +6242,12 @@ namespace CREA2014
     {
         public IAccount CreateAccount(string name, string description)
         {
-            return new Account().Operate((account) => account.LoadVersion1(name, description));
+            return new Account().Pipe((account) => account.LoadVersion1(name, description));
         }
 
         public IPseudonymousAccountHolder CreatePseudonymousAccountHolder(string name)
         {
-            return new PseudonymousAccountHolder().Operate((pseudonymousAccountHolder) => pseudonymousAccountHolder.LoadVersion1(name));
+            return new PseudonymousAccountHolder().Pipe((pseudonymousAccountHolder) => pseudonymousAccountHolder.LoadVersion1(name));
         }
     }
 
@@ -7551,7 +7560,7 @@ namespace CREA2014
             if (timestamps.Count == 0)
                 return true;
 
-            return (timestamps.Count / 2).Operate((index) => header.timestamp > (timestamps.Count % 2 == 0 ? timestamps[index - 1] + new TimeSpan((timestamps[index] - timestamps[index - 1]).Ticks / 2) : timestamps[index]));
+            return (timestamps.Count / 2).Pipe((index) => header.timestamp > (timestamps.Count % 2 == 0 ? timestamps[index - 1] + new TimeSpan((timestamps[index] - timestamps[index - 1]).Ticks / 2) : timestamps[index]));
         }
 
         public bool VerifyDifficulty(Func<long, TransactionalBlock> indexToTxBlock)
@@ -7742,7 +7751,7 @@ namespace CREA2014
 
                     Difficulty<X15Hash> difficulty = new Difficulty<X15Hash>(hash);
 
-                    return (difficulty.Diff < minDifficulty.Diff ? minDifficulty : difficulty).Operate((dif) => dif.RaiseNotification("difficulty", 3, difficulty.Diff.ToString()));
+                    return (difficulty.Diff < minDifficulty.Diff ? minDifficulty : difficulty).Pipe((dif) => dif.RaiseNotification("difficulty", 3, difficulty.Diff.ToString()));
                 }
             }
             else
@@ -7766,7 +7775,7 @@ namespace CREA2014
 
                 TransactionalBlock txBlock;
                 if (GetBlockType(index, version) == typeof(NormalBlock))
-                    txBlock = new NormalBlock().Operate((normalBlock) => normalBlock.LoadVersion0(header, coinbaseTxToMiner, new TransferTransaction[] { }));
+                    txBlock = new NormalBlock().Pipe((normalBlock) => normalBlock.LoadVersion0(header, coinbaseTxToMiner, new TransferTransaction[] { }));
                 else
                 {
                     TransactionOutput coinbaseTxOutToFoundation = new TransactionOutput();
@@ -7774,7 +7783,7 @@ namespace CREA2014
                     CoinbaseTransaction coinbaseTxToFoundation = new CoinbaseTransaction();
                     coinbaseTxToFoundation.LoadVersion0(new TransactionOutput[] { coinbaseTxOutToFoundation });
 
-                    txBlock = new FoundationalBlock().Operate((foundationalBlock) => foundationalBlock.LoadVersion0(header, coinbaseTxToMiner, coinbaseTxToFoundation, new TransferTransaction[] { }));
+                    txBlock = new FoundationalBlock().Pipe((foundationalBlock) => foundationalBlock.LoadVersion0(header, coinbaseTxToMiner, coinbaseTxToFoundation, new TransferTransaction[] { }));
                 }
 
                 txBlock.UpdateMerkleRootHash();
@@ -7793,7 +7802,7 @@ namespace CREA2014
 
                 TransactionalBlock txBlock;
                 if (GetBlockType(index, version) == typeof(NormalBlock))
-                    txBlock = new NormalBlock().Operate((normalBlock) => normalBlock.LoadVersion1(header, coinbaseTxToMiner, new TransferTransaction[] { }));
+                    txBlock = new NormalBlock().Pipe((normalBlock) => normalBlock.LoadVersion1(header, coinbaseTxToMiner, new TransferTransaction[] { }));
                 else
                 {
                     TransactionOutput coinbaseTxOutToFoundation = new TransactionOutput();
@@ -7801,7 +7810,7 @@ namespace CREA2014
                     CoinbaseTransaction coinbaseTxToFoundation = new CoinbaseTransaction();
                     coinbaseTxToFoundation.LoadVersion0(new TransactionOutput[] { coinbaseTxOutToFoundation });
 
-                    txBlock = new FoundationalBlock().Operate((foundationalBlock) => foundationalBlock.LoadVersion1(header, coinbaseTxToMiner, coinbaseTxToFoundation, new TransferTransaction[] { }));
+                    txBlock = new FoundationalBlock().Pipe((foundationalBlock) => foundationalBlock.LoadVersion1(header, coinbaseTxToMiner, coinbaseTxToFoundation, new TransferTransaction[] { }));
                 }
 
                 txBlock.UpdateMerkleRootHash();
@@ -7966,33 +7975,43 @@ namespace CREA2014
         public event EventHandler<Transaction> TransactionAdded = delegate { };
         public event EventHandler<Transaction> TransactionRemoved = delegate { };
 
-        public void AddAccount(Transaction transaction)
+        public bool Contains(Sha256Sha256Hash id)
+        {
+            lock (transactionsLock)
+                return transactions.FirstOrDefault((elem) => elem.Id.Equals(id)) != null;
+        }
+
+        public bool AddTransaction(Transaction transaction)
         {
             lock (transactionsLock)
             {
                 if (transactions.Contains(transaction))
-                    throw new InvalidOperationException("exist_account");
+                    return false;
 
                 this.ExecuteBeforeEvent(() =>
                 {
                     transactions.Add(transaction);
                     transactionsCache.IsModified = true;
                 }, transaction, TransactionAdded);
+
+                return true;
             }
         }
 
-        public void RemoveAccount(Transaction transaction)
+        public bool RemoveTransaction(Transaction transaction)
         {
             lock (transactionsLock)
             {
                 if (!transactions.Contains(transaction))
-                    throw new InvalidOperationException("not_exist_account");
+                    return false;
 
                 this.ExecuteBeforeEvent(() =>
                 {
                     transactions.Remove(transaction);
                     transactionsCache.IsModified = true;
                 }, transaction, TransactionRemoved);
+
+                return true;
             }
         }
 
@@ -9798,6 +9817,305 @@ namespace CREA2014
         {
             return Path.Combine(pathBase, filenameBase + bgIndex.ToString());
         }
+    }
+
+
+
+
+    public class BlockManagementInformation : SHAREDDATA
+    {
+        public BlockManagementInformation(long _position, bool _isMain)
+        {
+            position = _position;
+            isMain = _isMain;
+        }
+
+        public long position { get; private set; }
+        public bool isMain { get; private set; }
+
+        protected override Func<ReaderWriter, IEnumerable<MainDataInfomation>> StreamInfo
+        {
+            get
+            {
+                return (msrw) => new MainDataInfomation[]{
+                    new MainDataInfomation(typeof(long), () => position, (o) => position = (long)o),
+                    new MainDataInfomation(typeof(bool), () => isMain, (o) => isMain = (bool)o),
+                };
+            }
+        }
+    }
+
+    public class BlockManagementInformationsPerIndex : SHAREDDATA
+    {
+        public BlockManagementInformationsPerIndex() { blockManageInfos = new BlockManagementInformation[] { }; }
+
+        public BlockManagementInformationsPerIndex(BlockManagementInformation[] _blockManageInfos) { blockManageInfos = _blockManageInfos; }
+
+        private readonly object blockManageInfosLock = new object();
+        public BlockManagementInformation[] blockManageInfos { get; private set; }
+
+        protected override Func<ReaderWriter, IEnumerable<MainDataInfomation>> StreamInfo
+        {
+            get
+            {
+                return (msrw) => new MainDataInfomation[]{
+                    new MainDataInfomation(typeof(BlockManagementInformation[]), null, null, () => blockManageInfos, (o) => blockManageInfos = (BlockManagementInformation[])o),
+                };
+            }
+        }
+
+        public void AddBlockManageInfo(BlockManagementInformation addedBlockManageInfo)
+        {
+            lock (blockManageInfosLock)
+            {
+                BlockManagementInformation[] newBlockManageInfos = new BlockManagementInformation[blockManageInfos.Length + 1];
+                for (int i = 0; i < blockManageInfos.Length; i++)
+                    newBlockManageInfos[i] = blockManageInfos[i];
+                newBlockManageInfos[newBlockManageInfos.Length - 1] = addedBlockManageInfo;
+            }
+        }
+
+        public void AddBlockManagementInformations(BlockManagementInformation[] addedBlockManageInfo)
+        {
+            lock (blockManageInfosLock)
+            {
+                BlockManagementInformation[] newBlockManageInfos = new BlockManagementInformation[blockManageInfos.Length + addedBlockManageInfo.Length];
+                for (int i = 0; i < blockManageInfos.Length; i++)
+                    newBlockManageInfos[i] = blockManageInfos[i];
+                for (int i = 0; i < addedBlockManageInfo.Length; i++)
+                    newBlockManageInfos[blockManageInfos.Length + i] = addedBlockManageInfo[i];
+            }
+        }
+    }
+
+    public class BlockManagementInformationsPerGroup : SHAREDDATA
+    {
+        public BlockManagementInformationsPerGroup() { blockManageInfosPerIndexes = new BlockManagementInformationsPerIndex[] { }; }
+
+        public BlockManagementInformationsPerGroup(BlockManagementInformationsPerIndex[] _blockManageInfosPerIndexes) { blockManageInfosPerIndexes = _blockManageInfosPerIndexes; }
+
+        public BlockManagementInformationsPerIndex[] blockManageInfosPerIndexes { get; private set; }
+
+        protected override Func<ReaderWriter, IEnumerable<MainDataInfomation>> StreamInfo
+        {
+            get
+            {
+                return (msrw) => new MainDataInfomation[]{
+                    new MainDataInfomation(typeof(BlockManagementInformationsPerIndex[]), null, null, () => blockManageInfosPerIndexes, (o) => blockManageInfosPerIndexes = (BlockManagementInformationsPerIndex[])o),
+                };
+            }
+        }
+
+        public void AddBlockManageInfo(long index, BlockManagementInformation addedBlockManageInfo)
+        {
+            blockManageInfosPerIndexes[index].AddBlockManageInfo(addedBlockManageInfo);
+        }
+
+        public void AddBlockManageInfo(long index, BlockManagementInformation[] addedBlockManageInfo)
+        {
+            blockManageInfosPerIndexes[index].AddBlockManagementInformations(addedBlockManageInfo);
+        }
+    }
+
+    public class BlockManagementInformationManager
+    {
+        public BlockManagementInformationManager(BlockManagementInfomationDatabase _blockManageInfoDatabase)
+        {
+            blockManageInfoDatabase = _blockManageInfoDatabase;
+            blockManageInfoGroupCaches = new BlockManagementInformationsPerGroup[numBlockManageInfoGroupCache];
+            blockManageInfoGroupIndexes = new long?[numBlockManageInfoGroupCache];
+            blockManageInfoGroupCachesPos = new CirculatedInteger(0, numBlockManageInfoGroupCache);
+        }
+
+        private static readonly long blockManageInfoGroupDiv = 10000;
+        private static readonly int numBlockManageInfoGroupCache = 10;
+
+        private readonly BlockManagementInfomationDatabase blockManageInfoDatabase;
+        private readonly BlockManagementInformationsPerGroup[] blockManageInfoGroupCaches;
+        private readonly long?[] blockManageInfoGroupIndexes;
+        private CirculatedInteger blockManageInfoGroupCachesPos;
+
+        private void SaveBlockManageInfoGroup(long blockManageInfoGroupIndex, BlockManagementInformationsPerGroup blockManageInfoGroup)
+        {
+            blockManageInfoDatabase.UpdateBlockManagementInfomationGroupData(blockManageInfoGroupIndex, blockManageInfoGroup.ToBinary());
+        }
+
+        private BlockManagementInformationsPerGroup LoadBlockManageInfoGroup(long blockManageInfoGroupIndex)
+        {
+            return SHAREDDATA.FromBinary<BlockManagementInformationsPerGroup>(blockManageInfoDatabase.GetBlockManagementInfomationGroupData(blockManageInfoGroupIndex));
+        }
+
+        private BlockManagementInformationsPerGroup GetBlockManageInfoGroup(long blockManageInfoGroupIndex)
+        {
+            foreach (int index in blockManageInfoGroupCachesPos.GetCirclePrevious())
+                if (blockManageInfoGroupIndexes[index] == blockManageInfoGroupIndex)
+                    return blockManageInfoGroupCaches[index];
+
+            if (blockManageInfoGroupCaches[blockManageInfoGroupCachesPos.value] != null)
+                SaveBlockManageInfoGroup(blockManageInfoGroupIndexes[blockManageInfoGroupCachesPos.value].Value, blockManageInfoGroupCaches[blockManageInfoGroupCachesPos.value]);
+
+            BlockManagementInformationsPerGroup blockManageInfoGroup = LoadBlockManageInfoGroup(blockManageInfoGroupIndex);
+
+            blockManageInfoGroupCaches[blockManageInfoGroupCachesPos.value] = blockManageInfoGroup;
+            blockManageInfoGroupIndexes[blockManageInfoGroupCachesPos.value] = blockManageInfoGroupIndex;
+
+            blockManageInfoGroupCachesPos.Next();
+
+            return blockManageInfoGroup;
+        }
+
+        public void AddBlockManageInfo(long blockIndex, BlockManagementInformation blockManageInfo)
+        {
+            long blockManageInfoGroupIndex = blockIndex / blockManageInfoGroupDiv;
+
+            foreach (int index in blockManageInfoGroupCachesPos.GetCircleNext())
+                if (blockManageInfoGroupIndexes[index] == blockManageInfoGroupIndex)
+                {
+                    blockManageInfoGroupCaches[index].AddBlockManageInfo(blockIndex % blockManageInfoGroupDiv, blockManageInfo);
+
+                    return;
+                }
+
+
+        }
+    }
+
+    public class BlockManager
+    {
+        public BlockManager(BlockDatabase _blockDatabase)
+        {
+            blockDatabase = _blockDatabase;
+        }
+
+        private readonly BlockDatabase blockDatabase;
+
+        private static readonly long blockFileDiv = 100000;
+
+        public void AddBlock(Block block)
+        {
+
+        }
+
+        public void AddBlocks(Block[] blocks)
+        {
+
+        }
+
+        public Block GetMainBlock(long blockIndex)
+        {
+            throw new NotImplementedException();
+        }
+
+        public Block GetBlocks(long blockIndex)
+        {
+            throw new NotImplementedException();
+        }
+    }
+
+    public class BlockManagementInfomationDatabase : DATABASEBASE
+    {
+        public BlockManagementInfomationDatabase(string _pathBase) : base(_pathBase) { }
+
+        protected override int version { get { return 0; } }
+
+#if TEST
+        protected override string filenameBase { get { return "blg_mng_infos_test" + version.ToString() + "_"; } }
+#else
+        protected override string filenameBase { get { return "blg_mng_infos" + version.ToString() + "_"; } }
+#endif
+
+        public byte[] GetBlockManagementInfomationGroupData(long blockManagementInfomationGroupFileIndex)
+        {
+            using (FileStream fs = new FileStream(GetPath(blockManagementInfomationGroupFileIndex), FileMode.OpenOrCreate, FileAccess.Read))
+            {
+                byte[] blockManagementInfomationGroupData = new byte[fs.Length];
+                fs.Read(blockManagementInfomationGroupData, 0, blockManagementInfomationGroupData.Length);
+                return blockManagementInfomationGroupData;
+            }
+        }
+
+        public void UpdateBlockManagementInfomationGroupData(long blockManagementInfomationGroupFileIndex, byte[] blockManagementInfomationGroupData)
+        {
+            using (FileStream fs = new FileStream(GetPath(blockManagementInfomationGroupFileIndex), FileMode.Create, FileAccess.Write))
+                fs.Write(blockManagementInfomationGroupData, 0, blockManagementInfomationGroupData.Length);
+        }
+
+        private string GetPath(long bngIndex) { return Path.Combine(pathBase, filenameBase + bngIndex.ToString()); }
+    }
+
+    public class BlockDatabase : DATABASEBASE
+    {
+        public BlockDatabase(string _pathBase) : base(_pathBase) { }
+
+        protected override int version { get { return 0; } }
+
+#if TEST
+        protected override string filenameBase { get { return "blks_test" + version.ToString() + "_"; } }
+#else
+        protected override string filenameBase { get { return "blks" + version.ToString() + "_"; } }
+#endif
+
+        public byte[] GetBlockData(long blockFileIndex, long position)
+        {
+            using (FileStream fs = new FileStream(GetPath(blockFileIndex), FileMode.OpenOrCreate, FileAccess.Read))
+                return GetBlockData(fs, position);
+        }
+
+        public byte[][] GetBlockDatas(long blockFileIndex, long[] positions)
+        {
+            byte[][] blockDatas = new byte[positions.Length][];
+
+            using (FileStream fs = new FileStream(GetPath(blockFileIndex), FileMode.OpenOrCreate, FileAccess.Read))
+                for (int i = 0; i < positions.Length; i++)
+                    blockDatas[i] = GetBlockData(fs, positions[i]);
+
+            return blockDatas;
+        }
+
+        public long AddBlockData(long blockFileIndex, byte[] blockData)
+        {
+            using (FileStream fs = new FileStream(GetPath(blockFileIndex), FileMode.Append, FileAccess.Write))
+                return AddBlockData(fs, blockFileIndex, blockData);
+        }
+
+        public long[] AddBlockDatas(long blockFileIndex, byte[][] blockDatas)
+        {
+            long[] positions = new long[blockDatas.Length];
+
+            using (FileStream fs = new FileStream(GetPath(blockFileIndex), FileMode.Append, FileAccess.Write))
+                for (int i = 0; i < blockDatas.Length; i++)
+                    positions[i] = AddBlockData(blockFileIndex, blockDatas[i]);
+
+            return positions;
+        }
+
+        private byte[] GetBlockData(FileStream fs, long position)
+        {
+            if (position >= fs.Length)
+                return new byte[] { };
+
+            fs.Seek(position, SeekOrigin.Begin);
+
+            byte[] lengthBytes = new byte[4];
+            fs.Read(lengthBytes, 0, 4);
+            int length = BitConverter.ToInt32(lengthBytes, 0);
+
+            byte[] data = new byte[length];
+            fs.Read(data, 0, length);
+            return data;
+        }
+
+        private long AddBlockData(FileStream fs, long blockFileIndex, byte[] blockData)
+        {
+            long position = fs.Position;
+
+            fs.Write(BitConverter.GetBytes(blockData.Length), 0, 4);
+            fs.Write(blockData, 0, blockData.Length);
+
+            return position;
+        }
+
+        private string GetPath(long blockFileIndex) { return Path.Combine(pathBase, filenameBase + blockFileIndex.ToString()); }
     }
 
     #endregion
