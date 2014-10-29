@@ -23,6 +23,12 @@ using System.Windows.Media;
 
 namespace CREA2014
 {
+    using BMI = BlockManagementInformation;
+    using BMIBlocks = BlockManagementInformationsPerBlockIndex;
+    using BMIFile = BlockManagementInformationsPerFile;
+    using BMIManager = BlockManagementInformationManager;
+    using BMIDB = BlockManagementInfomationDB;
+
     public class Core
     {
         public Core(string _basePath, int _creaVersion, string _appnameWithVersion)
@@ -9821,17 +9827,19 @@ namespace CREA2014
 
 
 
-
     public class BlockManagementInformation : SHAREDDATA
     {
+        public BlockManagementInformation() : base(null) { }
+
         public BlockManagementInformation(long _position, bool _isMain)
+            : base(null)
         {
             position = _position;
             isMain = _isMain;
         }
 
         public long position { get; private set; }
-        public bool isMain { get; private set; }
+        public bool isMain { get; set; }
 
         protected override Func<ReaderWriter, IEnumerable<MainDataInfomation>> StreamInfo
         {
@@ -9845,151 +9853,158 @@ namespace CREA2014
         }
     }
 
-    public class BlockManagementInformationsPerIndex : SHAREDDATA
+    public class BlockManagementInformationsPerBlockIndex : SHAREDDATA
     {
-        public BlockManagementInformationsPerIndex() { blockManageInfos = new BlockManagementInformation[] { }; }
+        public BlockManagementInformationsPerBlockIndex() : base(null) { bmis = new BMI[] { }; }
 
-        public BlockManagementInformationsPerIndex(BlockManagementInformation[] _blockManageInfos) { blockManageInfos = _blockManageInfos; }
+        public BlockManagementInformationsPerBlockIndex(BMI[] _bmis) : base(null) { bmis = _bmis; }
 
-        private readonly object blockManageInfosLock = new object();
-        public BlockManagementInformation[] blockManageInfos { get; private set; }
+        private readonly object bmisLock = new object();
+        public BMI[] bmis { get; private set; }
 
         protected override Func<ReaderWriter, IEnumerable<MainDataInfomation>> StreamInfo
         {
             get
             {
                 return (msrw) => new MainDataInfomation[]{
-                    new MainDataInfomation(typeof(BlockManagementInformation[]), null, null, () => blockManageInfos, (o) => blockManageInfos = (BlockManagementInformation[])o),
+                    new MainDataInfomation(typeof(BMI[]), null, null, () => bmis, (o) => bmis = (BMI[])o),
                 };
             }
         }
 
-        public void AddBlockManageInfo(BlockManagementInformation addedBlockManageInfo)
+        public void AddBMI(BMI bmiAdded)
         {
-            lock (blockManageInfosLock)
+            lock (bmisLock)
             {
-                BlockManagementInformation[] newBlockManageInfos = new BlockManagementInformation[blockManageInfos.Length + 1];
-                for (int i = 0; i < blockManageInfos.Length; i++)
-                    newBlockManageInfos[i] = blockManageInfos[i];
-                newBlockManageInfos[newBlockManageInfos.Length - 1] = addedBlockManageInfo;
+                BMI[] bmisNew = new BMI[bmis.Length + 1];
+                for (int i = 0; i < bmis.Length; i++)
+                {
+                    bmisNew[i] = bmis[i];
+                    bmisNew[i].isMain = bmisNew[i].isMain.Nonimp(bmiAdded.isMain);
+                }
+                bmisNew[bmis.Length] = bmiAdded;
+                bmis = bmisNew;
             }
         }
 
-        public void AddBlockManagementInformations(BlockManagementInformation[] addedBlockManageInfo)
+        public void AddBMIs(BMI[] bmisAdded)
         {
-            lock (blockManageInfosLock)
+            lock (bmisLock)
             {
-                BlockManagementInformation[] newBlockManageInfos = new BlockManagementInformation[blockManageInfos.Length + addedBlockManageInfo.Length];
-                for (int i = 0; i < blockManageInfos.Length; i++)
-                    newBlockManageInfos[i] = blockManageInfos[i];
-                for (int i = 0; i < addedBlockManageInfo.Length; i++)
-                    newBlockManageInfos[blockManageInfos.Length + i] = addedBlockManageInfo[i];
+                bool isMain = false;
+                for (int i = 0; i < bmisAdded.Length; i++)
+                {
+                    if (isMain && bmisAdded[i].isMain)
+                        throw new InvalidOperationException();
+
+                    isMain = isMain || bmisAdded[i].isMain;
+                }
+
+                BMI[] bmisNew = new BMI[bmis.Length + bmisAdded.Length];
+                for (int i = 0; i < bmis.Length; i++)
+                {
+                    bmisNew[i] = bmis[i];
+                    bmisNew[i].isMain = bmisNew[i].isMain.Nonimp(isMain);
+                }
+                for (int i = 0; i < bmisAdded.Length; i++)
+                    bmisNew[bmis.Length + i] = bmisAdded[i];
+                bmis = bmisNew;
             }
         }
     }
 
-    public class BlockManagementInformationsPerGroup : SHAREDDATA
+    public class BlockManagementInformationsPerFile : SHAREDDATA
     {
-        public BlockManagementInformationsPerGroup() { blockManageInfosPerIndexes = new BlockManagementInformationsPerIndex[] { }; }
+        public BlockManagementInformationsPerFile() : base(null) { bmiBlockss = new BMIBlocks[] { }; }
 
-        public BlockManagementInformationsPerGroup(BlockManagementInformationsPerIndex[] _blockManageInfosPerIndexes) { blockManageInfosPerIndexes = _blockManageInfosPerIndexes; }
+        public BlockManagementInformationsPerFile(BMIBlocks[] _bmiBlockss) : base(null) { bmiBlockss = _bmiBlockss; }
 
-        public BlockManagementInformationsPerIndex[] blockManageInfosPerIndexes { get; private set; }
+        public BMIBlocks[] bmiBlockss { get; private set; }
 
         protected override Func<ReaderWriter, IEnumerable<MainDataInfomation>> StreamInfo
         {
             get
             {
                 return (msrw) => new MainDataInfomation[]{
-                    new MainDataInfomation(typeof(BlockManagementInformationsPerIndex[]), null, null, () => blockManageInfosPerIndexes, (o) => blockManageInfosPerIndexes = (BlockManagementInformationsPerIndex[])o),
+                    new MainDataInfomation(typeof(BMIBlocks[]), null, null, () => bmiBlockss, (o) => bmiBlockss = (BMIBlocks[])o),
                 };
             }
         }
 
-        public void AddBlockManageInfo(long index, BlockManagementInformation addedBlockManageInfo)
-        {
-            blockManageInfosPerIndexes[index].AddBlockManageInfo(addedBlockManageInfo);
-        }
-
-        public void AddBlockManageInfo(long index, BlockManagementInformation[] addedBlockManageInfo)
-        {
-            blockManageInfosPerIndexes[index].AddBlockManagementInformations(addedBlockManageInfo);
-        }
+        //ここでのindexはbmiBlockssのindex＝ファイル内でのindex＝block index % capacity
+        public void AddBMI(long index, BMI bmiAdded) { bmiBlockss[index].AddBMI(bmiAdded); }
+        public void AddBMIs(long index, BMI[] bmisAdded) { bmiBlockss[index].AddBMIs(bmisAdded); }
     }
 
     public class BlockManagementInformationManager
     {
-        public BlockManagementInformationManager(BlockManagementInfomationDatabase _blockManageInfoDatabase)
+        public BlockManagementInformationManager(BMIDB _bmidb)
         {
-            blockManageInfoDatabase = _blockManageInfoDatabase;
-            blockManageInfoGroupCaches = new BlockManagementInformationsPerGroup[numBlockManageInfoGroupCache];
-            blockManageInfoGroupIndexes = new long?[numBlockManageInfoGroupCache];
-            blockManageInfoGroupCachesPos = new CirculatedInteger(0, numBlockManageInfoGroupCache);
+            bmidb = _bmidb;
+            bmiFileCache = new CirculatedReadCache<long, BMIFile>(bmiFileCachesNum, (bmiFileIndex) =>
+            {
+                byte[] bmiFileData = bmidb.GetBMIFileData(bmiFileIndex);
+                if (bmiFileData.Length != 0)
+                    return SHAREDDATA.FromBinary<BMIFile>(bmidb.GetBMIFileData(bmiFileIndex));
+
+                BMIBlocks[] bmiBlockss = new BMIBlocks[bmiFileCapacity];
+                for (int i = 0; i < bmiBlockss.Length; i++)
+                    bmiBlockss[i] = new BMIBlocks();
+                return new BMIFile(bmiBlockss);
+            }, (bmiFileIndex, bmiFile) => bmidb.UpdateBMIFileData(bmiFileIndex, bmiFile.ToBinary()));
         }
 
-        private static readonly long blockManageInfoGroupDiv = 10000;
-        private static readonly int numBlockManageInfoGroupCache = 10;
+        private static readonly long bmiFileCapacity = 10000;
+        private static readonly int bmiFileCachesNum = 10;
 
-        private readonly BlockManagementInfomationDatabase blockManageInfoDatabase;
-        private readonly BlockManagementInformationsPerGroup[] blockManageInfoGroupCaches;
-        private readonly long?[] blockManageInfoGroupIndexes;
-        private CirculatedInteger blockManageInfoGroupCachesPos;
+        private readonly BMIDB bmidb;
+        private readonly CirculatedReadCache<long, BMIFile> bmiFileCache;
 
-        private void SaveBlockManageInfoGroup(long blockManageInfoGroupIndex, BlockManagementInformationsPerGroup blockManageInfoGroup)
+        public void AddBMI(long blockIndex, BMI bmiAdded)
         {
-            blockManageInfoDatabase.UpdateBlockManagementInfomationGroupData(blockManageInfoGroupIndex, blockManageInfoGroup.ToBinary());
+            bmiFileCache.Get(blockIndex / bmiFileCapacity).AddBMI(blockIndex % bmiFileCapacity, bmiAdded);
         }
 
-        private BlockManagementInformationsPerGroup LoadBlockManageInfoGroup(long blockManageInfoGroupIndex)
+        public void AddBMIs(long blockIndex, BMI[] bmisAdded)
         {
-            return SHAREDDATA.FromBinary<BlockManagementInformationsPerGroup>(blockManageInfoDatabase.GetBlockManagementInfomationGroupData(blockManageInfoGroupIndex));
+            bmiFileCache.Get(blockIndex / bmiFileCapacity).AddBMIs(blockIndex % bmiFileCapacity, bmisAdded);
         }
 
-        private BlockManagementInformationsPerGroup GetBlockManageInfoGroup(long blockManageInfoGroupIndex)
+        public BMI GetMainBMI(long blockIndex)
         {
-            foreach (int index in blockManageInfoGroupCachesPos.GetCirclePrevious())
-                if (blockManageInfoGroupIndexes[index] == blockManageInfoGroupIndex)
-                    return blockManageInfoGroupCaches[index];
+            foreach (BMI bmi in bmiFileCache.Get(blockIndex / bmiFileCapacity).bmiBlockss[blockIndex % bmiFileCapacity].bmis)
+                if (bmi.isMain)
+                    return bmi;
 
-            if (blockManageInfoGroupCaches[blockManageInfoGroupCachesPos.value] != null)
-                SaveBlockManageInfoGroup(blockManageInfoGroupIndexes[blockManageInfoGroupCachesPos.value].Value, blockManageInfoGroupCaches[blockManageInfoGroupCachesPos.value]);
-
-            BlockManagementInformationsPerGroup blockManageInfoGroup = LoadBlockManageInfoGroup(blockManageInfoGroupIndex);
-
-            blockManageInfoGroupCaches[blockManageInfoGroupCachesPos.value] = blockManageInfoGroup;
-            blockManageInfoGroupIndexes[blockManageInfoGroupCachesPos.value] = blockManageInfoGroupIndex;
-
-            blockManageInfoGroupCachesPos.Next();
-
-            return blockManageInfoGroup;
+            throw new InvalidOperationException();
         }
 
-        public void AddBlockManageInfo(long blockIndex, BlockManagementInformation blockManageInfo)
+        public BMI[] GetBMIs(long blockIndex)
         {
-            long blockManageInfoGroupIndex = blockIndex / blockManageInfoGroupDiv;
+            return bmiFileCache.Get(blockIndex / bmiFileCapacity).bmiBlockss[blockIndex % bmiFileCapacity].bmis;
+        }
 
-            foreach (int index in blockManageInfoGroupCachesPos.GetCircleNext())
-                if (blockManageInfoGroupIndexes[index] == blockManageInfoGroupIndex)
-                {
-                    blockManageInfoGroupCaches[index].AddBlockManageInfo(blockIndex % blockManageInfoGroupDiv, blockManageInfo);
-
-                    return;
-                }
-
-
+        public void Save()
+        {
+            bmiFileCache.SaveAll();
         }
     }
 
     public class BlockManager
     {
-        public BlockManager(BlockDatabase _blockDatabase)
+        public BlockManager(BlockDB _blockdb, BMIDB _bmidb)
         {
-            blockDatabase = _blockDatabase;
+            blockdb = _blockdb;
+            bmidb = _bmidb;
+            bmiManager = new BMIManager(bmidb);
         }
 
-        private readonly BlockDatabase blockDatabase;
-
         private static readonly long blockFileDiv = 100000;
+        private static readonly int blockCacheNum = 300;
+
+        private readonly BlockDB blockdb;
+        private readonly BMIDB bmidb;
+        private readonly BMIManager bmiManager;
 
         public void AddBlock(Block block)
         {
@@ -10010,11 +10025,16 @@ namespace CREA2014
         {
             throw new NotImplementedException();
         }
+
+        public void Save()
+        {
+
+        }
     }
 
-    public class BlockManagementInfomationDatabase : DATABASEBASE
+    public class BlockManagementInfomationDB : DATABASEBASE
     {
-        public BlockManagementInfomationDatabase(string _pathBase) : base(_pathBase) { }
+        public BlockManagementInfomationDB(string _pathBase) : base(_pathBase) { }
 
         protected override int version { get { return 0; } }
 
@@ -10024,28 +10044,28 @@ namespace CREA2014
         protected override string filenameBase { get { return "blg_mng_infos" + version.ToString() + "_"; } }
 #endif
 
-        public byte[] GetBlockManagementInfomationGroupData(long blockManagementInfomationGroupFileIndex)
+        public byte[] GetBMIFileData(long bmiFileIndex)
         {
-            using (FileStream fs = new FileStream(GetPath(blockManagementInfomationGroupFileIndex), FileMode.OpenOrCreate, FileAccess.Read))
+            using (FileStream fs = new FileStream(GetPath(bmiFileIndex), FileMode.OpenOrCreate, FileAccess.Read))
             {
-                byte[] blockManagementInfomationGroupData = new byte[fs.Length];
-                fs.Read(blockManagementInfomationGroupData, 0, blockManagementInfomationGroupData.Length);
-                return blockManagementInfomationGroupData;
+                byte[] bmiFileData = new byte[fs.Length];
+                fs.Read(bmiFileData, 0, bmiFileData.Length);
+                return bmiFileData;
             }
         }
 
-        public void UpdateBlockManagementInfomationGroupData(long blockManagementInfomationGroupFileIndex, byte[] blockManagementInfomationGroupData)
+        public void UpdateBMIFileData(long bmiFileIndex, byte[] bmiFileData)
         {
-            using (FileStream fs = new FileStream(GetPath(blockManagementInfomationGroupFileIndex), FileMode.Create, FileAccess.Write))
-                fs.Write(blockManagementInfomationGroupData, 0, blockManagementInfomationGroupData.Length);
+            using (FileStream fs = new FileStream(GetPath(bmiFileIndex), FileMode.Create, FileAccess.Write))
+                fs.Write(bmiFileData, 0, bmiFileData.Length);
         }
 
         private string GetPath(long bngIndex) { return Path.Combine(pathBase, filenameBase + bngIndex.ToString()); }
     }
 
-    public class BlockDatabase : DATABASEBASE
+    public class BlockDB : DATABASEBASE
     {
-        public BlockDatabase(string _pathBase) : base(_pathBase) { }
+        public BlockDB(string _pathBase) : base(_pathBase) { }
 
         protected override int version { get { return 0; } }
 

@@ -44,16 +44,16 @@ namespace CREA2014
         }
     }
 
-    public class CachedData<Type>
+    public class CachedData<T>
     {
-        public CachedData(Func<Type> _generator)
+        public CachedData(Func<T> _generator)
         {
             generator = _generator;
             isCached = false;
             isModified = false;
         }
 
-        private Func<Type> generator;
+        private Func<T> generator;
 
         public bool isCached { get; private set; }
 
@@ -70,8 +70,8 @@ namespace CREA2014
             }
         }
 
-        private Type cache;
-        public Type Data
+        private T cache;
+        public T Data
         {
             get
             {
@@ -83,6 +83,135 @@ namespace CREA2014
                 }
                 return cache;
             }
+        }
+    }
+
+    public class CirculatedReadCache<KeyType, T>
+    {
+        public CirculatedReadCache(int _cachesNum, Func<KeyType, T> _loader, Action<KeyType, T> _saver)
+        {
+            if (_cachesNum < 1)
+                throw new ArgumentException();
+
+            cachesNum = _cachesNum;
+            loader = _loader;
+            saver = _saver;
+            caches = new T[cachesNum];
+            keys = new KeyType[cachesNum];
+            currentIndex = new CirculatedInteger(cachesNum);
+        }
+
+        private readonly int cachesNum;
+        private readonly Func<KeyType, T> loader;
+        private readonly Action<KeyType, T> saver;
+        private readonly T[] caches;
+        private readonly KeyType[] keys;
+        private readonly CirculatedInteger currentIndex;
+
+        public T Get(KeyType key)
+        {
+            foreach (int index in currentIndex.GetCircleBackward())
+                if (caches[index] == null)
+                    break;
+                else if (keys[index].Equals(key))
+                    return caches[index];
+
+            currentIndex.Next();
+
+            int index2 = currentIndex.value;
+
+            if (caches[index2] != null)
+                saver(keys[index2], caches[index2]);
+
+            keys[index2] = key;
+            return caches[index2] = loader(key);
+        }
+
+        public void SaveAll()
+        {
+            for (int i = 0; i < cachesNum; i++)
+                if (caches[i] != null)
+                    saver(keys[i], caches[i]);
+        }
+    }
+
+    public class CirculatedWriteCache<KeyType, T>
+    {
+        public CirculatedWriteCache(int _cachesNum, int _saveNum, Action<KeyType[], T[]> _saver)
+        {
+            if (_cachesNum < 1)
+                throw new ArgumentException();
+            if (_saveNum < 1 || _saveNum > _cachesNum)
+                throw new ArgumentException();
+
+            cachesNum = _cachesNum;
+            saveNum = _saveNum;
+            saver = _saver;
+            caches = new T[cachesNum];
+            keys = new KeyType[cachesNum];
+            currentIndex = new CirculatedInteger(cachesNum);
+        }
+
+        private readonly int cachesNum;
+        private readonly int saveNum;
+        private readonly Action<KeyType[], T[]> saver;
+        private readonly T[] caches;
+        private readonly KeyType[] keys;
+        private readonly CirculatedInteger currentIndex;
+
+        public T Get(KeyType key)
+        {
+            foreach (int index in currentIndex.GetCircleBackward())
+                if (caches[index] != null && keys[index].Equals(key))
+                    return caches[index];
+            return default(T);
+        }
+
+        public void Set(KeyType key, T data)
+        {
+            currentIndex.Next();
+
+            int index = currentIndex.value;
+
+            if (caches[index] != null)
+                Save(currentIndex.GetCircleForward().Take(saveNum));
+
+            keys[index] = key;
+            caches[index] = data;
+        }
+
+        public void Delete(KeyType key)
+        {
+            for (int i = 0; i < cachesNum; i++)
+                if (caches[i] != null && keys[i].Equals(key))
+                    caches[i] = default(T);
+        }
+
+        public void Delete(Func<KeyType, bool> predicate)
+        {
+            for (int i = 0; i < cachesNum; i++)
+                if (caches[i] != null && predicate(keys[i]))
+                    caches[i] = default(T);
+        }
+
+        public void SaveAll()
+        {
+            Save(Enumerable.Range(0, cachesNum));
+        }
+
+        private void Save(IEnumerable<int> indexes)
+        {
+            List<KeyType> keysNotNull = new List<KeyType>();
+            List<T> dataNotNull = new List<T>();
+
+            foreach (int index in indexes)
+                if (caches[index] != null)
+                {
+                    keysNotNull.Add(keys[index]);
+                    dataNotNull.Add(caches[index]);
+                }
+
+            saver(keysNotNull.ToArray(), dataNotNull.ToArray());
         }
     }
 
@@ -456,6 +585,23 @@ namespace CREA2014
 
             return strs;
         }
+
+        public static bool False(this bool p, bool q) { return false; }
+        public static bool True(this bool p, bool q) { return true; }
+        public static bool P(this bool p, bool q) { return p; }
+        public static bool NegP(this bool p, bool q) { return !p; }
+        public static bool Q(this bool p, bool q) { return q; }
+        public static bool NegQ(this bool p, bool q) { return !q; }
+        public static bool And(this bool p, bool q) { return p && q; }
+        public static bool Nand(this bool p, bool q) { return !(p && q); }
+        public static bool Or(this bool p, bool q) { return p || q; }
+        public static bool Nor(this bool p, bool q) { return !(p || q); }
+        public static bool Imp(this bool p, bool q) { return !p ? true : q; }
+        public static bool Nonimp(this bool p, bool q) { return !p ? false : !q; }
+        public static bool Convimp(this bool p, bool q) { return p ? true : !q; }
+        public static bool Convnonimp(this bool p, bool q) { return p ? false : q; }
+        public static bool Xor(this bool p, bool q) { return p ^ q; }
+        public static bool Iff(this bool p, bool q) { return p == q; }
 
         //辞書に鍵が含まれている場合にはその値を返し、含まれていない場合には既定値を返す（拡張：辞書型）
         public static U GetValue<T, U>(this Dictionary<T, U> dict, T key, U def)
@@ -1702,9 +1848,16 @@ namespace CREA2014
                 //<未実装>総称型への対応
                 if (type.IsSubclassOf(typeof(SHAREDDATA)) && !type.ContainsGenericParameters && !type.IsAbstract)
                 {
-                    SHAREDDATA sd = Activator.CreateInstance(type) as SHAREDDATA;
-                    if (sd.Guid != Guid.Empty)
-                        guidsAndTypes.Add(sd.Guid, type);
+                    try
+                    {
+                        SHAREDDATA sd = Activator.CreateInstance(type) as SHAREDDATA;
+                        if (sd.Guid != Guid.Empty)
+                            guidsAndTypes.Add(sd.Guid, type);
+                    }
+                    catch (Exception ex)
+                    {
+                        throw ex;
+                    }
                 }
         }
 
@@ -1743,7 +1896,7 @@ namespace CREA2014
             }
         }
 
-        public void ToBinaryMainData(MemoryStream ms, ref bool isCorruptionCheckNeeded, List<Guid> typeList, Func<ReaderWriter, IEnumerable<MainDataInfomation>> si)
+        protected void ToBinaryMainData(MemoryStream ms, ref bool isCorruptionCheckNeeded, List<Guid> typeList, Func<ReaderWriter, IEnumerable<MainDataInfomation>> si)
         {
             MyStreamWriter writer = new MyStreamWriter(ms);
 
@@ -1818,9 +1971,9 @@ namespace CREA2014
                     Write(writer, mdi);
         }
 
-        public void ToBinaryMainData(MemoryStream ms, ref bool isCorruptionCheckNeeded, List<Guid> typeList) { ToBinaryMainData(ms, ref isCorruptionCheckNeeded, typeList, StreamInfo); }
+        protected void ToBinaryMainData(MemoryStream ms, ref bool isCorruptionCheckNeeded, List<Guid> typeList) { ToBinaryMainData(ms, ref isCorruptionCheckNeeded, typeList, StreamInfo); }
 
-        public byte[] ToBinaryMainData(Func<ReaderWriter, IEnumerable<MainDataInfomation>> si)
+        protected byte[] ToBinaryMainData(Func<ReaderWriter, IEnumerable<MainDataInfomation>> si)
         {
             using (MemoryStream ms = new MemoryStream())
             {
@@ -1834,9 +1987,9 @@ namespace CREA2014
             }
         }
 
-        public byte[] ToBinaryMainData() { return ToBinaryMainData(StreamInfo); }
+        protected byte[] ToBinaryMainData() { return ToBinaryMainData(StreamInfo); }
 
-        public void ToBinary(MemoryStream ms, ref bool isCorruptionCheckNeeded, List<Guid> typeList, Func<ReaderWriter, IEnumerable<MainDataInfomation>> si)
+        protected void ToBinary(MemoryStream ms, ref bool isCorruptionCheckNeeded, List<Guid> typeList, Func<ReaderWriter, IEnumerable<MainDataInfomation>> si)
         {
             if (IsCorruptionChecked)
                 isCorruptionCheckNeeded = true;
@@ -1847,9 +2000,9 @@ namespace CREA2014
             ToBinaryMainData(ms, ref isCorruptionCheckNeeded, typeList, si);
         }
 
-        public void ToBinary(MemoryStream ms, ref bool isCorruptionCheckNeeded, List<Guid> typeList) { ToBinary(ms, ref isCorruptionCheckNeeded, typeList, StreamInfo); }
+        protected void ToBinary(MemoryStream ms, ref bool isCorruptionCheckNeeded, List<Guid> typeList) { ToBinary(ms, ref isCorruptionCheckNeeded, typeList, StreamInfo); }
 
-        public byte[] ToBinary(Func<ReaderWriter, IEnumerable<MainDataInfomation>> si)
+        protected byte[] ToBinary(Func<ReaderWriter, IEnumerable<MainDataInfomation>> si)
         {
             using (MemoryStream ms = new MemoryStream())
             {
@@ -1882,7 +2035,7 @@ namespace CREA2014
 
         public byte[] ToBinary() { return ToBinary(StreamInfo); }
 
-        public void FromBinaryMainData(MemoryStream ms, ref bool isCorruptionCheckNeeded, List<Guid> typeList, Func<ReaderWriter, IEnumerable<MainDataInfomation>> si)
+        protected void FromBinaryMainData(MemoryStream ms, ref bool isCorruptionCheckNeeded, List<Guid> typeList, Func<ReaderWriter, IEnumerable<MainDataInfomation>> si)
         {
             MyStreamReader reader = new MyStreamReader(ms);
 
@@ -1952,9 +2105,9 @@ namespace CREA2014
                     Read(reader, mdi);
         }
 
-        public void FromBinaryMainData(MemoryStream ms, ref bool isCorruptionCheckNeeded, List<Guid> typeList) { FromBinaryMainData(ms, ref isCorruptionCheckNeeded, typeList, StreamInfo); }
+        protected void FromBinaryMainData(MemoryStream ms, ref bool isCorruptionCheckNeeded, List<Guid> typeList) { FromBinaryMainData(ms, ref isCorruptionCheckNeeded, typeList, StreamInfo); }
 
-        public void FromBinaryMainData(byte[] binary, Func<ReaderWriter, IEnumerable<MainDataInfomation>> si)
+        protected void FromBinaryMainData(byte[] binary, Func<ReaderWriter, IEnumerable<MainDataInfomation>> si)
         {
             using (MemoryStream ms = new MemoryStream(binary))
             {
@@ -1966,9 +2119,9 @@ namespace CREA2014
             }
         }
 
-        public void FromBinaryMainData(byte[] binary) { FromBinaryMainData(binary, StreamInfo); }
+        protected void FromBinaryMainData(byte[] binary) { FromBinaryMainData(binary, StreamInfo); }
 
-        public void FromBinary(MemoryStream ms, ref bool isCorruptionCheckNeeded, List<Guid> typeList, Func<ReaderWriter, IEnumerable<MainDataInfomation>> si)
+        protected void FromBinary(MemoryStream ms, ref bool isCorruptionCheckNeeded, List<Guid> typeList, Func<ReaderWriter, IEnumerable<MainDataInfomation>> si)
         {
             if (IsCorruptionChecked)
                 isCorruptionCheckNeeded = true;
@@ -1983,9 +2136,9 @@ namespace CREA2014
             FromBinaryMainData(ms, ref isCorruptionCheckNeeded, typeList, si);
         }
 
-        public void FromBinary(MemoryStream ms, ref bool isCorruptionCheckNeeded, List<Guid> typeList) { FromBinary(ms, ref isCorruptionCheckNeeded, typeList, StreamInfo); }
+        protected void FromBinary(MemoryStream ms, ref bool isCorruptionCheckNeeded, List<Guid> typeList) { FromBinary(ms, ref isCorruptionCheckNeeded, typeList, StreamInfo); }
 
-        public void FromBinary(byte[] binary, Func<ReaderWriter, IEnumerable<MainDataInfomation>> si)
+        protected void FromBinary(byte[] binary, Func<ReaderWriter, IEnumerable<MainDataInfomation>> si)
         {
             using (MemoryStream ms = new MemoryStream(binary))
             {
@@ -2030,19 +2183,110 @@ namespace CREA2014
 
         public void FromBinary(byte[] binary) { FromBinary(binary, StreamInfo); }
 
-        public static T FromBinary<T>(byte[] binary) where T : SHAREDDATA
+        public static byte[] ToBinary<T>(T sd) where T : SHAREDDATA
         {
-            T sd = Activator.CreateInstance(typeof(T)) as T;
-            sd.FromBinary(binary);
-            return sd;
+            if (!typeof(T).IsAbstract)
+                return sd.ToBinary();
+
+            using (MemoryStream ms = new MemoryStream())
+            {
+                bool isCorruptionCheckNeeded = false;
+                List<Guid> typeList = new List<System.Guid>() { sd.Guid };
+
+                sd.ToBinary(ms, ref isCorruptionCheckNeeded, typeList);
+
+                byte[] msBytes = ms.ToArray();
+
+                using (MemoryStream ms2 = new MemoryStream())
+                {
+                    bool isTypeListNeeded = typeList.Count != 0;
+                    ms2.Write(BitConverter.GetBytes(isTypeListNeeded), 0, 1);
+                    if (isTypeListNeeded)
+                    {
+                        ms2.Write(BitConverter.GetBytes(typeList.Count), 0, 4);
+                        foreach (Guid guid in typeList)
+                            ms2.Write(guid.ToByteArray(), 0, 16);
+                    }
+                    ms2.Write(msBytes, 0, msBytes.Length);
+
+                    if (isCorruptionCheckNeeded)
+                        ms2.Write(msBytes.ComputeSha256(), 0, 4);
+
+                    return ms2.ToArray();
+                }
+            }
         }
 
-        public static T FromBinary<T>(byte[] binary, int version) where T : SHAREDDATA
+        public static byte[] ToBinary<T>(T sd, int version) where T : SHAREDDATA
         {
-            T sd = Activator.CreateInstance(typeof(T)) as T;
-            sd.Version = version;
-            sd.FromBinary(binary);
-            return sd;
+            if (sd.Version != version)
+                throw new InvalidOperationException();
+
+            return ToBinary(sd);
+        }
+
+        public static T FromBinary<T>(byte[] binary) where T : SHAREDDATA { return FromBinary<T>(binary, null); }
+
+        public static T FromBinary<T>(byte[] binary, int? version) where T : SHAREDDATA
+        {
+            if (!typeof(T).IsAbstract)
+            {
+                T sd = Activator.CreateInstance(typeof(T)) as T;
+                if (version.HasValue)
+                    sd.Version = version.Value;
+                sd.FromBinary(binary);
+                return sd;
+            }
+
+            using (MemoryStream ms = new MemoryStream(binary))
+            {
+                bool isCorruptionCheckNeeded = false;
+                List<Guid> typeList = new List<System.Guid>();
+
+                byte[] isTypeListNeededBytes = new byte[1];
+                ms.Read(isTypeListNeededBytes, 0, 1);
+                if (BitConverter.ToBoolean(isTypeListNeededBytes, 0))
+                {
+                    byte[] typeListLengthBytes = new byte[4];
+                    ms.Read(typeListLengthBytes, 0, 4);
+                    int typeListLength = BitConverter.ToInt32(typeListLengthBytes, 0);
+
+                    for (int i = 0; i < typeListLength; i++)
+                    {
+                        byte[] typeGuidBytes = new byte[16];
+                        ms.Read(typeGuidBytes, 0, 16);
+                        typeList.Add(new Guid(typeGuidBytes));
+                    }
+                }
+
+                int typeListBytesLength = (int)ms.Position;
+
+                if (typeList.Count <= 0)
+                    throw new InvalidOperationException("type_index");
+                if (!guidsAndTypes.Keys.Contains(typeList[0]))
+                    throw new InvalidOperationException("type_guid_not_found");
+
+                T sd = Activator.CreateInstance(guidsAndTypes[typeList[0]]) as T;
+                if (version.HasValue)
+                    sd.Version = version.Value;
+                sd.FromBinary(ms, ref isCorruptionCheckNeeded, typeList);
+
+                if (isCorruptionCheckNeeded)
+                {
+                    byte[] checkBytes = new byte[4];
+                    ms.Read(checkBytes, 0, 4);
+                    int check = BitConverter.ToInt32(checkBytes, 0);
+
+                    byte[] checkData = new byte[ms.Length - 4 - typeListBytesLength];
+                    ms.Seek(typeListBytesLength, SeekOrigin.Begin);
+                    ms.Read(checkData, 0, checkData.Length);
+
+                    if (check != BitConverter.ToInt32(checkData.ComputeSha256(), 0))
+                        throw new InvalidDataException("from_binary_check");
+                }
+
+                return sd;
+            }
         }
     }
     public abstract class SETTINGSDATA : DATA
@@ -3185,6 +3429,45 @@ namespace CREA2014
         [STAThread]
         public static void Main(string[] args)
         {
+            Secp256k1KeyPair<Sha256Hash> secp256k1KeyPair = new Secp256k1KeyPair<Sha256Hash>(true);
+
+            TransactionInput ti1 = new TransactionInput();
+            ti1.LoadVersion1(0, 0, 0);
+
+            TransactionOutput to1 = new TransactionOutput();
+            to1.LoadVersion0(new Sha256Ripemd160Hash(secp256k1KeyPair.pubKey.pubKey), new Creacoin(50m));
+
+            CoinbaseTransaction ct1 = new CoinbaseTransaction();
+            ct1.LoadVersion0(new TransactionOutput[] { to1 });
+
+            byte[] ctBytes1 = ct1.ToBinary();
+
+            CoinbaseTransaction ct2 = SHAREDDATA.FromBinary<CoinbaseTransaction>(ctBytes1);
+
+            TransferTransaction tt1 = new TransferTransaction();
+            tt1.LoadVersion1(new TransactionInput[] { ti1 }, new TransactionOutput[] { to1 });
+            tt1.Sign(new TransactionOutput[] { to1 }, new DSAPRIVKEYBASE[] { secp256k1KeyPair.privKey });
+
+            byte[] ttBytes1 = tt1.ToBinary();
+
+            TransferTransaction tt2 = SHAREDDATA.FromBinary<TransferTransaction>(ttBytes1);
+
+            ResTransactions rt1 = new ResTransactions(new Transaction[] { ct1, tt1 });
+
+            byte[] rtBytes1 = rt1.ToBinary();
+
+            ResTransactions rt2 = SHAREDDATA.FromBinary<ResTransactions>(rtBytes1);
+
+
+            byte[] test1 = SHAREDDATA.ToBinary<Transaction>(ct2);
+
+            CoinbaseTransaction ct3 = SHAREDDATA.FromBinary<Transaction>(test1) as CoinbaseTransaction;
+
+            byte[] test2 = SHAREDDATA.ToBinary<Transaction>(tt2);
+
+            TransferTransaction tt3 = SHAREDDATA.FromBinary<Transaction>(test2) as TransferTransaction;
+
+
             string argExtract = "extract";
             string argCopy = "copy";
 
