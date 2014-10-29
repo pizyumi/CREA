@@ -4851,33 +4851,43 @@ namespace CREA2014
         public event EventHandler<Chat> ChatAdded = delegate { };
         public event EventHandler<Chat> ChatRemoved = delegate { };
 
-        public void AddAccount(Chat chat)
+        public bool Contains(Guid id)
+        {
+            lock (chatsLock)
+                return chats.FirstOrDefault((elem) => elem.Id.Equals(id)) != null;
+        }
+
+        public bool AddAccount(Chat chat)
         {
             lock (chatsLock)
             {
                 if (chats.Contains(chat))
-                    throw new InvalidOperationException("exist_chat");
+                    return false;
 
                 this.ExecuteBeforeEvent(() =>
                 {
                     chats.Add(chat);
                     chatsCache.IsModified = true;
                 }, chat, ChatAdded);
+
+                return true;
             }
         }
 
-        public void RemoveAccount(Chat chat)
+        public bool RemoveAccount(Chat chat)
         {
             lock (chatsLock)
             {
                 if (!chats.Contains(chat))
-                    throw new InvalidOperationException("not_exist_chat");
+                    return false;
 
                 this.ExecuteBeforeEvent(() =>
                 {
                     chats.Remove(chat);
                     chatsCache.IsModified = true;
                 }, chat, ChatRemoved);
+
+                return true;
             }
         }
 
