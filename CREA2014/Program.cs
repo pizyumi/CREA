@@ -389,6 +389,19 @@ namespace CREA2014
             return func;
         }
 
+        public static void ForEach<T>(this IEnumerable<T> ienumerable, Action<T> action)
+        {
+            foreach (var i in ienumerable)
+                action(i);
+        }
+
+        public static void ForEach<T>(this IEnumerable<T> ienumerable, Action<int, T> action)
+        {
+            int index = 0;
+            foreach (var i in ienumerable)
+                action(index, i);
+        }
+
         //UIスレッドで処理を同期的に実行する（拡張：操作型）
         public static void ExecuteInUIThread(this Action action)
         {
@@ -3431,11 +3444,13 @@ namespace CREA2014
         {
             Secp256k1KeyPair<Sha256Hash> secp256k1KeyPair = new Secp256k1KeyPair<Sha256Hash>(true);
 
+            Sha256Ripemd160Hash address = new Sha256Ripemd160Hash(secp256k1KeyPair.pubKey.pubKey);
+
             TransactionInput ti1 = new TransactionInput();
-            ti1.LoadVersion1(0, 0, 0);
+            ti1.LoadVersion1(0, 0, 0, address);
 
             TransactionOutput to1 = new TransactionOutput();
-            to1.LoadVersion0(new Sha256Ripemd160Hash(secp256k1KeyPair.pubKey.pubKey), new Creacoin(50m));
+            to1.LoadVersion0(address, new Creacoin(50m));
 
             CoinbaseTransaction ct1 = new CoinbaseTransaction();
             ct1.LoadVersion0(new TransactionOutput[] { to1 });
@@ -3467,6 +3482,18 @@ namespace CREA2014
 
             TransferTransaction tt3 = SHAREDDATA.FromBinary<Transaction>(test2) as TransferTransaction;
 
+            string pathBase = Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location);
+
+            New.BlockManagerDB bmdb = new New.BlockManagerDB(pathBase);
+            New.BlockDB blkdb = new New.BlockDB(pathBase);
+            New.BlockFilePointersDB bfpdb = new New.BlockFilePointersDB(pathBase);
+
+            New.BlockManager bm = new New.BlockManager(bmdb, blkdb, bfpdb);
+
+            New.TestBlock block1 = new New.TestBlock(1);
+
+            bm.AddMainBlock(block1);
+            bm.AddMainBlock(block1);
 
             string argExtract = "extract";
             string argCopy = "copy";

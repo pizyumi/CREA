@@ -23,12 +23,6 @@ using System.Windows.Media;
 
 namespace CREA2014
 {
-    using BMI = BlockManagementInformation;
-    using BMIBlocks = BlockManagementInformationsPerBlockIndex;
-    using BMIFile = BlockManagementInformationsPerFile;
-    using BMIManager = BlockManagementInformationManager;
-    using BMIDB = BlockManagementInfomationDB;
-
     public class Core
     {
         public Core(string _basePath, int _creaVersion, string _appnameWithVersion)
@@ -3601,153 +3595,6 @@ namespace CREA2014
         }
     }
 
-    public abstract class TestApplication
-    {
-        public TestApplication(Program.Logger _logger) { logger = _logger; }
-
-        protected Program.Logger logger;
-
-        public virtual bool IsUseCore { get { return false; } }
-
-        protected abstract Action ExecuteAction { get; }
-
-        public void Execute() { ExecuteAction(); }
-    }
-
-    public class CreaNetworkLocalTestApplication : TestApplication
-    {
-        public CreaNetworkLocalTestApplication(Program.Logger _logger) : base(_logger) { }
-
-        protected override Action ExecuteAction
-        {
-            get
-            {
-                return () =>
-                {
-                    TestWindow tw = new TestWindow(logger);
-                    tw.Show();
-                };
-            }
-        }
-
-        public class TestWindow : Window
-        {
-            public TestWindow(Program.Logger _logger)
-            {
-                StackPanel sp1 = null;
-                StackPanel sp2 = null;
-
-                EventHandler<Program.LogData> _LoggerLogAdded = (sender, e) => ((Action)(() =>
-                {
-                    TextBlock tb = new TextBlock();
-                    tb.Text = e.Text;
-                    tb.Foreground = e.Kind == Program.LogData.LogKind.error ? Brushes.Red : Brushes.White;
-                    tb.Margin = new Thickness(0.0, 10.0, 0.0, 10.0);
-
-                    sp2.Children.Add(tb);
-                })).BeginExecuteInUIThread();
-
-                Loaded += (sender, e) =>
-                {
-                    Grid grid = new Grid();
-                    grid.RowDefinitions.Add(new RowDefinition());
-                    grid.RowDefinitions.Add(new RowDefinition());
-                    grid.ColumnDefinitions.Add(new ColumnDefinition());
-
-                    ScrollViewer sv1 = new ScrollViewer();
-                    sv1.VerticalScrollBarVisibility = ScrollBarVisibility.Auto;
-                    sv1.HorizontalScrollBarVisibility = ScrollBarVisibility.Auto;
-                    sv1.SetValue(Grid.RowProperty, 0);
-                    sv1.SetValue(Grid.ColumnProperty, 0);
-
-                    sp1 = new StackPanel();
-                    sp1.Background = Brushes.Black;
-
-                    ScrollViewer sv2 = new ScrollViewer();
-                    sv2.VerticalScrollBarVisibility = ScrollBarVisibility.Auto;
-                    sv2.HorizontalScrollBarVisibility = ScrollBarVisibility.Auto;
-                    sv2.SetValue(Grid.RowProperty, 1);
-                    sv2.SetValue(Grid.ColumnProperty, 0);
-
-                    sp2 = new StackPanel();
-                    sp2.Background = Brushes.Black;
-
-                    sv1.Content = sp1;
-                    sv2.Content = sp2;
-
-                    grid.Children.Add(sv1);
-                    grid.Children.Add(sv2);
-
-                    Content = grid;
-
-                    Console.SetOut(new TextBlockStreamWriter(sp1));
-
-                    _logger.LogAdded += _LoggerLogAdded;
-
-                    //SimulationWindow sw = new SimulationWindow();
-                    //sw.ShowDialog();
-
-                    this.StartTask(string.Empty, string.Empty, () =>
-                    {
-                        //Test10NodesInv();
-
-                        TestDHT();
-                    });
-                };
-
-                Closed += (sender, e) =>
-                {
-                    _logger.LogAdded -= _LoggerLogAdded;
-
-                    string fileText = string.Empty;
-                    foreach (var child in sp1.Children)
-                        fileText += (child as TextBlock).Text + Environment.NewLine;
-
-                    File.AppendAllText(Path.Combine(new FileInfo(Assembly.GetEntryAssembly().Location).DirectoryName, "LogTest.txt"), fileText);
-                };
-            }
-
-            private void TestDHT()
-            {
-                int numOfNodes = 5;
-                CreaNodeLocalTestContinueDHT[] cnlts = new CreaNodeLocalTestContinueDHT[numOfNodes];
-                for (int i = 0; i < numOfNodes; i++)
-                {
-                    cnlts[i] = new CreaNodeLocalTestContinueDHT((ushort)(7777 + i), 0, "test");
-                    cnlts[i].Start();
-                    while (!cnlts[i].isStartCompleted)
-                        Thread.Sleep(100);
-                }
-            }
-
-            public class TextBlockStreamWriter : TextWriter
-            {
-                StackPanel sp = null;
-
-                public TextBlockStreamWriter(StackPanel _sp)
-                {
-                    sp = _sp;
-                }
-
-                public override void WriteLine(string value)
-                {
-                    base.WriteLine(value);
-
-                    TextBlock tb = new TextBlock();
-                    tb.Text = string.Join(" ", DateTime.Now.ToString(), value);
-                    tb.Foreground = Brushes.White;
-
-                    sp.Children.Add(tb);
-                }
-
-                public override Encoding Encoding
-                {
-                    get { return Encoding.UTF8; }
-                }
-            }
-        }
-    }
-
     #endregion
 
     public class FirstNodeInformation : SHAREDDATA, IEquatable<FirstNodeInformation>
@@ -6403,6 +6250,8 @@ namespace CREA2014
 
         public CurrencyUnit(long _rawAmount) { rawAmount = _rawAmount; }
 
+        public static CurrencyUnit Zero = new CurrencyUnit(0);
+
         public long rawAmount { get; protected set; }
 
         public virtual decimal Amount { get { throw new NotImplementedException("currency_unit_amount"); } }
@@ -6633,32 +6482,34 @@ namespace CREA2014
     {
         public TransactionInput() : base(0) { }
 
-        public void LoadVersion0(long _prevTxBlockIndex, int _prevTxIndex, int _prevTxOutputIndex, Ecdsa256PubKey _senderPubKey)
+        public void LoadVersion0(long _prevTxBlockIndex, int _prevTxIndex, int _prevTxOutputIndex, Sha256Ripemd160Hash _prevTxOutputAddress, Ecdsa256PubKey _senderPubKey)
         {
             Version = 0;
 
-            LoadCommon(_prevTxBlockIndex, _prevTxIndex, _prevTxOutputIndex);
+            LoadCommon(_prevTxBlockIndex, _prevTxIndex, _prevTxOutputIndex, _prevTxOutputAddress);
 
             ecdsa256PubKey = _senderPubKey;
         }
 
-        public void LoadVersion1(long _prevTxBlockIndex, int _prevTxIndex, int _prevTxOutputIndex)
+        public void LoadVersion1(long _prevTxBlockIndex, int _prevTxIndex, int _prevTxOutputIndex, Sha256Ripemd160Hash _prevTxOutputAddress)
         {
             Version = 1;
 
-            LoadCommon(_prevTxBlockIndex, _prevTxIndex, _prevTxOutputIndex);
+            LoadCommon(_prevTxBlockIndex, _prevTxIndex, _prevTxOutputIndex, _prevTxOutputAddress);
         }
 
-        private void LoadCommon(long _prevTxBlockIndex, int _prevTxIndex, int _prevTxOutputIndex)
+        private void LoadCommon(long _prevTxBlockIndex, int _prevTxIndex, int _prevTxOutputIndex, Sha256Ripemd160Hash _prevTxOutputAddress)
         {
             prevTxBlockIndex = _prevTxBlockIndex;
             prevTxIndex = _prevTxIndex;
             prevTxOutputIndex = _prevTxOutputIndex;
+            prevTxOutputAddress = _prevTxOutputAddress;
         }
 
         private long prevTxBlockIndex;
         private int prevTxIndex;
         private int prevTxOutputIndex;
+        private Sha256Ripemd160Hash prevTxOutputAddress;
         private Ecdsa256Signature ecdsa256Signature;
         private Secp256k1Signature secp256k1Signature;
         private Ecdsa256PubKey ecdsa256PubKey;
@@ -6666,6 +6517,7 @@ namespace CREA2014
         public long PrevTxBlockIndex { get { return prevTxBlockIndex; } }
         public int PrevTxIndex { get { return prevTxIndex; } }
         public int PrevTxOutputIndex { get { return prevTxOutputIndex; } }
+        public Sha256Ripemd160Hash PrevTxOutputAddress { get { return prevTxOutputAddress; } }
         public Ecdsa256Signature Ecdsa256Signature
         {
             get
@@ -6729,6 +6581,7 @@ namespace CREA2014
                         new MainDataInfomation(typeof(long), () => prevTxBlockIndex, (o) => prevTxBlockIndex = (long)o),
                         new MainDataInfomation(typeof(int), () => prevTxIndex, (o) => prevTxIndex = (int)o),
                         new MainDataInfomation(typeof(int), () => prevTxOutputIndex, (o) => prevTxOutputIndex = (int)o),
+                        new MainDataInfomation(typeof(Sha256Ripemd160Hash), () => prevTxOutputAddress, (o) => prevTxOutputAddress = (Sha256Ripemd160Hash)o),
                         new MainDataInfomation(typeof(Ecdsa256Signature), null, () => ecdsa256Signature, (o) => ecdsa256Signature = (Ecdsa256Signature)o),
                         new MainDataInfomation(typeof(Ecdsa256PubKey), null, () => ecdsa256PubKey, (o) => ecdsa256PubKey = (Ecdsa256PubKey)o),
                     };
@@ -6737,6 +6590,7 @@ namespace CREA2014
                         new MainDataInfomation(typeof(long), () => prevTxBlockIndex, (o) => prevTxBlockIndex = (long)o),
                         new MainDataInfomation(typeof(int), () => prevTxIndex, (o) => prevTxIndex = (int)o),
                         new MainDataInfomation(typeof(int), () => prevTxOutputIndex, (o) => prevTxOutputIndex = (int)o),
+                        new MainDataInfomation(typeof(Sha256Ripemd160Hash), () => prevTxOutputAddress, (o) => prevTxOutputAddress = (Sha256Ripemd160Hash)o),
                         new MainDataInfomation(typeof(Secp256k1Signature), null, () => secp256k1Signature, (o) => secp256k1Signature = (Secp256k1Signature)o),
                     };
                 else
@@ -6755,6 +6609,7 @@ namespace CREA2014
                         new MainDataInfomation(typeof(long), () => prevTxBlockIndex, (o) => { throw new NotSupportedException(); }),
                         new MainDataInfomation(typeof(int), () => prevTxIndex, (o) => { throw new NotSupportedException(); }),
                         new MainDataInfomation(typeof(int), () => prevTxOutputIndex, (o) => { throw new NotSupportedException(); }),
+                        new MainDataInfomation(typeof(Sha256Ripemd160Hash), () => prevTxOutputAddress, (o) => prevTxOutputAddress = (Sha256Ripemd160Hash)o),
                     };
                 else
                     throw new NotSupportedException();
@@ -6800,6 +6655,7 @@ namespace CREA2014
 
         //<未改良>本来HASHBASEにすべきだが・・・
         public Sha256Ripemd160Hash ReceiverPubKeyHash { get { return receiverPubKeyHash; } }
+        public Sha256Ripemd160Hash Address { get { return receiverPubKeyHash; } }
 
         protected override Func<ReaderWriter, IEnumerable<MainDataInfomation>> StreamInfo
         {
@@ -7194,6 +7050,9 @@ namespace CREA2014
         protected virtual Func<X15Hash> IdGenerator { get { return () => new X15Hash(ToBinary()); } }
         public virtual X15Hash Id { get { return idCache.Data; } }
 
+        public abstract long Index { get; }
+        public abstract Transaction[] Transactions { get; }
+
         public virtual bool Verify() { return true; }
     }
 
@@ -7202,6 +7061,9 @@ namespace CREA2014
         public GenesisBlock() : base(null) { }
 
         public readonly string genesisWord = "Bitstamp 2014/05/25 BTC/USD High 586.34 BTC to the moooooooon!!";
+
+        public override long Index { get { return 0; } }
+        public override Transaction[] Transactions { get { return new Transaction[] { }; } }
 
         protected override Func<ReaderWriter, IEnumerable<MainDataInfomation>> StreamInfo
         {
@@ -7396,6 +7258,8 @@ namespace CREA2014
             }
         }
 
+        public override long Index { get { return header.index; } }
+
         protected override Func<X15Hash> IdGenerator { get { return () => new X15Hash(header.ToBinary()); } }
 
         protected CachedData<Transaction[]> transactionsCache;
@@ -7413,7 +7277,7 @@ namespace CREA2014
                 };
             }
         }
-        public Transaction[] Transactions { get { return transactionsCache.Data; } }
+        public override Transaction[] Transactions { get { return transactionsCache.Data; } }
 
         protected CachedData<MerkleTree<Sha256Sha256Hash>> merkleTreeCache;
         public MerkleTree<Sha256Sha256Hash> MerkleTree { get { return merkleTreeCache.Data; } }
@@ -9835,319 +9699,6 @@ namespace CREA2014
         }
     }
 
-
-
-    public class BlockManagementInformation : SHAREDDATA
-    {
-        public BlockManagementInformation() : base(null) { }
-
-        public BlockManagementInformation(long _position, bool _isMain)
-            : base(null)
-        {
-            position = _position;
-            isMain = _isMain;
-        }
-
-        public long position { get; private set; }
-        public bool isMain { get; set; }
-
-        protected override Func<ReaderWriter, IEnumerable<MainDataInfomation>> StreamInfo
-        {
-            get
-            {
-                return (msrw) => new MainDataInfomation[]{
-                    new MainDataInfomation(typeof(long), () => position, (o) => position = (long)o),
-                    new MainDataInfomation(typeof(bool), () => isMain, (o) => isMain = (bool)o),
-                };
-            }
-        }
-    }
-
-    public class BlockManagementInformationsPerBlockIndex : SHAREDDATA
-    {
-        public BlockManagementInformationsPerBlockIndex() : base(null) { bmis = new BMI[] { }; }
-
-        public BlockManagementInformationsPerBlockIndex(BMI[] _bmis) : base(null) { bmis = _bmis; }
-
-        private readonly object bmisLock = new object();
-        public BMI[] bmis { get; private set; }
-
-        protected override Func<ReaderWriter, IEnumerable<MainDataInfomation>> StreamInfo
-        {
-            get
-            {
-                return (msrw) => new MainDataInfomation[]{
-                    new MainDataInfomation(typeof(BMI[]), null, null, () => bmis, (o) => bmis = (BMI[])o),
-                };
-            }
-        }
-
-        public void AddBMI(BMI bmiAdded)
-        {
-            lock (bmisLock)
-            {
-                BMI[] bmisNew = new BMI[bmis.Length + 1];
-                for (int i = 0; i < bmis.Length; i++)
-                {
-                    bmisNew[i] = bmis[i];
-                    bmisNew[i].isMain = bmisNew[i].isMain.Nonimp(bmiAdded.isMain);
-                }
-                bmisNew[bmis.Length] = bmiAdded;
-                bmis = bmisNew;
-            }
-        }
-
-        public void AddBMIs(BMI[] bmisAdded)
-        {
-            lock (bmisLock)
-            {
-                bool isMain = false;
-                for (int i = 0; i < bmisAdded.Length; i++)
-                {
-                    if (isMain && bmisAdded[i].isMain)
-                        throw new InvalidOperationException();
-
-                    isMain = isMain || bmisAdded[i].isMain;
-                }
-
-                BMI[] bmisNew = new BMI[bmis.Length + bmisAdded.Length];
-                for (int i = 0; i < bmis.Length; i++)
-                {
-                    bmisNew[i] = bmis[i];
-                    bmisNew[i].isMain = bmisNew[i].isMain.Nonimp(isMain);
-                }
-                for (int i = 0; i < bmisAdded.Length; i++)
-                    bmisNew[bmis.Length + i] = bmisAdded[i];
-                bmis = bmisNew;
-            }
-        }
-    }
-
-    public class BlockManagementInformationsPerFile : SHAREDDATA
-    {
-        public BlockManagementInformationsPerFile() : base(null) { bmiBlockss = new BMIBlocks[] { }; }
-
-        public BlockManagementInformationsPerFile(BMIBlocks[] _bmiBlockss) : base(null) { bmiBlockss = _bmiBlockss; }
-
-        public BMIBlocks[] bmiBlockss { get; private set; }
-
-        protected override Func<ReaderWriter, IEnumerable<MainDataInfomation>> StreamInfo
-        {
-            get
-            {
-                return (msrw) => new MainDataInfomation[]{
-                    new MainDataInfomation(typeof(BMIBlocks[]), null, null, () => bmiBlockss, (o) => bmiBlockss = (BMIBlocks[])o),
-                };
-            }
-        }
-
-        //ここでのindexはbmiBlockssのindex＝ファイル内でのindex＝block index % capacity
-        public void AddBMI(long index, BMI bmiAdded) { bmiBlockss[index].AddBMI(bmiAdded); }
-        public void AddBMIs(long index, BMI[] bmisAdded) { bmiBlockss[index].AddBMIs(bmisAdded); }
-    }
-
-    public class BlockManagementInformationManager
-    {
-        public BlockManagementInformationManager(BMIDB _bmidb)
-        {
-            bmidb = _bmidb;
-            bmiFileCache = new CirculatedReadCache<long, BMIFile>(bmiFileCachesNum, (bmiFileIndex) =>
-            {
-                byte[] bmiFileData = bmidb.GetBMIFileData(bmiFileIndex);
-                if (bmiFileData.Length != 0)
-                    return SHAREDDATA.FromBinary<BMIFile>(bmidb.GetBMIFileData(bmiFileIndex));
-
-                BMIBlocks[] bmiBlockss = new BMIBlocks[bmiFileCapacity];
-                for (int i = 0; i < bmiBlockss.Length; i++)
-                    bmiBlockss[i] = new BMIBlocks();
-                return new BMIFile(bmiBlockss);
-            }, (bmiFileIndex, bmiFile) => bmidb.UpdateBMIFileData(bmiFileIndex, bmiFile.ToBinary()));
-        }
-
-        private static readonly long bmiFileCapacity = 10000;
-        private static readonly int bmiFileCachesNum = 10;
-
-        private readonly BMIDB bmidb;
-        private readonly CirculatedReadCache<long, BMIFile> bmiFileCache;
-
-        public void AddBMI(long blockIndex, BMI bmiAdded)
-        {
-            bmiFileCache.Get(blockIndex / bmiFileCapacity).AddBMI(blockIndex % bmiFileCapacity, bmiAdded);
-        }
-
-        public void AddBMIs(long blockIndex, BMI[] bmisAdded)
-        {
-            bmiFileCache.Get(blockIndex / bmiFileCapacity).AddBMIs(blockIndex % bmiFileCapacity, bmisAdded);
-        }
-
-        public BMI GetMainBMI(long blockIndex)
-        {
-            foreach (BMI bmi in bmiFileCache.Get(blockIndex / bmiFileCapacity).bmiBlockss[blockIndex % bmiFileCapacity].bmis)
-                if (bmi.isMain)
-                    return bmi;
-
-            throw new InvalidOperationException();
-        }
-
-        public BMI[] GetBMIs(long blockIndex)
-        {
-            return bmiFileCache.Get(blockIndex / bmiFileCapacity).bmiBlockss[blockIndex % bmiFileCapacity].bmis;
-        }
-
-        public void Save()
-        {
-            bmiFileCache.SaveAll();
-        }
-    }
-
-    public class BlockManager
-    {
-        public BlockManager(BlockDB _blockdb, BMIDB _bmidb)
-        {
-            blockdb = _blockdb;
-            bmidb = _bmidb;
-            bmiManager = new BMIManager(bmidb);
-        }
-
-        private static readonly long blockFileDiv = 100000;
-        private static readonly int blockCacheNum = 300;
-
-        private readonly BlockDB blockdb;
-        private readonly BMIDB bmidb;
-        private readonly BMIManager bmiManager;
-
-        public void AddBlock(Block block)
-        {
-
-        }
-
-        public void AddBlocks(Block[] blocks)
-        {
-
-        }
-
-        public Block GetMainBlock(long blockIndex)
-        {
-            throw new NotImplementedException();
-        }
-
-        public Block GetBlocks(long blockIndex)
-        {
-            throw new NotImplementedException();
-        }
-
-        public void Save()
-        {
-
-        }
-    }
-
-    public class BlockManagementInfomationDB : DATABASEBASE
-    {
-        public BlockManagementInfomationDB(string _pathBase) : base(_pathBase) { }
-
-        protected override int version { get { return 0; } }
-
-#if TEST
-        protected override string filenameBase { get { return "blg_mng_infos_test" + version.ToString() + "_"; } }
-#else
-        protected override string filenameBase { get { return "blg_mng_infos" + version.ToString() + "_"; } }
-#endif
-
-        public byte[] GetBMIFileData(long bmiFileIndex)
-        {
-            using (FileStream fs = new FileStream(GetPath(bmiFileIndex), FileMode.OpenOrCreate, FileAccess.Read))
-            {
-                byte[] bmiFileData = new byte[fs.Length];
-                fs.Read(bmiFileData, 0, bmiFileData.Length);
-                return bmiFileData;
-            }
-        }
-
-        public void UpdateBMIFileData(long bmiFileIndex, byte[] bmiFileData)
-        {
-            using (FileStream fs = new FileStream(GetPath(bmiFileIndex), FileMode.Create, FileAccess.Write))
-                fs.Write(bmiFileData, 0, bmiFileData.Length);
-        }
-
-        private string GetPath(long bngIndex) { return Path.Combine(pathBase, filenameBase + bngIndex.ToString()); }
-    }
-
-    public class BlockDB : DATABASEBASE
-    {
-        public BlockDB(string _pathBase) : base(_pathBase) { }
-
-        protected override int version { get { return 0; } }
-
-#if TEST
-        protected override string filenameBase { get { return "blks_test" + version.ToString() + "_"; } }
-#else
-        protected override string filenameBase { get { return "blks" + version.ToString() + "_"; } }
-#endif
-
-        public byte[] GetBlockData(long blockFileIndex, long position)
-        {
-            using (FileStream fs = new FileStream(GetPath(blockFileIndex), FileMode.OpenOrCreate, FileAccess.Read))
-                return GetBlockData(fs, position);
-        }
-
-        public byte[][] GetBlockDatas(long blockFileIndex, long[] positions)
-        {
-            byte[][] blockDatas = new byte[positions.Length][];
-
-            using (FileStream fs = new FileStream(GetPath(blockFileIndex), FileMode.OpenOrCreate, FileAccess.Read))
-                for (int i = 0; i < positions.Length; i++)
-                    blockDatas[i] = GetBlockData(fs, positions[i]);
-
-            return blockDatas;
-        }
-
-        public long AddBlockData(long blockFileIndex, byte[] blockData)
-        {
-            using (FileStream fs = new FileStream(GetPath(blockFileIndex), FileMode.Append, FileAccess.Write))
-                return AddBlockData(fs, blockFileIndex, blockData);
-        }
-
-        public long[] AddBlockDatas(long blockFileIndex, byte[][] blockDatas)
-        {
-            long[] positions = new long[blockDatas.Length];
-
-            using (FileStream fs = new FileStream(GetPath(blockFileIndex), FileMode.Append, FileAccess.Write))
-                for (int i = 0; i < blockDatas.Length; i++)
-                    positions[i] = AddBlockData(blockFileIndex, blockDatas[i]);
-
-            return positions;
-        }
-
-        private byte[] GetBlockData(FileStream fs, long position)
-        {
-            if (position >= fs.Length)
-                return new byte[] { };
-
-            fs.Seek(position, SeekOrigin.Begin);
-
-            byte[] lengthBytes = new byte[4];
-            fs.Read(lengthBytes, 0, 4);
-            int length = BitConverter.ToInt32(lengthBytes, 0);
-
-            byte[] data = new byte[length];
-            fs.Read(data, 0, length);
-            return data;
-        }
-
-        private long AddBlockData(FileStream fs, long blockFileIndex, byte[] blockData)
-        {
-            long position = fs.Position;
-
-            fs.Write(BitConverter.GetBytes(blockData.Length), 0, 4);
-            fs.Write(blockData, 0, blockData.Length);
-
-            return position;
-        }
-
-        private string GetPath(long blockFileIndex) { return Path.Combine(pathBase, filenameBase + blockFileIndex.ToString()); }
-    }
-
     #endregion
 
     #region UPnP
@@ -11245,6 +10796,157 @@ namespace CREA2014
             }
 
             return x;
+        }
+    }
+
+    #endregion
+
+    #region test
+
+    public abstract class TestApplication
+    {
+        public TestApplication(Program.Logger _logger) { logger = _logger; }
+
+        protected Program.Logger logger;
+
+        public virtual bool IsUseCore { get { return false; } }
+
+        protected abstract Action ExecuteAction { get; }
+
+        public void Execute() { ExecuteAction(); }
+    }
+
+    public class CreaNetworkLocalTestApplication : TestApplication
+    {
+        public CreaNetworkLocalTestApplication(Program.Logger _logger) : base(_logger) { }
+
+        protected override Action ExecuteAction
+        {
+            get
+            {
+                return () =>
+                {
+                    TestWindow tw = new TestWindow(logger);
+                    tw.Show();
+                };
+            }
+        }
+
+        public class TestWindow : Window
+        {
+            public TestWindow(Program.Logger _logger)
+            {
+                StackPanel sp1 = null;
+                StackPanel sp2 = null;
+
+                EventHandler<Program.LogData> _LoggerLogAdded = (sender, e) => ((Action)(() =>
+                {
+                    TextBlock tb = new TextBlock();
+                    tb.Text = e.Text;
+                    tb.Foreground = e.Kind == Program.LogData.LogKind.error ? Brushes.Red : Brushes.White;
+                    tb.Margin = new Thickness(0.0, 10.0, 0.0, 10.0);
+
+                    sp2.Children.Add(tb);
+                })).BeginExecuteInUIThread();
+
+                Loaded += (sender, e) =>
+                {
+                    Grid grid = new Grid();
+                    grid.RowDefinitions.Add(new RowDefinition());
+                    grid.RowDefinitions.Add(new RowDefinition());
+                    grid.ColumnDefinitions.Add(new ColumnDefinition());
+
+                    ScrollViewer sv1 = new ScrollViewer();
+                    sv1.VerticalScrollBarVisibility = ScrollBarVisibility.Auto;
+                    sv1.HorizontalScrollBarVisibility = ScrollBarVisibility.Auto;
+                    sv1.SetValue(Grid.RowProperty, 0);
+                    sv1.SetValue(Grid.ColumnProperty, 0);
+
+                    sp1 = new StackPanel();
+                    sp1.Background = Brushes.Black;
+
+                    ScrollViewer sv2 = new ScrollViewer();
+                    sv2.VerticalScrollBarVisibility = ScrollBarVisibility.Auto;
+                    sv2.HorizontalScrollBarVisibility = ScrollBarVisibility.Auto;
+                    sv2.SetValue(Grid.RowProperty, 1);
+                    sv2.SetValue(Grid.ColumnProperty, 0);
+
+                    sp2 = new StackPanel();
+                    sp2.Background = Brushes.Black;
+
+                    sv1.Content = sp1;
+                    sv2.Content = sp2;
+
+                    grid.Children.Add(sv1);
+                    grid.Children.Add(sv2);
+
+                    Content = grid;
+
+                    Console.SetOut(new TextBlockStreamWriter(sp1));
+
+                    _logger.LogAdded += _LoggerLogAdded;
+
+                    //SimulationWindow sw = new SimulationWindow();
+                    //sw.ShowDialog();
+
+                    this.StartTask(string.Empty, string.Empty, () =>
+                    {
+                        //Test10NodesInv();
+
+                        TestDHT();
+                    });
+                };
+
+                Closed += (sender, e) =>
+                {
+                    _logger.LogAdded -= _LoggerLogAdded;
+
+                    string fileText = string.Empty;
+                    foreach (var child in sp1.Children)
+                        fileText += (child as TextBlock).Text + Environment.NewLine;
+
+                    File.AppendAllText(Path.Combine(new FileInfo(Assembly.GetEntryAssembly().Location).DirectoryName, "LogTest.txt"), fileText);
+                };
+            }
+
+            private void TestDHT()
+            {
+                int numOfNodes = 5;
+                CreaNodeLocalTestContinueDHT[] cnlts = new CreaNodeLocalTestContinueDHT[numOfNodes];
+                for (int i = 0; i < numOfNodes; i++)
+                {
+                    cnlts[i] = new CreaNodeLocalTestContinueDHT((ushort)(7777 + i), 0, "test");
+                    cnlts[i].Start();
+                    while (!cnlts[i].isStartCompleted)
+                        Thread.Sleep(100);
+                }
+            }
+
+            public class TextBlockStreamWriter : TextWriter
+            {
+                StackPanel sp = null;
+
+                public TextBlockStreamWriter(StackPanel _sp)
+                {
+                    sp = _sp;
+                }
+
+                public override void WriteLine(string value)
+                {
+                    base.WriteLine(value);
+
+                    TextBlock tb = new TextBlock();
+                    tb.Text = string.Join(" ", DateTime.Now.ToString(), value);
+                    tb.Foreground = Brushes.White;
+
+                    sp.Children.Add(tb);
+                }
+
+                public override Encoding Encoding
+                {
+                    get { return Encoding.UTF8; }
+                }
+            }
         }
     }
 
