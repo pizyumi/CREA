@@ -332,6 +332,16 @@ namespace CREA2014
             return temp;
         }
 
+        public int GetForward(int delta)
+        {
+            return (value + delta) % cycle;
+        }
+
+        public int GetBackward(int delta)
+        {
+            return ((value - delta) % cycle).Pipe((i) => i < 0 ? i + cycle : i);
+        }
+
         public IEnumerable<int> GetCircleForward()
         {
             for (int i = value; i < cycle; i++)
@@ -3442,6 +3452,24 @@ namespace CREA2014
         [STAThread]
         public static void Main(string[] args)
         {
+            CirculatedInteger ci = new CirculatedInteger(5);
+
+            Console.WriteLine(ci.GetForward(0));
+            Console.WriteLine(ci.GetForward(1));
+            Console.WriteLine(ci.GetForward(2));
+            Console.WriteLine(ci.GetForward(3));
+            Console.WriteLine(ci.GetForward(4));
+            Console.WriteLine(ci.GetForward(5));
+            Console.WriteLine(ci.GetForward(6));
+
+            Console.WriteLine(ci.GetBackward(0));
+            Console.WriteLine(ci.GetBackward(1));
+            Console.WriteLine(ci.GetBackward(2));
+            Console.WriteLine(ci.GetBackward(3));
+            Console.WriteLine(ci.GetBackward(4));
+            Console.WriteLine(ci.GetBackward(5));
+            Console.WriteLine(ci.GetBackward(6));
+
             Secp256k1KeyPair<Sha256Hash> secp256k1KeyPair = new Secp256k1KeyPair<Sha256Hash>(true);
 
             Sha256Ripemd160Hash address = new Sha256Ripemd160Hash(secp256k1KeyPair.pubKey.pubKey);

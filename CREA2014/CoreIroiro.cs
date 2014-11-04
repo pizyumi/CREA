@@ -1,5 +1,5 @@
 ﻿//がをがを～！
-//作譜者：@pizyumi
+//2014/11/03 分割
 
 using System;
 using System.Collections;

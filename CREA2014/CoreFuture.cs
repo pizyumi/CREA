@@ -828,9 +828,15 @@ namespace New
 
     public class BlockManagerData : SHAREDDATA
     {
-        public BlockManagerData() : base(0) { finalizedHeadBlockIndex = -1; }
+        public BlockManagerData()
+            : base(0)
+        {
+            headBlockIndex = -1;
+            finalizedBlockIndex = -1;
+        }
 
-        public long finalizedHeadBlockIndex { get; set; }
+        public long headBlockIndex { get; set; }
+        public long finalizedBlockIndex { get; set; }
 
         protected override Func<ReaderWriter, IEnumerable<MainDataInfomation>> StreamInfo
         {
@@ -838,7 +844,8 @@ namespace New
             {
                 if (Version == 0)
                     return (msrw) => new MainDataInfomation[]{
-                        new MainDataInfomation(typeof(long), () => finalizedHeadBlockIndex, (o) => finalizedHeadBlockIndex = (long)o),
+                        new MainDataInfomation(typeof(long), () => headBlockIndex, (o) => headBlockIndex = (long)o),
+                        new MainDataInfomation(typeof(long), () => finalizedBlockIndex, (o) => finalizedBlockIndex = (long)o),
                 };
                 else
                     throw new NotSupportedException();
@@ -860,6 +867,237 @@ namespace New
 #endif
     }
 
+    public class BlockChain
+    {
+        public BlockChain(BlockManagerDB _bmdb, BlockDB _bdb, BlockFilePointersDB _bfpdb, UtxoFilePointersDB _ufpdb, UtxoFilePointersTempDB _ufptempdb, UtxoDB _udb)
+        {
+            bmdb = _bmdb;
+            bdb = _bdb;
+            bfpdb = _bfpdb;
+            ufpdb = _ufpdb;
+            ufptempdb = _ufptempdb;
+            udb = _udb;
+
+            blockManager = new BlockManager(bmdb, bdb, bfpdb);
+            utxoManager = new UtxoManager(ufpdb, ufptempdb, udb);
+
+            pendingBlocks = new Dictionary<long, Dictionary<X15Hash, Block>>();
+            rejectedBlocks = new Dictionary<long, Dictionary<X15Hash, Block>>();
+        }
+
+        private static readonly long maxBlockIndexMargin = 100;
+        private static readonly int pendingBlocksCapacity = 200;
+        private static readonly int rejectedBlockscapacity = 1000;
+
+        private readonly BlockManagerDB bmdb;
+        private readonly BlockDB bdb;
+        private readonly BlockFilePointersDB bfpdb;
+        private readonly UtxoFilePointersDB ufpdb;
+        private readonly UtxoFilePointersTempDB ufptempdb;
+        private readonly UtxoDB udb;
+
+        private readonly BlockManager blockManager;
+        private readonly UtxoManager utxoManager;
+
+        private readonly Dictionary<long, Dictionary<X15Hash, Block>> pendingBlocks;
+        private readonly Dictionary<long, Dictionary<X15Hash, Block>> rejectedBlocks;
+
+        public void UpdateChain(Block block)
+        {
+            long minBlockIndex = blockManager.headBlockIndex - BlockManager.mainBlockFinalization;
+            long maxBlockIndex = blockManager.headBlockIndex + maxBlockIndexMargin;
+
+            if (block.Index > maxBlockIndex)
+                throw new InvalidOperationException();
+            if (block.Index <= minBlockIndex)
+                throw new InvalidOperationException();
+
+            if (rejectedBlocks.Keys.Contains(block.Index) && rejectedBlocks[block.Index].Keys.Contains(block.Id))
+                return;
+            Dictionary<X15Hash, Block> pending = pendingBlocks.Keys.Contains(block.Index) ? pendingBlocks[block.Index] : null;
+            if (pending != null && pending.Keys.Contains(block.Id))
+                return;
+
+            Block currentBlock = block;
+            List<Block> candidates = new List<Block>() { block };
+            double mainDiff = 0.0;
+            double brunchDiff = 0.0;
+            while (true)
+            {
+                long prevIndex = currentBlock.Index - 1;
+
+                brunchDiff += currentBlock.Diff.Diff;
+
+                Block prevMainBlock = blockManager.GetMainBlock(prevIndex);
+                if (prevMainBlock.Id.Equals(currentBlock.PrevId))
+                    break;
+
+                mainDiff += prevMainBlock.Diff.Diff;
+
+                if (prevIndex <= minBlockIndex)
+                {
+                    if (pending == null)
+                        pendingBlocks.Add(block.Index, pending = new Dictionary<X15Hash, Block>());
+                    pending.Add(block.Id, block);
+
+                    return;
+                }
+
+                Block prevBlock = null;
+                foreach (var kvp in pendingBlocks.Keys.Contains(prevIndex) ? pendingBlocks[prevIndex] : new Dictionary<X15Hash, Block>() { })
+                    if (kvp.Value.Id.Equals(currentBlock.PrevId))
+                        prevBlock = kvp.Value;
+
+                if (prevBlock == null)
+                {
+                    if (pending == null)
+                        pendingBlocks.Add(block.Index, pending = new Dictionary<X15Hash, Block>());
+                    pending.Add(block.Id, block);
+
+                    return;
+                }
+
+                candidates.Insert(0, prevBlock);
+
+                currentBlock = prevBlock;
+            }
+
+            currentBlock = block;
+            while (currentBlock.Index <= maxBlockIndex)
+            {
+                long nextIndex = currentBlock.Index + 1;
+
+                Block nextBlock = null;
+                foreach (var kvp in pendingBlocks.Keys.Contains(nextIndex) ? pendingBlocks[nextIndex] : new Dictionary<X15Hash, Block>() { })
+                    if (kvp.Value.PrevId.Equals(currentBlock.Id) && (nextBlock == null || kvp.Value.Diff.Diff > nextBlock.Diff.Diff))
+                        nextBlock = kvp.Value;
+
+                if (nextBlock == null)
+                    break;
+
+                candidates.Add(nextBlock);
+
+                currentBlock = nextBlock;
+
+                brunchDiff += currentBlock.Diff.Diff;
+            }
+
+            if (mainDiff >= brunchDiff)
+            {
+                if (pending == null)
+                    pendingBlocks.Add(block.Index, pending = new Dictionary<X15Hash, Block>());
+                pending.Add(block.Id, block);
+
+                return;
+            }
+
+
+
+
+
+
+
+            if (block.Index > blockManager.headBlockIndex + 1)
+            {
+                if (rejectedBlocks.Keys.Contains(block.Index) && rejectedBlocks[block.Index].Keys.Contains(block.Id))
+                    return;
+
+                Dictionary<X15Hash, Block> pending = null;
+                if (pendingBlocks.Keys.Contains(block.Index))
+                {
+                    pending = pendingBlocks[block.Index];
+                    if (pending.Keys.Contains(block.Id))
+                        return;
+                }
+                else
+                {
+                    pendingBlocks.Add(block.Index, pending = new Dictionary<X15Hash, Block>());
+
+                    while (pendingBlocks.Count > pendingBlocksCapacity)
+                        pendingBlocks.Remove(pendingBlocks.First().Key);
+                }
+
+                pending.Add(block.Id, block);
+
+                return;
+            }
+
+            if (block.Index == blockManager.headBlockIndex + 1)
+            {
+                Func<Block, Dictionary<X15Hash, Block>, bool> _VerifyBlock = (verifiedBlock, rejected2) =>
+                {
+                    return VerifyBlock(verifiedBlock).Pipe((valid) =>
+                    {
+                        if (valid)
+                        {
+                            blockManager.AddMainBlock(verifiedBlock);
+                            utxoManager.ApplyBlock(verifiedBlock);
+                        }
+                        else
+                        {
+                            if (rejected2 == null)
+                            {
+                                rejectedBlocks.Add(verifiedBlock.Index, rejected2 = new Dictionary<X15Hash, Block>());
+
+                                while (rejectedBlocks.Count > rejectedBlockscapacity)
+                                    rejectedBlocks.Remove(rejectedBlocks.First().Key);
+                            }
+
+                            rejected2.Add(verifiedBlock.Id, verifiedBlock);
+                        }
+                    });
+                };
+
+                Dictionary<X15Hash, Block> rejected = null;
+                if (rejectedBlocks.Keys.Contains(block.Index))
+                {
+                    rejected = rejectedBlocks[block.Index];
+                    if (rejected.Keys.Contains(block.Id))
+                        return;
+                }
+
+                if (!_VerifyBlock(block, rejected))
+                    return;
+
+                for (int i = 1; i <= maxBlockIndexMargin; i++)
+                {
+                    long nextBlockIndex = block.Index + i;
+
+                    if (!pendingBlocks.Keys.Contains(nextBlockIndex))
+                        break;
+
+                    Dictionary<X15Hash, Block> pending = pendingBlocks[nextBlockIndex];
+                    Block nextBlock = null;
+                    foreach (var p in pending)
+                        if (p.Value.PrevId.Equals(block.Id))
+                            nextBlock = p.Value;
+
+                    if (nextBlock == null)
+                        break;
+
+                    if (pending.Count == 1)
+                        pendingBlocks.Remove(nextBlockIndex);
+                    else
+                        pending.Remove(nextBlock.Id);
+
+                    Dictionary<X15Hash, Block> rejected2 = null;
+                    if (rejectedBlocks.Keys.Contains(nextBlockIndex))
+                        rejected2 = rejectedBlocks[nextBlockIndex];
+
+                    if (!_VerifyBlock(nextBlock, rejected2))
+                        break;
+                }
+
+                return;
+            }
+        }
+
+        private bool VerifyBlock(Block block)
+        {
+            throw new NotImplementedException();
+        }
+    }
+
     public class BlockManager
     {
         public BlockManager(BlockManagerDB _bmdb, BlockDB _bdb, BlockFilePointersDB _bfpdb)
@@ -874,29 +1112,20 @@ namespace New
             bmd = bmdb.GetData().Pipe((bmdBytes) => bmdBytes.Length != 0 ? SHAREDDATA.FromBinary<BlockManagerData>(bmdBytes) : new BlockManagerData());
 
             mainBlocks = new Block[mainBlocksRetain];
-            mainBlockIndexes = new long[mainBlocksRetain];
+            sideBlocks = new List<Block>[mainBlocksRetain];
             mainBlocksCurrent = new CirculatedInteger(mainBlocksRetain);
 
-            notMainBlocks = new Block[notMainBlocksRetain];
-            notMainBlockIndexes = new long[notMainBlocksRetain];
-            notMainBlocksCurrent = new CirculatedInteger(notMainBlocksRetain);
+            oldBlocks = new Dictionary<long, Block>();
 
-            notRecentBlocks = new Block[notRecentBlocksRetain];
-            notRecentBlockIndexes = new long[notRecentBlocksRetain];
-            notRecentBlocksCurrent = new CirculatedInteger(notRecentBlocksRetain);
-
-            notFinalizedUtxos = new Utxos();
-
-            if (bmd.finalizedHeadBlockIndex == -1)
+            if (bmd.headBlockIndex == -1)
                 AddMainBlock(new GenesisBlock());
         }
 
-        private static int mainBlocksRetain = 500;
-        private static int notMainBlocksRetain = 500;
-        private static int notRecentBlocksRetain = 100;
-        private static int mainBlockFinalization = 300;
+        public static readonly int mainBlocksRetain = 1000;
+        public static readonly int oldBlocksRetain = 1000;
+        public static readonly int mainBlockFinalization = 300;
 
-        private static long blockFileCapacity = 100000;
+        public static readonly long blockFileCapacity = 100000;
 
         private readonly BlockManagerDB bmdb;
         private readonly BlockDB bdb;
@@ -904,64 +1133,54 @@ namespace New
         private readonly BlockManagerData bmd;
 
         private readonly Block[] mainBlocks;
-        private readonly long[] mainBlockIndexes;
+        private readonly List<Block>[] sideBlocks;
         private readonly CirculatedInteger mainBlocksCurrent;
 
-        private readonly Block[] notMainBlocks;
-        private readonly long[] notMainBlockIndexes;
-        private readonly CirculatedInteger notMainBlocksCurrent;
+        private readonly Dictionary<long, Block> oldBlocks;
 
-        private readonly Block[] notRecentBlocks;
-        private readonly long[] notRecentBlockIndexes;
-        private readonly CirculatedInteger notRecentBlocksCurrent;
+        public long headBlockIndex { get { return bmd.headBlockIndex; } }
 
-        private readonly Utxos notFinalizedUtxos;
+        public void DeleteMainBlock(long blockIndex)
+        {
+            if (blockIndex != bmd.headBlockIndex)
+                throw new InvalidOperationException();
+            if (blockIndex <= bmd.finalizedBlockIndex)
+                throw new InvalidOperationException();
+
+            if (sideBlocks[mainBlocksCurrent.value] == null)
+                sideBlocks[mainBlocksCurrent.value] = new List<Block>();
+            if (sideBlocks[mainBlocksCurrent.value].Where((elem) => elem.Id.Equals(mainBlocks[mainBlocksCurrent.value].Id)).FirstOrDefault() == null)
+                sideBlocks[mainBlocksCurrent.value].Add(mainBlocks[mainBlocksCurrent.value]);
+
+            mainBlocks[mainBlocksCurrent.value] = null;
+
+            mainBlocksCurrent.Previous();
+
+            bmd.headBlockIndex = blockIndex - 1;
+
+            bmdb.UpdateData(bmd.ToBinary());
+        }
+
+        public void DeleteMainBlocks(long blockIndex)
+        {
+
+        }
 
         public void AddMainBlock(Block block)
         {
-            long addedHeadBlockIndex;
-            if (mainBlocks[mainBlocksCurrent.value] == null)
-                addedHeadBlockIndex = bmd.finalizedHeadBlockIndex;
-            else
-                addedHeadBlockIndex = mainBlockIndexes[mainBlocksCurrent.value];
-
-            if (block.Index > addedHeadBlockIndex + 1)
-                throw new InvalidOperationException();
-            if (block.Index < 0)
-                throw new InvalidOperationException();
-            if (block.Index < bmd.finalizedHeadBlockIndex + 1)
+            if (block.Index == bmd.headBlockIndex + 1)
                 throw new InvalidOperationException();
 
-            if (block.Index == addedHeadBlockIndex + 1)
-            {
-                if (block.Index > bmd.finalizedHeadBlockIndex + mainBlockFinalization)
-                    bfpdb.UpdateBlockFilePointerData(block.Index, BitConverter.GetBytes(bdb.AddBlockData(block.Index / blockFileCapacity, SHAREDDATA.ToBinary<Block>(block))));
+            mainBlocksCurrent.Next();
 
-                mainBlocksCurrent.Next();
+            mainBlocks[mainBlocksCurrent.value] = block;
+            sideBlocks[mainBlocksCurrent.value] = new List<Block>();
 
-                mainBlocks[mainBlocksCurrent.value] = block;
-                mainBlockIndexes[mainBlocksCurrent.value] = block.Index;
-            }
-            else
-            {
-                while (mainBlockIndexes[mainBlocksCurrent.value] > block.Index)
-                {
-                    notMainBlocksCurrent.Next();
+            bmd.headBlockIndex = block.Index;
+            bmd.finalizedBlockIndex = bmd.headBlockIndex < 300 ? 0 : bmd.headBlockIndex - mainBlockFinalization;
 
-                    notMainBlocks[notMainBlocksCurrent.value] = mainBlocks[mainBlocksCurrent.value];
-                    notMainBlockIndexes[notMainBlocksCurrent.value] = mainBlockIndexes[mainBlocksCurrent.value];
-
-                    mainBlocks[mainBlocksCurrent.value] = null;
-                    mainBlockIndexes[mainBlocksCurrent.value] = 0;
-
-                    mainBlocksCurrent.Previous();
-                }
-
-                if (mainBlockIndexes[mainBlocksCurrent.value] != block.Index)
-                    throw new InvalidOperationException();
-
-                mainBlocks[mainBlocksCurrent.value] = block;
-            }
+            bfpdb.UpdateBlockFilePointerData(block.Index, BitConverter.GetBytes(bdb.AddBlockData(block.Index / blockFileCapacity, SHAREDDATA.ToBinary<Block>(block))));
+            bmdb.UpdateData(bmd.ToBinary());
         }
 
         public void AddMainBlocks(Block[] blocks)
@@ -969,46 +1188,58 @@ namespace New
 
         }
 
-        public void AddNotMainBlock(Block block)
-        {
-            notMainBlocksCurrent.Next();
-
-            notMainBlocks[notMainBlocksCurrent.value] = block;
-            notMainBlockIndexes[notMainBlocksCurrent.value] = block.Index;
-        }
-
         public Block GetMainBlock(long blockIndex)
         {
-            if (blockIndex > mainBlockIndexes[mainBlocksCurrent.value] - mainBlocksRetain)
-                return mainBlocks[mainBlocksCurrent.GetCircleBackward().Skip((int)(mainBlockIndexes[mainBlocksCurrent.value] - blockIndex)).First()];
+            if (blockIndex > bmd.headBlockIndex)
+                throw new InvalidOperationException();
 
-            foreach (int index in notRecentBlocksCurrent.GetCircleBackward())
-                if (notRecentBlocks[index] == null)
-                    break;
-                else if (notRecentBlockIndexes[index] == blockIndex)
-                    return notRecentBlocks[index];
+            if (blockIndex > bmd.headBlockIndex - mainBlocksRetain)
+            {
+                int index = mainBlocksCurrent.GetBackward((int)(bmd.headBlockIndex - blockIndex));
+                if (mainBlocks[index] == null)
+                    mainBlocks[index] = SHAREDDATA.FromBinary<Block>(bdb.GetBlockData(blockIndex / blockFileCapacity, BitConverter.ToInt64(bfpdb.GetBlockFilePointerData(blockIndex), 0)));
 
-            notRecentBlocksCurrent.Next();
+                if (mainBlocks[index].Index != blockIndex)
+                    throw new InvalidOperationException();
 
-            notRecentBlocks[notRecentBlocksCurrent.value] = SHAREDDATA.FromBinary<Block>(bdb.GetBlockData(blockIndex / blockFileCapacity, BitConverter.ToInt64(bfpdb.GetBlockFilePointerData(blockIndex), 0)));
-            notRecentBlockIndexes[notRecentBlocksCurrent.value] = blockIndex;
+                return mainBlocks[index];
+            }
 
-            return notRecentBlocks[notRecentBlocksCurrent.value];
+            if (oldBlocks.Keys.Contains(blockIndex))
+                return oldBlocks[blockIndex];
+
+            Block block = SHAREDDATA.FromBinary<Block>(bdb.GetBlockData(blockIndex / blockFileCapacity, BitConverter.ToInt64(bfpdb.GetBlockFilePointerData(blockIndex), 0)));
+
+            if (block.Index != blockIndex)
+                throw new InvalidOperationException();
+
+            oldBlocks.Add(blockIndex, block);
+
+            while (oldBlocks.Count > oldBlocksRetain)
+                oldBlocks.Remove(oldBlocks.First().Key);
+
+            return block;
         }
 
+        //<未改良>一括取得
         public Block[] GetMainBlocks(long[] blockIndexes)
         {
-            throw new NotImplementedException();
+            Block[] blocks = new Block[blockIndexes.Length];
+            for (int i = 0; i < blocks.Length; i++)
+                blocks[i] = GetMainBlock(blockIndexes[i]);
+            return blocks;
         }
 
+        //<未改良>一括取得
         public Block[] GetMainBlocks(long blockIndexFrom, long blockIndexThrough)
         {
-            throw new NotImplementedException();
-        }
+            if (blockIndexFrom > blockIndexThrough)
+                throw new InvalidOperationException();
 
-        public Block[] GetNotMainBlocks()
-        {
-            throw new NotImplementedException();
+            Block[] blocks = new Block[blockIndexThrough - blockIndexFrom + 1];
+            for (int i = 0; i < blocks.Length; i++)
+                blocks[i] = GetMainBlock(blockIndexFrom + i);
+            return blocks;
         }
     }
 
@@ -1037,88 +1268,102 @@ namespace New
         private readonly UtxoFilePointers ufptemp;
         private readonly UtxoDB udb;
 
+        private void AddUtxo(Sha256Ripemd160Hash address, long blockIndex, int txIndex, int txOutIndex, CurrencyUnit amount)
+        {
+            long? prevPosition = null;
+            long? position = ufptemp.Get(address);
+            if (!position.HasValue)
+                position = ufp.Get(address);
+
+            bool isProcessed = false;
+
+            UtxoFileItem ufi = null;
+            while (!isProcessed)
+            {
+                if (!position.HasValue)
+                    ufi = new UtxoFileItem(FirstUtxoFileItemSize);
+                else if (position == -1)
+                    ufi = new UtxoFileItem(ufi.Size * 2);
+                else
+                    ufi = SHAREDDATA.FromBinary<UtxoFileItem>(udb.GetUtxoData(position.Value));
+
+                for (int k = 0; k < ufi.Size && !isProcessed; k++)
+                    if (ufi.utxos[k].IsEmpty)
+                    {
+                        ufi.utxos[k].Reset(blockIndex, txIndex, txOutIndex, amount);
+
+                        if (!position.HasValue)
+                            ufptemp.Add(address, udb.AddUtxoData(ufi.ToBinary()));
+                        else if (position == -1)
+                        {
+                            ufi.Update(prevPosition.Value);
+                            ufptemp.Update(address, udb.AddUtxoData(ufi.ToBinary()));
+                        }
+                        else
+                            udb.UpdateUtxoData(position.Value, ufi.ToBinary());
+
+                        isProcessed = true;
+                    }
+
+                prevPosition = position;
+                position = ufi.nextPosition;
+            }
+        }
+
+        private void RemoveUtxo(Sha256Ripemd160Hash address, long blockIndex, int txIndex, int txOutIndex)
+        {
+            long? position = ufptemp.Get(address);
+            if (!position.HasValue)
+                position = ufp.Get(address);
+
+            if (!position.HasValue)
+                throw new InvalidOperationException();
+
+            bool isProcessed = false;
+
+            while (!isProcessed && position.Value != -1)
+            {
+                UtxoFileItem ufi = SHAREDDATA.FromBinary<UtxoFileItem>(udb.GetUtxoData(position.Value));
+
+                for (int k = 0; k < ufi.Size && !isProcessed; k++)
+                    if (ufi.utxos[k].IsMatch(blockIndex, txIndex, txOutIndex))
+                    {
+                        ufi.utxos[k].Empty();
+
+                        udb.UpdateUtxoData(position.Value, ufi.ToBinary());
+
+                        isProcessed = true;
+                    }
+
+                position = ufi.nextPosition;
+            }
+
+            if (!isProcessed)
+                throw new InvalidOperationException();
+        }
+
         public void ApplyBlock(Block block)
         {
             block.Transactions.ForEach((i, tx) =>
             {
-                tx.TxInputs.ForEach((j, txIn) =>
-                {
-                    long? position = ufptemp.Get(txIn.PrevTxOutputAddress);
-                    if (!position.HasValue)
-                        position = ufp.Get(txIn.PrevTxOutputAddress);
-
-                    if (!position.HasValue)
-                        throw new InvalidOperationException();
-
-                    bool isProcessed = false;
-
-                    while (!isProcessed && position.Value != -1)
-                    {
-                        UtxoFileItem ufi = SHAREDDATA.FromBinary<UtxoFileItem>(udb.GetUtxoData(position.Value));
-
-                        for (int k = 0; k < ufi.Size && !isProcessed; k++)
-                            if (ufi.utxos[k].IsMatch(txIn.PrevTxBlockIndex, txIn.PrevTxIndex, txIn.PrevTxOutputIndex))
-                            {
-                                ufi.utxos[k].Empty();
-
-                                udb.UpdateUtxoData(position.Value, ufi.ToBinary());
-
-                                isProcessed = true;
-                            }
-
-                        position = ufi.nextPosition;
-                    }
-
-                    if (!isProcessed)
-                        throw new InvalidOperationException();
-                });
-                tx.TxOutputs.ForEach((j, txOut) =>
-                {
-                    long? prevPosition = null;
-                    long? position = ufptemp.Get(txOut.Address);
-                    if (!position.HasValue)
-                        position = ufp.Get(txOut.Address);
-
-                    bool isProcessed = false;
-
-                    UtxoFileItem ufi = null;
-                    while (!isProcessed)
-                    {
-                        if (!position.HasValue)
-                            ufi = new UtxoFileItem(FirstUtxoFileItemSize);
-                        else if (position == -1)
-                            ufi = new UtxoFileItem(ufi.Size * 2);
-                        else
-                            ufi = SHAREDDATA.FromBinary<UtxoFileItem>(udb.GetUtxoData(position.Value));
-
-                        for (int k = 0; k < ufi.Size && !isProcessed; k++)
-                            if (ufi.utxos[k].IsEmpty)
-                            {
-                                ufi.utxos[k].Reset(block.Index, i, j, txOut.Amount);
-
-                                if (!position.HasValue)
-                                    ufptemp.Add(txOut.Address, udb.AddUtxoData(ufi.ToBinary()));
-                                else if (position == -1)
-                                {
-                                    ufi.Update(prevPosition.Value);
-                                    ufptemp.Update(txOut.Address, udb.AddUtxoData(ufi.ToBinary()));
-                                }
-                                else
-                                    udb.UpdateUtxoData(position.Value, ufi.ToBinary());
-
-                                isProcessed = true;
-                            }
-
-                        prevPosition = position;
-                        position = ufi.nextPosition;
-                    }
-                });
+                tx.TxInputs.ForEach((j, txIn) => RemoveUtxo(txIn.PrevTxOutputAddress, txIn.PrevTxBlockIndex, txIn.PrevTxIndex, txIn.PrevTxOutputIndex));
+                tx.TxOutputs.ForEach((j, txOut) => AddUtxo(txOut.Address, block.Index, i, j, txOut.Amount));
             });
         }
 
-        public void RevertBlock(Block block)
+        public void RevertBlock(Block block, TransactionOutput[][] prevTxOutss)
         {
+            if (block.Transactions.Length != prevTxOutss.Length)
+                throw new ArgumentException();
 
+            block.Transactions.ForEach((i, tx) =>
+            {
+                if (tx.TxInputs.Length != prevTxOutss[i].Length)
+                    throw new ArgumentException();
+
+                tx.TxInputs.ForEach((j, txIn) => AddUtxo(txIn.PrevTxOutputAddress, txIn.PrevTxBlockIndex, txIn.PrevTxIndex, txIn.PrevTxOutputIndex, prevTxOutss[i][j].Amount));
+                tx.TxOutputs.ForEach((j, txOut) => RemoveUtxo(txOut.Address, block.Index, i, j));
+            });
         }
     }
 
@@ -1322,6 +1567,8 @@ namespace New
 
     public class UtxoFileItem : SHAREDDATA
     {
+        public UtxoFileItem() : base(null) { }
+
         public UtxoFileItem(int _size)
             : base(null)
         {

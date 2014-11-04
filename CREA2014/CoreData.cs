@@ -1,4 +1,5 @@
 ﻿//がをがを～！
+//2014/11/03 分割
 
 using System;
 using System.Collections;
@@ -2463,6 +2464,8 @@ namespace CREA2014
         public virtual X15Hash Id { get { return idCache.Data; } }
 
         public abstract long Index { get; }
+        public abstract X15Hash PrevId { get; }
+        public abstract Difficulty<X15Hash> Diff { get; }
         public abstract Transaction[] Transactions { get; }
 
         public virtual bool Verify() { return true; }
@@ -2475,6 +2478,8 @@ namespace CREA2014
         public readonly string genesisWord = "Bitstamp 2014/05/25 BTC/USD High 586.34 BTC to the moooooooon!!";
 
         public override long Index { get { return 0; } }
+        public override X15Hash PrevId { get { return null; } }
+        public override Difficulty<X15Hash> Diff { get { return new Difficulty<X15Hash>(HASHBASE.FromHash<X15Hash>(new byte[] { 0, 127, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255 })); } }
         public override Transaction[] Transactions { get { return new Transaction[] { }; } }
 
         protected override Func<ReaderWriter, IEnumerable<MainDataInfomation>> StreamInfo
@@ -2671,6 +2676,7 @@ namespace CREA2014
         }
 
         public override long Index { get { return header.index; } }
+        public override X15Hash PrevId { get { return header.prevBlockHash; } }
 
         protected override Func<X15Hash> IdGenerator { get { return () => new X15Hash(header.ToBinary()); } }
 
