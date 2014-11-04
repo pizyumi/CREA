@@ -2534,6 +2534,7 @@ namespace CREA2014
             : base(_portNumber, _creaVersion, _appnameWithVersion)
         {
             processedTransactions = new TransactionCollection();
+            processedChats = new ChatCollection();
         }
 
         private readonly List<FirstNodeInformation> fnis = new List<FirstNodeInformation>();
@@ -2560,7 +2561,12 @@ namespace CREA2014
             }
             catch (HttpListenerException ex)
             {
-                throw new HttpListenerException(ex.ErrorCode, "require_administrator");
+                if (ex.ErrorCode == 183)
+                    return;
+                else if (ex.ErrorCode == 5)
+                    throw new HttpListenerException(ex.ErrorCode, "require_administrator");
+
+                throw ex;
             }
 
             object dummy = new object();
@@ -2640,6 +2646,7 @@ namespace CREA2014
         protected override FirstNodeInformation[] GetFirstNodeInfos() { return fnis.ToArray(); }
 
         private readonly TransactionCollection processedTransactions;
+        private readonly ChatCollection processedChats;
 
         public event EventHandler<Transaction> ReceivedNewTransaction = delegate { };
         public event EventHandler<Chat> ReceivedNewChat = delegate { };
@@ -2764,8 +2771,6 @@ namespace CREA2014
         }
 
         private void DiffuseNewTransaction(NodeInformation source, NotifyNewTransaction nnt, ResTransaction rt) { Diffuse(source, new Message(MessageName.notifyNewTransaction, 0), nnt, rt); }
-
-        private readonly ChatCollection processedChats;
 
         public void DiffuseNewChat(Chat chat)
         {

@@ -1994,7 +1994,7 @@ namespace CREA2014
                         new MainDataInfomation(typeof(long), () => prevTxBlockIndex, (o) => prevTxBlockIndex = (long)o),
                         new MainDataInfomation(typeof(int), () => prevTxIndex, (o) => prevTxIndex = (int)o),
                         new MainDataInfomation(typeof(int), () => prevTxOutputIndex, (o) => prevTxOutputIndex = (int)o),
-                        new MainDataInfomation(typeof(Sha256Ripemd160Hash), () => prevTxOutputAddress, (o) => prevTxOutputAddress = (Sha256Ripemd160Hash)o),
+                        new MainDataInfomation(typeof(Sha256Ripemd160Hash), null, () => prevTxOutputAddress, (o) => prevTxOutputAddress = (Sha256Ripemd160Hash)o),
                         new MainDataInfomation(typeof(Ecdsa256Signature), null, () => ecdsa256Signature, (o) => ecdsa256Signature = (Ecdsa256Signature)o),
                         new MainDataInfomation(typeof(Ecdsa256PubKey), null, () => ecdsa256PubKey, (o) => ecdsa256PubKey = (Ecdsa256PubKey)o),
                     };
@@ -2003,7 +2003,7 @@ namespace CREA2014
                         new MainDataInfomation(typeof(long), () => prevTxBlockIndex, (o) => prevTxBlockIndex = (long)o),
                         new MainDataInfomation(typeof(int), () => prevTxIndex, (o) => prevTxIndex = (int)o),
                         new MainDataInfomation(typeof(int), () => prevTxOutputIndex, (o) => prevTxOutputIndex = (int)o),
-                        new MainDataInfomation(typeof(Sha256Ripemd160Hash), () => prevTxOutputAddress, (o) => prevTxOutputAddress = (Sha256Ripemd160Hash)o),
+                        new MainDataInfomation(typeof(Sha256Ripemd160Hash), null, () => prevTxOutputAddress, (o) => prevTxOutputAddress = (Sha256Ripemd160Hash)o),
                         new MainDataInfomation(typeof(Secp256k1Signature), null, () => secp256k1Signature, (o) => secp256k1Signature = (Secp256k1Signature)o),
                     };
                 else
@@ -2022,7 +2022,7 @@ namespace CREA2014
                         new MainDataInfomation(typeof(long), () => prevTxBlockIndex, (o) => { throw new NotSupportedException(); }),
                         new MainDataInfomation(typeof(int), () => prevTxIndex, (o) => { throw new NotSupportedException(); }),
                         new MainDataInfomation(typeof(int), () => prevTxOutputIndex, (o) => { throw new NotSupportedException(); }),
-                        new MainDataInfomation(typeof(Sha256Ripemd160Hash), () => prevTxOutputAddress, (o) => prevTxOutputAddress = (Sha256Ripemd160Hash)o),
+                        new MainDataInfomation(typeof(Sha256Ripemd160Hash), null, () => prevTxOutputAddress, (o) => prevTxOutputAddress = (Sha256Ripemd160Hash)o),
                     };
                 else
                     throw new NotSupportedException();
@@ -2677,6 +2677,7 @@ namespace CREA2014
 
         public override long Index { get { return header.index; } }
         public override X15Hash PrevId { get { return header.prevBlockHash; } }
+        public override Difficulty<X15Hash> Diff { get { return header.difficulty; } }
 
         protected override Func<X15Hash> IdGenerator { get { return () => new X15Hash(header.ToBinary()); } }
 

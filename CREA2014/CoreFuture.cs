@@ -811,6 +811,8 @@ namespace New
         private long index;
 
         public override long Index { get { return index; } }
+        public override X15Hash PrevId { get { return null; } }
+        public override Difficulty<X15Hash> Diff { get { return null; } }
         public override Transaction[] Transactions { get { return new Transaction[] { }; } }
 
         protected override Func<ReaderWriter, IEnumerable<MainDataInfomation>> StreamInfo
@@ -997,99 +999,99 @@ namespace New
 
 
 
-            if (block.Index > blockManager.headBlockIndex + 1)
-            {
-                if (rejectedBlocks.Keys.Contains(block.Index) && rejectedBlocks[block.Index].Keys.Contains(block.Id))
-                    return;
+            //if (block.Index > blockManager.headBlockIndex + 1)
+            //{
+            //    if (rejectedBlocks.Keys.Contains(block.Index) && rejectedBlocks[block.Index].Keys.Contains(block.Id))
+            //        return;
 
-                Dictionary<X15Hash, Block> pending = null;
-                if (pendingBlocks.Keys.Contains(block.Index))
-                {
-                    pending = pendingBlocks[block.Index];
-                    if (pending.Keys.Contains(block.Id))
-                        return;
-                }
-                else
-                {
-                    pendingBlocks.Add(block.Index, pending = new Dictionary<X15Hash, Block>());
+            //    Dictionary<X15Hash, Block> pending = null;
+            //    if (pendingBlocks.Keys.Contains(block.Index))
+            //    {
+            //        pending = pendingBlocks[block.Index];
+            //        if (pending.Keys.Contains(block.Id))
+            //            return;
+            //    }
+            //    else
+            //    {
+            //        pendingBlocks.Add(block.Index, pending = new Dictionary<X15Hash, Block>());
 
-                    while (pendingBlocks.Count > pendingBlocksCapacity)
-                        pendingBlocks.Remove(pendingBlocks.First().Key);
-                }
+            //        while (pendingBlocks.Count > pendingBlocksCapacity)
+            //            pendingBlocks.Remove(pendingBlocks.First().Key);
+            //    }
 
-                pending.Add(block.Id, block);
+            //    pending.Add(block.Id, block);
 
-                return;
-            }
+            //    return;
+            //}
 
-            if (block.Index == blockManager.headBlockIndex + 1)
-            {
-                Func<Block, Dictionary<X15Hash, Block>, bool> _VerifyBlock = (verifiedBlock, rejected2) =>
-                {
-                    return VerifyBlock(verifiedBlock).Pipe((valid) =>
-                    {
-                        if (valid)
-                        {
-                            blockManager.AddMainBlock(verifiedBlock);
-                            utxoManager.ApplyBlock(verifiedBlock);
-                        }
-                        else
-                        {
-                            if (rejected2 == null)
-                            {
-                                rejectedBlocks.Add(verifiedBlock.Index, rejected2 = new Dictionary<X15Hash, Block>());
+            //if (block.Index == blockManager.headBlockIndex + 1)
+            //{
+            //    Func<Block, Dictionary<X15Hash, Block>, bool> _VerifyBlock = (verifiedBlock, rejected2) =>
+            //    {
+            //        return VerifyBlock(verifiedBlock).Pipe((valid) =>
+            //        {
+            //            if (valid)
+            //            {
+            //                blockManager.AddMainBlock(verifiedBlock);
+            //                utxoManager.ApplyBlock(verifiedBlock);
+            //            }
+            //            else
+            //            {
+            //                if (rejected2 == null)
+            //                {
+            //                    rejectedBlocks.Add(verifiedBlock.Index, rejected2 = new Dictionary<X15Hash, Block>());
 
-                                while (rejectedBlocks.Count > rejectedBlockscapacity)
-                                    rejectedBlocks.Remove(rejectedBlocks.First().Key);
-                            }
+            //                    while (rejectedBlocks.Count > rejectedBlockscapacity)
+            //                        rejectedBlocks.Remove(rejectedBlocks.First().Key);
+            //                }
 
-                            rejected2.Add(verifiedBlock.Id, verifiedBlock);
-                        }
-                    });
-                };
+            //                rejected2.Add(verifiedBlock.Id, verifiedBlock);
+            //            }
+            //        });
+            //    };
 
-                Dictionary<X15Hash, Block> rejected = null;
-                if (rejectedBlocks.Keys.Contains(block.Index))
-                {
-                    rejected = rejectedBlocks[block.Index];
-                    if (rejected.Keys.Contains(block.Id))
-                        return;
-                }
+            //    Dictionary<X15Hash, Block> rejected = null;
+            //    if (rejectedBlocks.Keys.Contains(block.Index))
+            //    {
+            //        rejected = rejectedBlocks[block.Index];
+            //        if (rejected.Keys.Contains(block.Id))
+            //            return;
+            //    }
 
-                if (!_VerifyBlock(block, rejected))
-                    return;
+            //    if (!_VerifyBlock(block, rejected))
+            //        return;
 
-                for (int i = 1; i <= maxBlockIndexMargin; i++)
-                {
-                    long nextBlockIndex = block.Index + i;
+            //    for (int i = 1; i <= maxBlockIndexMargin; i++)
+            //    {
+            //        long nextBlockIndex = block.Index + i;
 
-                    if (!pendingBlocks.Keys.Contains(nextBlockIndex))
-                        break;
+            //        if (!pendingBlocks.Keys.Contains(nextBlockIndex))
+            //            break;
 
-                    Dictionary<X15Hash, Block> pending = pendingBlocks[nextBlockIndex];
-                    Block nextBlock = null;
-                    foreach (var p in pending)
-                        if (p.Value.PrevId.Equals(block.Id))
-                            nextBlock = p.Value;
+            //        Dictionary<X15Hash, Block> pending = pendingBlocks[nextBlockIndex];
+            //        Block nextBlock = null;
+            //        foreach (var p in pending)
+            //            if (p.Value.PrevId.Equals(block.Id))
+            //                nextBlock = p.Value;
 
-                    if (nextBlock == null)
-                        break;
+            //        if (nextBlock == null)
+            //            break;
 
-                    if (pending.Count == 1)
-                        pendingBlocks.Remove(nextBlockIndex);
-                    else
-                        pending.Remove(nextBlock.Id);
+            //        if (pending.Count == 1)
+            //            pendingBlocks.Remove(nextBlockIndex);
+            //        else
+            //            pending.Remove(nextBlock.Id);
 
-                    Dictionary<X15Hash, Block> rejected2 = null;
-                    if (rejectedBlocks.Keys.Contains(nextBlockIndex))
-                        rejected2 = rejectedBlocks[nextBlockIndex];
+            //        Dictionary<X15Hash, Block> rejected2 = null;
+            //        if (rejectedBlocks.Keys.Contains(nextBlockIndex))
+            //            rejected2 = rejectedBlocks[nextBlockIndex];
 
-                    if (!_VerifyBlock(nextBlock, rejected2))
-                        break;
-                }
+            //        if (!_VerifyBlock(nextBlock, rejected2))
+            //            break;
+            //    }
 
-                return;
-            }
+            //    return;
+            //}
         }
 
         private bool VerifyBlock(Block block)

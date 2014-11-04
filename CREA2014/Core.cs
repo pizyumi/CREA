@@ -19,6 +19,7 @@ using System.Text;
 using System.Threading;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Input;
 using System.Windows.Media;
 
 namespace CREA2014
@@ -314,6 +315,7 @@ namespace CREA2014
                     Grid grid = new Grid();
                     grid.RowDefinitions.Add(new RowDefinition());
                     grid.RowDefinitions.Add(new RowDefinition());
+                    grid.RowDefinitions.Add(new RowDefinition() { Height = GridLength.Auto });
                     grid.ColumnDefinitions.Add(new ColumnDefinition());
 
                     ScrollViewer sv1 = new ScrollViewer();
@@ -337,8 +339,13 @@ namespace CREA2014
                     sv1.Content = sp1;
                     sv2.Content = sp2;
 
+                    TextBox tb = new TextBox();
+                    tb.SetValue(Grid.RowProperty, 2);
+                    tb.SetValue(Grid.ColumnProperty, 0);
+
                     grid.Children.Add(sv1);
                     grid.Children.Add(sv2);
+                    grid.Children.Add(tb);
 
                     Content = grid;
 
@@ -351,9 +358,113 @@ namespace CREA2014
 
                     this.StartTask(string.Empty, string.Empty, () =>
                     {
+                        CirculatedInteger ci = new CirculatedInteger(5);
+
+                        Console.WriteLine(ci.GetForward(0));
+                        Console.WriteLine(ci.GetForward(1));
+                        Console.WriteLine(ci.GetForward(2));
+                        Console.WriteLine(ci.GetForward(3));
+                        Console.WriteLine(ci.GetForward(4));
+                        Console.WriteLine(ci.GetForward(5));
+                        Console.WriteLine(ci.GetForward(6));
+
+                        Console.WriteLine(ci.GetBackward(0));
+                        Console.WriteLine(ci.GetBackward(1));
+                        Console.WriteLine(ci.GetBackward(2));
+                        Console.WriteLine(ci.GetBackward(3));
+                        Console.WriteLine(ci.GetBackward(4));
+                        Console.WriteLine(ci.GetBackward(5));
+                        Console.WriteLine(ci.GetBackward(6));
+
+                        Secp256k1KeyPair<Sha256Hash> secp256k1KeyPair = new Secp256k1KeyPair<Sha256Hash>(true);
+
+                        Sha256Ripemd160Hash address = new Sha256Ripemd160Hash(secp256k1KeyPair.pubKey.pubKey);
+
+                        TransactionInput ti1 = new TransactionInput();
+                        ti1.LoadVersion1(0, 0, 0, address);
+
+                        TransactionOutput to1 = new TransactionOutput();
+                        to1.LoadVersion0(address, new Creacoin(50m));
+
+                        CoinbaseTransaction ct1 = new CoinbaseTransaction();
+                        ct1.LoadVersion0(new TransactionOutput[] { to1 });
+
+                        byte[] ctBytes1 = ct1.ToBinary();
+
+                        CoinbaseTransaction ct2 = SHAREDDATA.FromBinary<CoinbaseTransaction>(ctBytes1);
+
+                        TransferTransaction tt1 = new TransferTransaction();
+                        tt1.LoadVersion1(new TransactionInput[] { ti1 }, new TransactionOutput[] { to1 });
+                        tt1.Sign(new TransactionOutput[] { to1 }, new DSAPRIVKEYBASE[] { secp256k1KeyPair.privKey });
+
+                        byte[] ttBytes1 = tt1.ToBinary();
+
+                        TransferTransaction tt2 = SHAREDDATA.FromBinary<TransferTransaction>(ttBytes1);
+
+                        ResTransactions rt1 = new ResTransactions(new Transaction[] { ct1, tt1 });
+
+                        byte[] rtBytes1 = rt1.ToBinary();
+
+                        ResTransactions rt2 = SHAREDDATA.FromBinary<ResTransactions>(rtBytes1);
+
+
+                        byte[] test1 = SHAREDDATA.ToBinary<Transaction>(ct2);
+
+                        CoinbaseTransaction ct3 = SHAREDDATA.FromBinary<Transaction>(test1) as CoinbaseTransaction;
+
+                        byte[] test2 = SHAREDDATA.ToBinary<Transaction>(tt2);
+
+                        TransferTransaction tt3 = SHAREDDATA.FromBinary<Transaction>(test2) as TransferTransaction;
+
+                        //string pathBase = Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location);
+
+                        //New.BlockManagerDB bmdb = new New.BlockManagerDB(pathBase);
+                        //New.BlockDB blkdb = new New.BlockDB(pathBase);
+                        //New.BlockFilePointersDB bfpdb = new New.BlockFilePointersDB(pathBase);
+
+                        //New.BlockManager bm = new New.BlockManager(bmdb, blkdb, bfpdb);
+
+                        //New.TestBlock block1 = new New.TestBlock(1);
+
+                        //bm.AddMainBlock(block1);
+                        //bm.AddMainBlock(block1);
+
+
                         //Test10NodesInv();
 
-                        TestDHT();
+                        //TestDHT();
+
+                        bool isFirst = true;
+                        int portNumber = 0;
+                        CreaNodeLocalTestContinueDHT cnlt = null;
+                        tb.KeyDown += (sender2, e2) =>
+                        {
+                            if (e2.Key != Key.Enter)
+                                return;
+
+                            if (isFirst)
+                            {
+                                portNumber = int.Parse(tb.Text);
+
+                                cnlt = new CreaNodeLocalTestContinueDHT((ushort)portNumber, 0, "test");
+                                cnlt.Start();
+
+                                cnlt.ReceivedNewChat += (sender3, e3) =>
+                                {
+                                    MessageBox.Show(e3.Message);
+                                };
+
+                                isFirst = false;
+
+                                return;
+                            }
+
+                            Chat chat = new Chat();
+                            chat.LoadVersion0(portNumber.ToString(), tb.Text);
+                            chat.Sign(secp256k1KeyPair.privKey);
+
+                            cnlt.DiffuseNewChat(chat);
+                        };
                     });
                 };
 
