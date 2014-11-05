@@ -161,6 +161,8 @@ namespace CREA2014
                             uint id = BitConverter.ToUInt32(bytes, 0);
                             byte[] data = bytes.Decompose(4);
 
+                            ("read" + id.ToString()).ConsoleWriteLine();
+
                             if (id != 0)
                             {
                                 bool isExisted = false;
@@ -507,7 +509,8 @@ namespace CREA2014
             int headerBytesLength = 4 + 32 + 4;
 
             byte[] headerBytes = new byte[headerBytesLength];
-            if (ins.Read(headerBytes, 0, headerBytesLength) != headerBytesLength)
+            int l;
+            if ((l = ins.Read(headerBytes, 0, headerBytesLength)) != headerBytesLength)
                 throw new InvalidDataException("cant_read_header");
             //最初の4バイトは本来のデータの長さ
             int dataLength = BitConverter.ToInt32(headerBytes, 0);
@@ -2655,6 +2658,8 @@ namespace CREA2014
         {
             Message message = SHAREDDATA.FromBinary<Message>(sc.ReadBytes());
 
+            _ConsoleWriteLine(message.name.ToString());
+
             if (message.version != 0)
                 throw new NotSupportedException();
 
@@ -2686,11 +2691,19 @@ namespace CREA2014
             else if (message.name == MessageName.NotifyNewChat)
             {
                 NotifyNewChat nnc = SHAREDDATA.FromBinary<NotifyNewChat>(sc.ReadBytes());
+
+                _ConsoleWriteLine("read_nnc");
+
                 bool isNew = !processedChats.Contains(nnc.Id);
                 sc.WriteBytes(BitConverter.GetBytes(isNew));
+
+                _ConsoleWriteLine("write_isnew");
+
                 if (isNew)
                 {
                     Chat chat = SHAREDDATA.FromBinary<Chat>(sc.ReadBytes());
+
+                    _ConsoleWriteLine("read_chat");
 
                     if (chat == null)
                         throw new InvalidOperationException();
@@ -2702,7 +2715,7 @@ namespace CREA2014
 
                     ReceivedNewChat(this, chat);
 
-                    this.StartTask("diffuseNewChat", "diffuseNewChat", () => DiffuseNewChat(nodeInfo, nnc, chat));
+                    //this.StartTask("diffuseNewChat", "diffuseNewChat", () => DiffuseNewChat(nodeInfo, nnc, chat));
                 }
             }
             else
@@ -2715,6 +2728,9 @@ namespace CREA2014
                 throw new NotSupportedException();
 
             sc.WriteBytes(message.ToBinary());
+
+            _ConsoleWriteLine(message.name.ToString());
+
             if (message.name == MessageName.reqNodeInfos)
                 return new SHAREDDATA[] { SHAREDDATA.FromBinary<ResNodeInfos>(sc.ReadBytes()) };
             else if (message.name == MessageName.notifyNewTransaction)
@@ -2753,8 +2769,17 @@ namespace CREA2014
                     throw new InvalidOperationException();
 
                 sc.WriteBytes(nnc.ToBinary());
+
+                _ConsoleWriteLine("write_nnc");
+
                 if (BitConverter.ToBoolean(sc.ReadBytes(), 0))
+                {
+                    _ConsoleWriteLine("read_isnew");
+
                     sc.WriteBytes(chat.ToBinary());
+
+                    _ConsoleWriteLine("write_chat");
+                }
 
                 return new SHAREDDATA[] { };
             }
