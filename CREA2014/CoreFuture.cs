@@ -533,7 +533,7 @@ namespace CREA2014
                             {
                                 Received(this, ++receiveCounter);
 
-                                string.Join(",", receiveCounter.ToString(), stopwatch.ElapsedMilliseconds.ToString()).ConsoleWriteLine();
+                                this.ConsoleWriteLine(string.Join(",", receiveCounter.ToString(), stopwatch.ElapsedMilliseconds.ToString()));
 
                                 if (receiveCounter == numberOfNodes)
                                     stopwatch.Stop();

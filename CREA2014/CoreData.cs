@@ -4576,7 +4576,7 @@ namespace CREA2014
 
     public class AddressEventData : SHAREDDATA
     {
-        public AddressEventData() { }
+        public AddressEventData() { amount = CurrencyUnit.Zero; }
 
         public AddressEventData(long _blockIndex, int _txIndex, int _txOutIndex, CurrencyUnit _amount)
         {

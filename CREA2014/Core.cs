@@ -358,63 +358,123 @@ namespace CREA2014
 
                     this.StartTask(string.Empty, string.Empty, () =>
                     {
-                        CirculatedInteger ci = new CirculatedInteger(5);
+                        //string testPrivateRsaParameters;
+                        //using (RSACryptoServiceProvider rsacsp = new RSACryptoServiceProvider(2048))
+                        //    testPrivateRsaParameters = rsacsp.ToXmlString(true);
 
-                        Console.WriteLine(ci.GetForward(0));
-                        Console.WriteLine(ci.GetForward(1));
-                        Console.WriteLine(ci.GetForward(2));
-                        Console.WriteLine(ci.GetForward(3));
-                        Console.WriteLine(ci.GetForward(4));
-                        Console.WriteLine(ci.GetForward(5));
-                        Console.WriteLine(ci.GetForward(6));
 
-                        Console.WriteLine(ci.GetBackward(0));
-                        Console.WriteLine(ci.GetBackward(1));
-                        Console.WriteLine(ci.GetBackward(2));
-                        Console.WriteLine(ci.GetBackward(3));
-                        Console.WriteLine(ci.GetBackward(4));
-                        Console.WriteLine(ci.GetBackward(5));
-                        Console.WriteLine(ci.GetBackward(6));
+                        //RealInboundChennel ric = new RealInboundChennel(7777, RsaKeySize.rsa2048, 100);
+                        //ric.Accepted += (sender2, e2) =>
+                        //{
+                        //    this.StartTask("", "", () =>
+                        //    {
+                        //        e2.WriteBytes(BitConverter.GetBytes(true));
+
+                        //        bool b = BitConverter.ToBoolean(e2.ReadBytes(), 0);
+
+                        //        SessionChannel sc = e2.NewSession();
+                        //        sc.WriteBytes(BitConverter.GetBytes(true));
+                        //        sc.Close();
+
+                        //        //e2.Close();
+                        //    });
+
+
+                        //    //e2.Close();
+
+                        //    //Console.WriteLine("");
+                        //};
+                        //ric.RequestAcceptanceStart();
+
+
+                        //AutoResetEvent are = new AutoResetEvent(false);
+                        //SocketChannel socketc = null;
+
+                        //RealOutboundChannel roc = new RealOutboundChannel(IPAddress.Loopback, 7777, RsaKeySize.rsa2048, testPrivateRsaParameters);
+                        //roc.Connected += (sender2, e2) =>
+                        //{
+                        //    socketc = e2;
+                        //    socketc.Sessioned += (sender3, e3) =>
+                        //    {
+                        //        bool b3 = BitConverter.ToBoolean(e3.ReadBytes(), 0);
+
+                        //        Console.WriteLine("");
+                        //    };
+
+                        //    are.Set();
+
+                        //    //e2.Close();
+
+                        //    //Console.WriteLine("connected");
+                        //};
+                        //roc.RequestConnection();
+
+                        //are.WaitOne();
+
+                        //bool b2 = BitConverter.ToBoolean(socketc.ReadBytes(), 0);
+
+                        //socketc.WriteBytes(BitConverter.GetBytes(true));
+
+                        //socketc.Close();
+
+
+                        //CirculatedInteger ci = new CirculatedInteger(5);
+
+                        //Console.WriteLine(ci.GetForward(0));
+                        //Console.WriteLine(ci.GetForward(1));
+                        //Console.WriteLine(ci.GetForward(2));
+                        //Console.WriteLine(ci.GetForward(3));
+                        //Console.WriteLine(ci.GetForward(4));
+                        //Console.WriteLine(ci.GetForward(5));
+                        //Console.WriteLine(ci.GetForward(6));
+
+                        //Console.WriteLine(ci.GetBackward(0));
+                        //Console.WriteLine(ci.GetBackward(1));
+                        //Console.WriteLine(ci.GetBackward(2));
+                        //Console.WriteLine(ci.GetBackward(3));
+                        //Console.WriteLine(ci.GetBackward(4));
+                        //Console.WriteLine(ci.GetBackward(5));
+                        //Console.WriteLine(ci.GetBackward(6));
 
                         Secp256k1KeyPair<Sha256Hash> secp256k1KeyPair = new Secp256k1KeyPair<Sha256Hash>(true);
 
-                        Sha256Ripemd160Hash address = new Sha256Ripemd160Hash(secp256k1KeyPair.pubKey.pubKey);
+                        //Sha256Ripemd160Hash address = new Sha256Ripemd160Hash(secp256k1KeyPair.pubKey.pubKey);
 
-                        TransactionInput ti1 = new TransactionInput();
-                        ti1.LoadVersion1(0, 0, 0, address);
+                        //TransactionInput ti1 = new TransactionInput();
+                        //ti1.LoadVersion1(0, 0, 0, address);
 
-                        TransactionOutput to1 = new TransactionOutput();
-                        to1.LoadVersion0(address, new Creacoin(50m));
+                        //TransactionOutput to1 = new TransactionOutput();
+                        //to1.LoadVersion0(address, new Creacoin(50m));
 
-                        CoinbaseTransaction ct1 = new CoinbaseTransaction();
-                        ct1.LoadVersion0(new TransactionOutput[] { to1 });
+                        //CoinbaseTransaction ct1 = new CoinbaseTransaction();
+                        //ct1.LoadVersion0(new TransactionOutput[] { to1 });
 
-                        byte[] ctBytes1 = ct1.ToBinary();
+                        //byte[] ctBytes1 = ct1.ToBinary();
 
-                        CoinbaseTransaction ct2 = SHAREDDATA.FromBinary<CoinbaseTransaction>(ctBytes1);
+                        //CoinbaseTransaction ct2 = SHAREDDATA.FromBinary<CoinbaseTransaction>(ctBytes1);
 
-                        TransferTransaction tt1 = new TransferTransaction();
-                        tt1.LoadVersion1(new TransactionInput[] { ti1 }, new TransactionOutput[] { to1 });
-                        tt1.Sign(new TransactionOutput[] { to1 }, new DSAPRIVKEYBASE[] { secp256k1KeyPair.privKey });
+                        //TransferTransaction tt1 = new TransferTransaction();
+                        //tt1.LoadVersion1(new TransactionInput[] { ti1 }, new TransactionOutput[] { to1 });
+                        //tt1.Sign(new TransactionOutput[] { to1 }, new DSAPRIVKEYBASE[] { secp256k1KeyPair.privKey });
 
-                        byte[] ttBytes1 = tt1.ToBinary();
+                        //byte[] ttBytes1 = tt1.ToBinary();
 
-                        TransferTransaction tt2 = SHAREDDATA.FromBinary<TransferTransaction>(ttBytes1);
+                        //TransferTransaction tt2 = SHAREDDATA.FromBinary<TransferTransaction>(ttBytes1);
 
-                        ResTransactions rt1 = new ResTransactions(new Transaction[] { ct1, tt1 });
+                        //ResTransactions rt1 = new ResTransactions(new Transaction[] { ct1, tt1 });
 
-                        byte[] rtBytes1 = rt1.ToBinary();
+                        //byte[] rtBytes1 = rt1.ToBinary();
 
-                        ResTransactions rt2 = SHAREDDATA.FromBinary<ResTransactions>(rtBytes1);
+                        //ResTransactions rt2 = SHAREDDATA.FromBinary<ResTransactions>(rtBytes1);
 
 
-                        byte[] test1 = SHAREDDATA.ToBinary<Transaction>(ct2);
+                        //byte[] test1 = SHAREDDATA.ToBinary<Transaction>(ct2);
 
-                        CoinbaseTransaction ct3 = SHAREDDATA.FromBinary<Transaction>(test1) as CoinbaseTransaction;
+                        //CoinbaseTransaction ct3 = SHAREDDATA.FromBinary<Transaction>(test1) as CoinbaseTransaction;
 
-                        byte[] test2 = SHAREDDATA.ToBinary<Transaction>(tt2);
+                        //byte[] test2 = SHAREDDATA.ToBinary<Transaction>(tt2);
 
-                        TransferTransaction tt3 = SHAREDDATA.FromBinary<Transaction>(test2) as TransferTransaction;
+                        //TransferTransaction tt3 = SHAREDDATA.FromBinary<Transaction>(test2) as TransferTransaction;
 
                         //string pathBase = Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location);
 
@@ -451,7 +511,7 @@ namespace CREA2014
 
                                 cnlt.ReceivedNewChat += (sender3, e3) =>
                                 {
-                                    MessageBox.Show(e3.Message);
+                                    this.ConsoleWriteLine(e3.Message);
                                 };
 
                                 isFirst = false;
@@ -478,6 +538,11 @@ namespace CREA2014
 
                     File.AppendAllText(Path.Combine(new FileInfo(Assembly.GetEntryAssembly().Location).DirectoryName, "LogTest.txt"), fileText);
                 };
+            }
+
+            private void Test()
+            {
+
             }
 
             private void TestDHT()

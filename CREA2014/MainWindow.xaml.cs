@@ -497,7 +497,9 @@ namespace CREA2014
                 Func<string, string> doNothing = (data) => data;
 
                 foreach (var wsr in new[] {
-                    new {path = pathHomeHtm, url = "/", processor = homeHtmProcessor}, 
+                    //new {path = pathHomeHtm, url = "/", processor = homeHtmProcessor}, 
+                    new {path = "CREA2014.WebResources.home2.htm", url = "/", processor = doNothing}, 
+                    new {path = "CREA2014.WebResources.knockout-3.2.0.js", url = "/knockout-3.2.0.js", processor = doNothing}, 
                     new {path = "CREA2014.WebResources.jquery-2.0.3.min.js", url = "/jquery-2.0.3.min.js", processor = doNothing}, 
                     new {path = "CREA2014.WebResources.jquery-ui-1.10.4.custom.js", url = "/jquery-ui-1.10.4.custom.js", processor = doNothing}, 
                 })
@@ -894,14 +896,16 @@ namespace CREA2014
 
         private void Window_PreviewKeyDown(object sender, System.Windows.Input.KeyEventArgs e)
         {
-            if (e.Key == Key.Up || e.Key == Key.Down || e.Key == Key.Left || e.Key == Key.Right)
-                return;
+            //if (e.Key == Key.Up || e.Key == Key.Down || e.Key == Key.Left || e.Key == Key.Right)
+            //    return;
 
             if (e.Key == Key.System)
+            {
                 foreach (var wssession in wss.GetAllSessions())
                     wssession.Send("keydown " + ((int)e.SystemKey).ToString());
 
-            e.Handled = true;
+                e.Handled = true;
+            }
         }
 
         private void miTest_Click(object sender, RoutedEventArgs e)

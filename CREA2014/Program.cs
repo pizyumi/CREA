@@ -14,9 +14,7 @@ using System.Net;
 using System.Net.Sockets;
 using System.Numerics;
 using System.Reflection;
-using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
-using System.Security;
 using System.Security.AccessControl;
 using System.Security.Cryptography;
 using System.Text;
@@ -1149,9 +1147,9 @@ namespace CREA2014
 
         #endregion
 
-        public static void ConsoleWriteLine(this string text)
+        public static void ConsoleWriteLine<T>(this T dummy, string text)
         {
-            ((Action)(() => Console.WriteLine(text))).BeginExecuteInUIThread();
+            dummy.Lambda(() => Console.WriteLine(text)).BeginExecuteInUIThread();
         }
 
         public class TaskInformation : INTERNALDATA
@@ -2512,6 +2510,11 @@ namespace CREA2014
 
         public class Tasker
         {
+            public Tasker() { tasks = new List<TaskStatus>(); }
+
+            private static readonly bool isOutputTaskStarted = true;
+            private static readonly bool isOutputTaskEnded = true;
+
             private readonly object tasksLock = new object();
             private readonly List<TaskStatus> tasks;
             public TaskData[] Tasks
@@ -2535,11 +2538,6 @@ namespace CREA2014
                 }
             }
 
-            public Tasker()
-            {
-                tasks = new List<TaskStatus>();
-            }
-
             public event EventHandler TaskStarted = delegate { };
             public event EventHandler TaskEnded = delegate { };
 
@@ -2561,13 +2559,17 @@ namespace CREA2014
                     }
                     finally
                     {
+                        TaskStatus status = null;
                         lock (tasksLock)
                         {
-                            TaskStatus status = tasks.Where((e) => e.Data == task).FirstOrDefault();
+                            status = tasks.Where((e) => e.Data == task).FirstOrDefault();
                             if (status == null)
                                 throw new InvalidOperationException("task_not_found");
                             tasks.Remove(status);
                         }
+
+                        if (isOutputTaskEnded)
+                            this.ConsoleWriteLine(string.Join(":", "tesk_end", status.Data.Name, tasks.Count.ToString()));
 
                         TaskEnded(this, EventArgs.Empty);
                     }
@@ -2577,6 +2579,9 @@ namespace CREA2014
 
                 lock (tasksLock)
                     tasks.Add(new TaskStatus(task, thread));
+
+                if (isOutputTaskStarted)
+                    this.ConsoleWriteLine(string.Join(":", "tesk_start", task.Name, tasks.Count.ToString()));
 
                 TaskStarted(this, EventArgs.Empty);
 
@@ -3670,7 +3675,9 @@ namespace CREA2014
                 {"hash_rate", (args) => string.Format("要約値計算速度：{0}hash/s".Multilanguage(137), args[0])},
                 {"found_block", (args) => "新しいブロックを発見しました。".Multilanguage(138)},
                 {"difficulty", (args) => string.Format("難易度：{0}".Multilanguage(169), args[0])},
-                {"protocol_not_supported", (args) => "処理済みの取引を再び処理しようとしました。".Multilanguage(172)},
+                {"alredy_processed_tx", (args) => "処理済みの取引を再び処理しようとしました。".Multilanguage(172)},
+                {"alredy_processed_chat", (args) => "処理済みのチャット発言を再び処理しようとしました。".Multilanguage(173)},
+                {"fail_port_open", (args) => "ポートの開放に失敗しました。".Multilanguage(174)},
             };
 
             exceptionMessages = new Dictionary<string, Func<string>>() {
@@ -3852,8 +3859,8 @@ namespace CREA2014
 
             TestApplication testApplication;
 #if TEST
-            //testApplication = null;
-            testApplication = new CreaNetworkLocalTestApplication(logger);
+            testApplication = null;
+            //testApplication = new CreaNetworkLocalTestApplication(logger);
 #else
                 testApplication = null;
 #endif

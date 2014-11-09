@@ -5,7 +5,7 @@
     <Configuration Condition=" '$(Configuration)' == '' ">Debug</Configuration>
     <Platform Condition=" '$(Platform)' == '' ">AnyCPU</Platform>
     <ProjectGuid>{F5E34F75-EA21-4FBB-AB14-7A7E13273CDE}</ProjectGuid>
-    <OutputType>Exe</OutputType>
+    <OutputType>WinExe</OutputType>
     <AppDesignerFolder>Properties</AppDesignerFolder>
     <RootNamespace>CREA2014</RootNamespace>
     <AssemblyName>CREA2014</AssemblyName>
@@ -273,6 +273,13 @@
       <Isolated>False</Isolated>
       <EmbedInteropTypes>True</EmbedInteropTypes>
     </COMReference>
+  </ItemGroup>
+  <ItemGroup>
+    <EmbeddedResource Include="WebResources\knockout-3.2.0.js" />
+    <EmbeddedResource Include="WebResources\test.htm" />
+  </ItemGroup>
+  <ItemGroup>
+    <EmbeddedResource Include="WebResources\home2.htm" />
   </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
   <!-- To modify your build process, add your task inside one of the targets below and uncomment it. 

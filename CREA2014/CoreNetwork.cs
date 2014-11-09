@@ -4,22 +4,14 @@
 using System;
 using System.Collections;
 using System.Collections.Generic;
-using System.Diagnostics;
 using System.IO;
 using System.IO.Compression;
 using System.Linq;
 using System.Net;
 using System.Net.Sockets;
-using System.Numerics;
-using System.Reflection;
-using System.Runtime.InteropServices;
-using System.Security;
 using System.Security.Cryptography;
 using System.Text;
 using System.Threading;
-using System.Windows;
-using System.Windows.Controls;
-using System.Windows.Media;
 
 namespace CREA2014
 {
@@ -34,13 +26,12 @@ namespace CREA2014
     public enum ChannelDirection { inbound, outbound }
 
     //<未実装>IPv6対応
-    //<要検討>idをGuidにすべきかもしれない
     public class SocketChannel : IChannel
     {
         public SocketChannel(ISocket _isocket, INetworkStream _ins, RijndaelManaged _rm, ChannelDirection _direction, DateTime _connectionTime)
         {
             if (_isocket.AddressFamily != AddressFamily.InterNetwork)
-                throw new NotSupportedException("not_supported_socket");
+                throw new NotSupportedException("socket_channel_not_supported_socket");
 
             isocket = _isocket;
             ins = _ins;
@@ -51,6 +42,13 @@ namespace CREA2014
             zibunPortNumber = (ushort)((IPEndPoint)isocket.LocalEndPoint).Port;
             aiteIpAddress = ((IPEndPoint)isocket.RemoteEndPoint).Address;
             aitePortNumber = (ushort)((IPEndPoint)isocket.RemoteEndPoint).Port;
+
+            if (isOutputClosed)
+                Closed += (sender, e) => this.ConsoleWriteLine(string.Join(":", ChannelAddressText, "closed"));
+            if (isOutputFailed)
+                Failed += (sender, e) => this.ConsoleWriteLine(string.Join(":", ChannelAddressText, "failed"));
+            if (isOutputSessioned)
+                Sessioned += (sender, e) => this.ConsoleWriteLine(string.Join(":", ChannelAddressText, "sessioned"));
 
             _read = (id) =>
             {
@@ -68,13 +66,13 @@ namespace CREA2014
                     if (read.data != null)
                         return read.data;
                     else
-                        throw new ClosedException("channel_already_closed");
+                        throw new ClosedException("socket_channel_outside_read_data_null");
                 else
                 {
                     lock (readsLock)
                         reads.Remove(read);
 
-                    throw new TimeoutException("socket_chennel_timeouted");
+                    throw new TimeoutException("socket_chennel_outside_timeout");
                 }
             };
 
@@ -86,7 +84,7 @@ namespace CREA2014
                 areWrites.Set();
             };
 
-            this.StartTask("socket_channel_write", "socket_channel_write", () =>
+            this.StartTask(string.Join(":", "socket_channel_write", ChannelAddressText), "socket_channel_write", () =>
             {
                 try
                 {
@@ -104,9 +102,12 @@ namespace CREA2014
                                 else
                                     write = writes.Dequeue();
 
-                            WriteBytesInner(BitConverter.GetBytes(write.id).Combine(write.data), false);
+                            WriteBytesInner(write.id.ToByteArray().Combine(write.data), false);
 
-                            if (write.id == uint.MaxValue)
+                            if (isOutputWrite)
+                                this.ConsoleWriteLine(string.Join(":", ChannelAddressText, write.id == endId ? "write_end" : "write", write.id.ToString()));
+
+                            if (write.id == endId)
                             {
                                 isWriteEnding = true;
                                 break;
@@ -114,41 +115,43 @@ namespace CREA2014
                         }
                     }
 
-                    bool flag = false;
                     lock (endLock)
                     {
                         isWriteEnded = true;
 
-                        if (flag = isReadEnded)
-                        {
-                            if (isocket.Connected)
-                                isocket.Shutdown(SocketShutdown.Both);
-                            rm.Dispose();
-                            ins.Close();
-                            isocket.Close();
-                        }
+                        ReleaseResources();
                     }
 
-                    if (flag)
+                    if (!isClosedOrFailed)
+                    {
+                        isClosedOrFailed = true;
+
                         Closed(this, EventArgs.Empty);
+                    }
                 }
                 catch (Exception ex)
                 {
-                    this.RaiseError("socket_channel_write", 5, ex);
+                    this.RaiseError("socket_channel_inside_write", 5, ex);
 
-                    Failed(this, EventArgs.Empty);
+                    if (isOutputWriteException)
+                        this.ConsoleWriteLine(string.Join(":", ChannelAddressText, "write_exception"));
 
-                    rm.Dispose();
-                    ins.Close();
-                    isocket.Close();
+                    if (!isClosedOrFailed)
+                    {
+                        isClosedOrFailed = true;
+
+                        Failed(this, EventArgs.Empty);
+                    }
+
+                    ReleaseResources();
                 }
                 finally
                 {
-                    string.Join(":", ChannelAddressText, "write_thread_exit").ConsoleWriteLine();
+                    this.ConsoleWriteLine(string.Join(":", ChannelAddressText, "write_thread_exit"));
                 }
             });
 
-            this.StartTask("socket_channel_read", "socket_channel_read", () =>
+            this.StartTask(string.Join(" ", "socket_channel_read", ChannelAddressText), "socket_channel_read", () =>
             {
                 try
                 {
@@ -158,12 +161,13 @@ namespace CREA2014
                         {
                             byte[] bytes = ReadBytesInnner(false);
 
-                            uint id = BitConverter.ToUInt32(bytes, 0);
-                            byte[] data = bytes.Decompose(4);
+                            Guid id = new Guid(bytes.Decompose(0, 16));
+                            byte[] data = bytes.Decompose(16);
 
-                            ("read" + id.ToString()).ConsoleWriteLine();
+                            if (isOutputRead)
+                                this.ConsoleWriteLine(string.Join(":", ChannelAddressText, id == endId ? "read_end" : "read", id.ToString()));
 
-                            if (id != 0)
+                            if (id != Guid.Empty)
                             {
                                 bool isExisted = false;
                                 lock (sessionsLock)
@@ -175,11 +179,11 @@ namespace CREA2014
                                     lock (sessionsLock)
                                         sessions.Add(sc);
 
-                                    this.StartTask("session", "session", () => Sessioned(this, sc));
+                                    this.StartTask(string.Join(":", "session", ChannelAddressText), "session", () => Sessioned(this, sc));
                                 }
                             }
 
-                            if (id == uint.MaxValue)
+                            if (id == endId)
                             {
                                 isReadEnding = true;
                                 continue;
@@ -187,7 +191,7 @@ namespace CREA2014
 
                             lock (readsLock)
                             {
-                                ReadItem read = reads.Where((e) => e.id == id).FirstOrDefault();
+                                ReadItem read = reads.Where((e) => e.id == id && e.are != null).FirstOrDefault();
                                 if (read != null)
                                 {
                                     reads.Remove(read);
@@ -206,22 +210,22 @@ namespace CREA2014
                                 SocketException sex = ex.InnerException as SocketException;
                                 if (sex.ErrorCode == 10060)
                                 {
-                                    string.Join(":", ChannelAddressText, "timeout").ConsoleWriteLine();
+                                    this.ConsoleWriteLine(string.Join(":", ChannelAddressText, "read_timeout"));
                                     continue;
                                 }
-                                else if (sex.ErrorCode == 10054)
-                                {
-                                    string.Join(":", ChannelAddressText, "connection_reset").ConsoleWriteLine();
-                                    break;
-                                }
-                                else if (sex.ErrorCode == 10053)
-                                {
-                                    string.Join(":", ChannelAddressText, "connection_aborted").ConsoleWriteLine();
-                                    break;
-                                }
+                                //else if (sex.ErrorCode == 10054)
+                                //{
+                                //    string.Join(":", ChannelAddressText, "connection_reset").ConsoleWriteLine();
+                                //    break;
+                                //}
+                                //else if (sex.ErrorCode == 10053)
+                                //{
+                                //    string.Join(":", ChannelAddressText, "connection_aborted").ConsoleWriteLine();
+                                //    break;
+                                //}
                             }
 
-                            throw ex;
+                            throw new Exception(string.Empty, ex);
                         }
                     }
 
@@ -237,27 +241,28 @@ namespace CREA2014
                         }
                     }
 
-                    bool flag = false;
                     lock (endLock)
                     {
                         isReadEnded = true;
 
-                        if (flag = isWriteEnded)
-                        {
-                            if (isocket.Connected)
-                                isocket.Shutdown(SocketShutdown.Receive);
-                            rm.Dispose();
-                            ins.Close();
-                            isocket.Close();
-                        }
+                        ReleaseResources();
+
+                        _write(endId, new byte[] { });
                     }
 
-                    if (flag)
+                    if (!isClosedOrFailed)
+                    {
+                        isClosedOrFailed = true;
+
                         Closed(this, EventArgs.Empty);
+                    }
                 }
                 catch (Exception ex)
                 {
-                    this.RaiseError("socket_channel_read", 5, ex);
+                    this.RaiseError("socket_channel_inside_read", 5, ex);
+
+                    if (isOutputReadException)
+                        this.ConsoleWriteLine(string.Join(":", ChannelAddressText, "read_exception"));
 
                     lock (readsLock)
                     {
@@ -271,23 +276,76 @@ namespace CREA2014
                         }
                     }
 
-                    Failed(this, EventArgs.Empty);
+                    if (!isClosedOrFailed)
+                    {
+                        isClosedOrFailed = true;
 
-                    rm.Dispose();
-                    ins.Close();
-                    isocket.Close();
+                        Failed(this, EventArgs.Empty);
+                    }
+
+                    ReleaseResources();
+
+                    _write(endId, new byte[] { });
                 }
                 finally
                 {
-                    string.Join(":", ChannelAddressText, "read_thread_exit").ConsoleWriteLine();
+                    this.ConsoleWriteLine(string.Join(":", ChannelAddressText, "read_thread_exit"));
                 }
             });
         }
+
+        private void ReleaseResources()
+        {
+            if (rm != null)
+            {
+                rm.Dispose();
+                rm = null;
+
+                if (isOutputReleasedRm)
+                    this.ConsoleWriteLine("release_rm");
+            }
+
+            if (ins != null)
+            {
+                ins.Close();
+                ins = null;
+
+                if (isOutputReleasedIns)
+                    this.ConsoleWriteLine("release_ins");
+            }
+
+            if (isocket != null)
+            {
+                if (isocket.Connected)
+                    isocket.Shutdown(SocketShutdown.Both);
+                isocket.Close();
+                isocket = null;
+
+                if (isOutputReleasedIsocket)
+                    this.ConsoleWriteLine("release_isocket");
+            }
+        }
+
+        private static readonly bool isOutputWrite = true;
+        private static readonly bool isOutputRead = true;
+        private static readonly bool isOutputWriteException = true;
+        private static readonly bool isOutputReadException = true;
+        private static readonly bool isOutputClosed = true;
+        private static readonly bool isOutputFailed = true;
+        private static readonly bool isOutputSessioned = true;
+        private static readonly bool isOutputReleasedRm = true;
+        private static readonly bool isOutputReleasedIns = true;
+        private static readonly bool isOutputReleasedIsocket = true;
+
+        private static readonly bool isOutputReadBytesInner = true;
 
         private static readonly int maxTimeout = 150;
         private static readonly int maxBufferSize = 16384;
         private static readonly int minBufferSize = 4096;
         private static readonly int bufferSize = 1024;
+
+        private static readonly Guid endId = new Guid("11c78561e4671d48bd894553e09794a0");
+        private static readonly Guid mainId = Guid.Empty;
 
         private readonly object sessionsLock = new object();
         private readonly List<SessionChannel> sessions = new List<SessionChannel>();
@@ -297,17 +355,18 @@ namespace CREA2014
         private readonly object readsLock = new object();
         private readonly List<ReadItem> reads = new List<ReadItem>();
 
-        private readonly ISocket isocket;
-        private readonly INetworkStream ins;
-        private readonly RijndaelManaged rm;
-        private readonly Func<uint, byte[]> _read;
-        private readonly Action<uint, byte[]> _write;
+        private ISocket isocket;
+        private INetworkStream ins;
+        private RijndaelManaged rm;
+        private readonly Func<Guid, byte[]> _read;
+        private readonly Action<Guid, byte[]> _write;
 
         private readonly object endLock = new object();
         private bool isWriteEnding;
         private bool isWriteEnded;
         private bool isReadEnding;
         private bool isReadEnded;
+        private bool isClosedOrFailed;
 
         public readonly ChannelDirection direction;
         public readonly DateTime connectionTime;
@@ -328,37 +387,37 @@ namespace CREA2014
 
         public class WriteItem
         {
-            public WriteItem(byte[] _data) : this(0, _data) { }
+            public WriteItem(byte[] _data) : this(mainId, _data) { }
 
-            public WriteItem(uint _id, byte[] _data)
+            public WriteItem(Guid _id, byte[] _data)
             {
                 id = _id;
                 data = _data;
             }
 
-            public uint id { get; private set; }
+            public Guid id { get; private set; }
             public byte[] data { get; private set; }
         }
 
         public class ReadItem
         {
-            public ReadItem() : this(0) { }
+            public ReadItem() : this(mainId) { }
 
-            public ReadItem(uint _id)
+            public ReadItem(Guid _id)
             {
                 id = _id;
                 are = new AutoResetEvent(false);
             }
 
-            public ReadItem(byte[] _data) : this(0, _data) { }
+            public ReadItem(byte[] _data) : this(mainId, _data) { }
 
-            public ReadItem(uint _id, byte[] _data)
+            public ReadItem(Guid _id, byte[] _data)
             {
                 id = _id;
                 data = _data;
             }
 
-            public uint id { get; private set; }
+            public Guid id { get; private set; }
             public AutoResetEvent are { get; private set; }
             public byte[] data { get; private set; }
 
@@ -460,7 +519,7 @@ namespace CREA2014
             if (isClosed)
                 throw new ClosedException("channel_already_closed");
 
-            return _read(0);
+            return _read(mainId);
         }
 
         public void WriteBytes(byte[] data)
@@ -468,7 +527,7 @@ namespace CREA2014
             if (isClosed)
                 throw new ClosedException("channel_already_closed");
 
-            _write(0, data);
+            _write(mainId, data);
         }
 
         public SessionChannel NewSession()
@@ -499,9 +558,7 @@ namespace CREA2014
                 isClosed = true;
             }
 
-            _write(uint.MaxValue, new byte[] { });
-
-            //Closed(this, EventArgs.Empty);
+            _write(endId, new byte[] { });
         }
 
         private byte[] ReadBytesInnner(bool isCompressed)
@@ -509,9 +566,22 @@ namespace CREA2014
             int headerBytesLength = 4 + 32 + 4;
 
             byte[] headerBytes = new byte[headerBytesLength];
-            int l;
-            if ((l = ins.Read(headerBytes, 0, headerBytesLength)) != headerBytesLength)
-                throw new InvalidDataException("cant_read_header");
+
+            for (int i = 0; i < 100; i++)
+            {
+                int l = ins.Read(headerBytes, 0, headerBytesLength);
+
+                if (isOutputReadBytesInner)
+                    this.ConsoleWriteLine(l.ToString());
+
+                if (l == 0)
+                    continue;
+                else if (l == headerBytesLength)
+                    break;
+                else
+                    throw new InvalidDataException("cant_read_header");
+            }
+
             //最初の4バイトは本来のデータの長さ
             int dataLength = BitConverter.ToInt32(headerBytes, 0);
             //最後の4バイトは受信データの長さ
@@ -609,26 +679,28 @@ namespace CREA2014
 
     public class SessionChannel : IChannel
     {
-        public SessionChannel(Func<uint, byte[]> __read, Action<uint, byte[]> __write)
+        public SessionChannel(Func<Guid, byte[]> __read, Action<Guid, byte[]> __write)
         {
-            while (id == 0 || id == uint.MaxValue)
-                id = BitConverter.ToUInt32(new byte[] { (byte)256.RandomNum(), (byte)256.RandomNum(), (byte)256.RandomNum(), (byte)256.RandomNum() }, 0);
+            //while (id == 0 || id == uint.MaxValue)
+            //    id = BitConverter.ToUInt32(new byte[] { (byte)256.RandomNum(), (byte)256.RandomNum(), (byte)256.RandomNum(), (byte)256.RandomNum() }, 0);
+
+            id = Guid.NewGuid();
 
             _read = __read;
             _write = __write;
         }
 
-        public SessionChannel(uint _id, Func<uint, byte[]> __read, Action<uint, byte[]> __write)
+        public SessionChannel(Guid _id, Func<Guid, byte[]> __read, Action<Guid, byte[]> __write)
         {
             id = _id;
             _read = __read;
             _write = __write;
         }
 
-        private readonly Func<uint, byte[]> _read;
-        private readonly Action<uint, byte[]> _write;
+        private readonly Func<Guid, byte[]> _read;
+        private readonly Action<Guid, byte[]> _write;
 
-        public uint id { get; private set; }
+        public Guid id { get; private set; }
 
         public event EventHandler Closed = delegate { };
 
@@ -1192,8 +1264,9 @@ namespace CREA2014
 
         protected abstract Network Network { get; }
 
-        protected abstract IPAddress GetIpAddress();
         protected abstract string GetPrivateRsaParameters();
+        protected abstract IPAddress GetIpAddress();
+        protected abstract bool OpenPort();
         protected abstract void NotifyFirstNodeInfo();
         protected abstract void CreateNodeInfo();
         protected abstract FirstNodeInformation[] GetFirstNodeInfos();
@@ -1227,6 +1300,8 @@ namespace CREA2014
 
                     if (IsServer)
                     {
+                        OpenPort().RaiseNotification(this.GetType(), "fail_port_open", 5);
+
                         myFirstNodeInfo = new FirstNodeInformation(myIpAddress, myPortNumber, Network);
 
                         NotifyFirstNodeInfo();
@@ -2276,7 +2351,8 @@ namespace CREA2014
             int sessionProtocolVersion = Math.Min(header.protocolVersion, protocolVersion);
             if (sessionProtocolVersion == 0)
             {
-                Action<string> _ConsoleWriteLine = (text) => string.Join(" ", sc.ChannelAddressText, text).ConsoleWriteLine();
+                //<未改良>拡張メソッドのConsoleWriteLineを直接使うように
+                Action<string> _ConsoleWriteLine = (text) => this.ConsoleWriteLine(string.Join(" ", sc.ChannelAddressText, text));
 
                 if (header.isTemporary)
                 {
@@ -2391,7 +2467,8 @@ namespace CREA2014
                 int sessionProtocolVersion = Math.Min(headerResponse.protocolVersion, protocolVersion);
                 if (sessionProtocolVersion == 0)
                 {
-                    Action<string> _ConsoleWriteLine = (text) => string.Join(" ", sc.ChannelAddressText, text).ConsoleWriteLine();
+                    //<未改良>拡張メソッドのConsoleWriteLineを直接使うように
+                    Action<string> _ConsoleWriteLine = (text) => this.ConsoleWriteLine(string.Join(" ", sc.ChannelAddressText, text));
 
                     if (isTemporary)
                     {
@@ -2479,6 +2556,12 @@ namespace CREA2014
             }
         }
 
+        protected override string GetPrivateRsaParameters()
+        {
+            using (RSACryptoServiceProvider rsacsp = new RSACryptoServiceProvider(2048))
+                return rsacsp.ToXmlString(true);
+        }
+
         protected override IPAddress GetIpAddress()
         {
             UPnPWanService upnpWanService = UPnPWanService.FindUPnPWanService();
@@ -2487,10 +2570,9 @@ namespace CREA2014
             return upnpWanService.GetExternalIPAddress();
         }
 
-        protected override string GetPrivateRsaParameters()
+        protected override bool OpenPort()
         {
-            using (RSACryptoServiceProvider rsacsp = new RSACryptoServiceProvider(2048))
-                return rsacsp.ToXmlString(true);
+            return true;
         }
 
         protected override void NotifyFirstNodeInfo()
@@ -2620,9 +2702,11 @@ namespace CREA2014
 
         protected override Network Network { get { return Network.localtest; } }
 
+        protected override string GetPrivateRsaParameters() { return testPrivateRsaParameters; }
+
         protected override IPAddress GetIpAddress() { return IPAddress.Loopback; }
 
-        protected override string GetPrivateRsaParameters() { return testPrivateRsaParameters; }
+        protected override bool OpenPort() { return true; }
 
         protected override void NotifyFirstNodeInfo()
         {
@@ -2715,7 +2799,7 @@ namespace CREA2014
 
                     ReceivedNewChat(this, chat);
 
-                    //this.StartTask("diffuseNewChat", "diffuseNewChat", () => DiffuseNewChat(nodeInfo, nnc, chat));
+                    this.StartTask("diffuseNewChat", "diffuseNewChat", () => DiffuseNewChat(nodeInfo, nnc, chat));
                 }
             }
             else
@@ -2799,7 +2883,7 @@ namespace CREA2014
 
         public void DiffuseNewChat(Chat chat)
         {
-            if (processedChats.Contains(chat.Id).RaiseNotification(this.GetType(), "alredy_processed_tx", 3))
+            if (processedChats.Contains(chat.Id).RaiseNotification(this.GetType(), "alredy_processed_chat", 3))
                 return;
 
             DiffuseNewChat(null, new NotifyNewChat(chat.Id), chat);
@@ -3229,7 +3313,7 @@ namespace CREA2014
                 nodeInfos = new List<NodeInformation>(kbuckets[distanceLevel]);
             lock (outboundConnectionsLock[distanceLevel])
                 nodeInfosConnected = new List<NodeInformation>(outboundConnections[distanceLevel].Select((elem) => elem.nodeInfo));
-            lock (inboundConnections[distanceLevel])
+            lock (inboundConnectionsLock[distanceLevel])
                 nodeInfosConnected.AddRange(inboundConnections[distanceLevel].Select((elem) => elem.nodeInfo));
 
             foreach (var nodeInfo in nodeInfos)
@@ -3331,6 +3415,9 @@ namespace CREA2014
 
             foreach (Connection connection in connections)
             {
+                if (source != null && connection.nodeInfo.Equals(source))
+                    continue;
+
                 SessionChannel sc2 = null;
                 try
                 {
@@ -3346,9 +3433,12 @@ namespace CREA2014
                 }
                 finally
                 {
-                    sc2.Close();
+                    if (sc2 != null)
+                    {
+                        sc2.Close();
 
-                    connection._ConsoleWriteLine("セッション終わり");
+                        connection._ConsoleWriteLine("セッション終わり");
+                    }
                 }
             }
         }
