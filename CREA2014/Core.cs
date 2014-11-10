@@ -2,19 +2,11 @@
 //2014/11/03 分割
 
 using System;
-using System.Collections;
 using System.Collections.Generic;
-using System.Diagnostics;
 using System.IO;
-using System.IO.Compression;
-using System.Linq;
 using System.Net;
-using System.Net.Sockets;
-using System.Numerics;
+using System.Net.NetworkInformation;
 using System.Reflection;
-using System.Runtime.InteropServices;
-using System.Security;
-using System.Security.Cryptography;
 using System.Text;
 using System.Threading;
 using System.Windows;
@@ -358,6 +350,8 @@ namespace CREA2014
 
                     this.StartTask(string.Empty, string.Empty, () =>
                     {
+
+
                         //string testPrivateRsaParameters;
                         //using (RSACryptoServiceProvider rsacsp = new RSACryptoServiceProvider(2048))
                         //    testPrivateRsaParameters = rsacsp.ToXmlString(true);

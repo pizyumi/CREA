@@ -11,6 +11,7 @@ using System.IO;
 using System.Linq;
 using System.Management;
 using System.Net;
+using System.Net.NetworkInformation;
 using System.Net.Sockets;
 using System.Numerics;
 using System.Reflection;
@@ -3457,6 +3458,64 @@ namespace CREA2014
         [STAThread]
         public static void Main(string[] args)
         {
+            //Console.WriteLine("ネットワーク宛先tネットマスクtゲートウェイtインターフェイスtメトリック");
+            //ManagementObjectSearcher ms = new ManagementObjectSearcher("select * from Win32_IP4RouteTable");
+            //foreach (var m in ms.Get())
+            //{
+            //    var name = m["Name"];
+            //    var mask = m["Mask"];
+            //    var nextHop = m["NextHop"];
+            //    if ((string)nextHop == "0.0.0.0")
+            //    {
+            //        nextHop = "リンク上";
+            //    }
+            //    var interfaceIndex = m["InterfaceIndex"];
+            //    var metric1 = m["Metric1"];
+            //    Console.WriteLine("{0,15}t{1,15}t{2,15}t{3,2}t{4}", name, mask, nextHop, interfaceIndex, metric1);
+            //}
+            //Console.WriteLine();
+            //Console.WriteLine("何かのキーを押してください。");
+            //Console.ReadKey();
+
+
+
+            NetworkInterface[] networkInterfaces = NetworkInterface.GetAllNetworkInterfaces();
+
+
+
+            foreach (var networkInterface in NetworkInterface.GetAllNetworkInterfaces())
+            {
+                Console.WriteLine(networkInterface.Description);
+                Console.WriteLine(networkInterface.Id);
+                Console.WriteLine(networkInterface.IsReceiveOnly.ToString());
+                Console.WriteLine(networkInterface.Name);
+                Console.WriteLine(networkInterface.NetworkInterfaceType.ToString());
+                Console.WriteLine(networkInterface.OperationalStatus.ToString());
+                Console.WriteLine(networkInterface.Speed.ToString());
+                Console.WriteLine(networkInterface.SupportsMulticast.ToString());
+
+
+                try
+                {
+                    IPv4InterfaceProperties ipv4ip = networkInterface.GetIPProperties().GetIPv4Properties();
+                    if (ipv4ip != null)
+                        Console.WriteLine(ipv4ip.Index.ToString());
+                }
+                catch (NetworkInformationException) { }
+
+
+                Console.WriteLine();
+
+            }
+
+
+            IPAddress ipAddress;
+            UPnPWanService upnpWanService = UPnPWanService.FindUPnPWanService();
+            if (upnpWanService != null)
+                ipAddress = upnpWanService.GetExternalIPAddress();
+
+
+
             string argExtract = "extract";
             string argCopy = "copy";
 
@@ -3859,8 +3918,8 @@ namespace CREA2014
 
             TestApplication testApplication;
 #if TEST
-            testApplication = null;
-            //testApplication = new CreaNetworkLocalTestApplication(logger);
+            //testApplication = null;
+            testApplication = new CreaNetworkLocalTestApplication(logger);
 #else
                 testApplication = null;
 #endif
