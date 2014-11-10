@@ -8,6 +8,7 @@ using System.IO;
 using System.IO.Compression;
 using System.Linq;
 using System.Net;
+using System.Net.NetworkInformation;
 using System.Net.Sockets;
 using System.Security.Cryptography;
 using System.Text;
@@ -2564,10 +2565,61 @@ namespace CREA2014
 
         protected override IPAddress GetIpAddress()
         {
-            UPnPWanService upnpWanService = UPnPWanService.FindUPnPWanService();
-            if (upnpWanService == null)
+            IPAddress defaultMachineIpAddress = null;
+            IPAddress defaultGatewayIpAddress = null;
+            int defaultNiIndex = int.MaxValue;
+
+            foreach (NetworkInterface ni in NetworkInterface.GetAllNetworkInterfaces())
+            {
+                if (ni.NetworkInterfaceType == NetworkInterfaceType.Loopback || ni.NetworkInterfaceType == NetworkInterfaceType.Tunnel)
+                    continue;
+
+                try
+                {
+                    IPInterfaceProperties ipip = ni.GetIPProperties();
+                    IPAddress machineIpAddress = ipip.UnicastAddresses.Select((elem) => elem.Address).FirstOrDefault((elem) => elem.AddressFamily == AddressFamily.InterNetwork);
+                    IPAddress gatewayIpAddress = ipip.GatewayAddresses.Select((elem) => elem.Address).FirstOrDefault((elem) => elem.AddressFamily == AddressFamily.InterNetwork);
+
+                    if (machineIpAddress == null || gatewayIpAddress == null)
+                        continue;
+
+                    int niIndex = ipip.GetIPv4Properties().Index;
+                    if (niIndex < defaultNiIndex)
+                    {
+                        defaultMachineIpAddress = machineIpAddress;
+                        defaultGatewayIpAddress = gatewayIpAddress;
+                        defaultNiIndex = niIndex;
+                    }
+                }
+                catch (NetworkInformationException) { }
+            }
+
+            if (defaultNiIndex == int.MaxValue)
                 return null;
-            return upnpWanService.GetExternalIPAddress();
+
+            UPnP2 upnp = new UPnP2(defaultMachineIpAddress.ToString(), defaultGatewayIpAddress.ToString());
+
+            try
+            {
+                return IPAddress.Parse(upnp.GetExternalIPAddress());
+            }
+            catch (Exception ex)
+            {
+            }
+
+            try
+            {
+                UPnPWanService upnpWanService = UPnPWanService.FindUPnPWanService();
+                if (upnpWanService == null)
+                    return null;
+                return upnpWanService.GetExternalIPAddress();
+            }
+            catch (Exception ex)
+            {
+
+            }
+
+            return null;
         }
 
         protected override bool OpenPort()
