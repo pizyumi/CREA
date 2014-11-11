@@ -2527,7 +2527,7 @@ namespace CREA2014
         }
     }
 
-    public abstract class CreaNode : CREANODEBASE
+    public class CreaNode : CREANODEBASE
     {
         public CreaNode(ushort _portNumber, int _creaVersion, string _appnameWithVersion, FirstNodeInfosDatabase _fnisDatabase)
             : base(_portNumber, _creaVersion, _appnameWithVersion)
@@ -2535,12 +2535,40 @@ namespace CREA2014
             fnisDatabase = _fnisDatabase;
 
             fnis = new List<FirstNodeInformation>();
+
+            processedTransactions = new TransactionCollection();
+            processedChats = new ChatCollection();
         }
 
         private readonly FirstNodeInfosDatabase fnisDatabase;
         private readonly List<FirstNodeInformation> fnis;
 
         private static readonly string fnisRegistryURL = "http://www.pizyumi.com/nodes.aspx?add=";
+
+        private NodeInformation dhtNodeInfo;
+
+        private object[] kbucketsLocks;
+        private List<NodeInformation>[] kbuckets;
+
+        private object[] outboundConnectionsLock;
+        private List<Connection>[] outboundConnections;
+        private object[] inboundConnectionsLock;
+        private List<Connection>[] inboundConnections;
+
+        private bool isInitialized = false;
+
+        private static readonly int keepConnectionNodeInfosMin = 4;
+        private static readonly int outboundConnectionsMax = 2;
+        private static readonly int inboundConnectionsMax = 4;
+
+        public int NodeIdSizeByte { get { return dhtNodeInfo.Id.SizeByte; } }
+        public int NodeIdSizeBit { get { return dhtNodeInfo.Id.SizeBit; } }
+
+        private readonly TransactionCollection processedTransactions;
+        private readonly ChatCollection processedChats;
+
+        public event EventHandler<Transaction> ReceivedNewTransaction = delegate { };
+        public event EventHandler<Chat> ReceivedNewChat = delegate { };
 
         protected override Network Network
         {
@@ -2568,7 +2596,6 @@ namespace CREA2014
             int defaultNiIndex = int.MaxValue;
 
             foreach (NetworkInterface ni in NetworkInterface.GetAllNetworkInterfaces())
-            {
                 try
                 {
                     IPInterfaceProperties ipip = ni.GetIPProperties();
@@ -2596,7 +2623,6 @@ namespace CREA2014
                     }
                 }
                 catch (NetworkInformationException) { }
-            }
 
             if ((defaultNiIndex == int.MaxValue).RaiseWarning(this.GetType(), "fail_network_interface", 5))
                 return null;
@@ -2687,6 +2713,555 @@ namespace CREA2014
                 if (fni != null && !fnis.Contains(fni))
                     fnis.Add(fni);
             }
+        }
+
+        protected NodeInformation[] GetNodeInfos()
+        {
+            List<NodeInformation> nodeInfos = new List<NodeInformation>();
+
+            if (myNodeInfo != null)
+                nodeInfos.Add(myNodeInfo);
+
+            if (isInitialized)
+                for (int i = 0; i < NodeIdSizeBit; i++)
+                    lock (kbucketsLocks[i])
+                        nodeInfos.AddRange(kbuckets[i]);
+
+            return nodeInfos.ToArray();
+        }
+
+        protected override void InboundProtocol(NodeInformation nodeInfo, IChannel sc, Action<string> _ConsoleWriteLine)
+        {
+            Message message = SHAREDDATA.FromBinary<Message>(sc.ReadBytes());
+
+            _ConsoleWriteLine(message.name.ToString());
+
+            if (message.version != 0)
+                throw new NotSupportedException();
+
+            if (message.name == MessageName.reqNodeInfos)
+                sc.WriteBytes(new ResNodeInfos(GetNodeInfos()).ToBinary());
+            else if (message.name == MessageName.notifyNewTransaction)
+            {
+                NotifyNewTransaction nnt = SHAREDDATA.FromBinary<NotifyNewTransaction>(sc.ReadBytes());
+                bool isNew = !processedTransactions.Contains(nnt.hash);
+                sc.WriteBytes(BitConverter.GetBytes(isNew));
+                if (isNew)
+                {
+                    ResTransaction rt = SHAREDDATA.FromBinary<ResTransaction>(sc.ReadBytes());
+                    TransferTransaction tt = rt.transaction as TransferTransaction;
+
+                    if (tt == null)
+                        throw new InvalidOperationException();
+                    if (!nnt.hash.Equals(tt.Id))
+                        throw new InvalidOperationException();
+
+                    if (!processedTransactions.AddTransaction(tt))
+                        return;
+
+                    ReceivedNewTransaction(this, tt);
+
+                    this.StartTask("diffuseNewTransactions", "diffuseNewTransactions", () => DiffuseNewTransaction(nodeInfo, nnt, rt));
+                }
+            }
+            else if (message.name == MessageName.NotifyNewChat)
+            {
+                NotifyNewChat nnc = SHAREDDATA.FromBinary<NotifyNewChat>(sc.ReadBytes());
+
+                _ConsoleWriteLine("read_nnc");
+
+                bool isNew = !processedChats.Contains(nnc.Id);
+                sc.WriteBytes(BitConverter.GetBytes(isNew));
+
+                _ConsoleWriteLine("write_isnew");
+
+                if (isNew)
+                {
+                    Chat chat = SHAREDDATA.FromBinary<Chat>(sc.ReadBytes());
+
+                    _ConsoleWriteLine("read_chat");
+
+                    if (chat == null)
+                        throw new InvalidOperationException();
+                    if (nnc.Id != chat.Id)
+                        throw new InvalidOperationException();
+
+                    if (!processedChats.AddAccount(chat))
+                        return;
+
+                    ReceivedNewChat(this, chat);
+
+                    this.StartTask("diffuseNewChat", "diffuseNewChat", () => DiffuseNewChat(nodeInfo, nnc, chat));
+                }
+            }
+            else
+                throw new NotSupportedException("protocol_not_supported");
+        }
+
+        protected override SHAREDDATA[] OutboundProtocol(NodeInformation nodeInfo, Message message, SHAREDDATA[] datas, IChannel sc, Action<string> _ConsoleWriteLine)
+        {
+            if (message.version != 0)
+                throw new NotSupportedException();
+
+            sc.WriteBytes(message.ToBinary());
+
+            _ConsoleWriteLine(message.name.ToString());
+
+            if (message.name == MessageName.reqNodeInfos)
+                return new SHAREDDATA[] { SHAREDDATA.FromBinary<ResNodeInfos>(sc.ReadBytes()) };
+            else if (message.name == MessageName.notifyNewTransaction)
+            {
+                if (datas.Length != 2)
+                    throw new InvalidOperationException();
+
+                NotifyNewTransaction nnt = datas[0] as NotifyNewTransaction;
+                ResTransaction rt = datas[1] as ResTransaction;
+                TransferTransaction tt = rt.transaction as TransferTransaction;
+
+                if (nnt == null || rt == null)
+                    throw new InvalidOperationException();
+                if (tt == null)
+                    throw new InvalidOperationException();
+                if (!nnt.hash.Equals(tt.Id))
+                    throw new InvalidOperationException();
+
+                sc.WriteBytes(nnt.ToBinary());
+                if (BitConverter.ToBoolean(sc.ReadBytes(), 0))
+                    sc.WriteBytes(rt.ToBinary());
+
+                return new SHAREDDATA[] { };
+            }
+            else if (message.name == MessageName.NotifyNewChat)
+            {
+                if (datas.Length != 2)
+                    throw new InvalidOperationException();
+
+                NotifyNewChat nnc = datas[0] as NotifyNewChat;
+                Chat chat = datas[1] as Chat;
+
+                if (nnc == null || chat == null)
+                    throw new InvalidOperationException();
+                if (nnc.Id != chat.Id)
+                    throw new InvalidOperationException();
+
+                sc.WriteBytes(nnc.ToBinary());
+
+                _ConsoleWriteLine("write_nnc");
+
+                if (BitConverter.ToBoolean(sc.ReadBytes(), 0))
+                {
+                    _ConsoleWriteLine("read_isnew");
+
+                    sc.WriteBytes(chat.ToBinary());
+
+                    _ConsoleWriteLine("write_chat");
+                }
+
+                return new SHAREDDATA[] { };
+            }
+            else
+                throw new NotSupportedException("protocol_not_supported");
+        }
+
+        public void DiffuseNewTransaction(Transaction transaction)
+        {
+            if (processedTransactions.Contains(transaction.Id).RaiseNotification(this.GetType(), "alredy_processed_tx", 3))
+                return;
+
+            DiffuseNewTransaction(null, new NotifyNewTransaction(transaction.Id), new ResTransaction(transaction));
+        }
+
+        private void DiffuseNewTransaction(NodeInformation source, NotifyNewTransaction nnt, ResTransaction rt) { Diffuse(source, new Message(MessageName.notifyNewTransaction, 0), nnt, rt); }
+
+        public void DiffuseNewChat(Chat chat)
+        {
+            if (processedChats.Contains(chat.Id).RaiseNotification(this.GetType(), "alredy_processed_chat", 3))
+                return;
+
+            DiffuseNewChat(null, new NotifyNewChat(chat.Id), chat);
+        }
+
+        private void DiffuseNewChat(NodeInformation source, NotifyNewChat nnc, Chat chat) { Diffuse(source, new Message(MessageName.NotifyNewChat, 0), nnc, chat); }
+
+        protected override bool IsContinue { get { return true; } }
+        protected override bool IsTemporaryContinue { get { return true; } }
+
+        protected override bool IsAlreadyConnected(NodeInformation nodeInfo)
+        {
+            if (isInitialized)
+            {
+                int distanceLevel = GetDistanceLevel(nodeInfo);
+
+                if (outboundConnections[distanceLevel].Count > 0)
+                    lock (outboundConnectionsLock[distanceLevel])
+                        if (outboundConnections[distanceLevel].Where((elem) => elem.nodeInfo.Equals(nodeInfo)).FirstOrDefault() != null)
+                            return true;
+
+                if (inboundConnections[distanceLevel].Count > 0)
+                    lock (inboundConnectionsLock[distanceLevel])
+                        if (inboundConnections[distanceLevel].Where((elem) => elem.nodeInfo.Equals(nodeInfo)).FirstOrDefault() != null)
+                            return true;
+            }
+
+            return false;
+        }
+
+        protected override void UpdateNodeState(NodeInformation nodeInfo, bool isSucceeded)
+        {
+            //<未改良>単純な追加と削除ではなく優先順位をつけるべき？
+            if (isInitialized)
+            {
+                int distanceLevel = GetDistanceLevel(nodeInfo);
+
+                if (isSucceeded)
+                {
+                    lock (kbucketsLocks[distanceLevel])
+                        if (!kbuckets[distanceLevel].Contains(nodeInfo))
+                            kbuckets[distanceLevel].Add(nodeInfo);
+                }
+                else if (kbuckets[distanceLevel].Count > 0)
+                    lock (kbucketsLocks[distanceLevel])
+                        if (kbuckets[distanceLevel].Contains(nodeInfo))
+                            kbuckets[distanceLevel].Remove(nodeInfo);
+            }
+        }
+
+        protected override void UpdateNodeState(IPAddress ipAddress, ushort portNumber, bool isSucceeded) { }
+
+        protected override bool IsListenerCanContinue(NodeInformation nodeInfo)
+        {
+            return isInitialized && GetDistanceLevel(nodeInfo).Pipe((distanceLevel) => distanceLevel != -1 && inboundConnections[distanceLevel].Count < inboundConnectionsMax);
+        }
+
+        protected override bool IsWantToContinue(NodeInformation nodeInfo)
+        {
+            return isInitialized && GetDistanceLevel(nodeInfo).Pipe((distanceLevel) => distanceLevel != -1 && inboundConnections[distanceLevel].Count < inboundConnectionsMax);
+        }
+
+        protected override bool IsClientCanContinue(NodeInformation nodeInfo)
+        {
+            return isInitialized && GetDistanceLevel(nodeInfo).Pipe((distanceLevel) => distanceLevel != -1 && outboundConnections[distanceLevel].Count < outboundConnectionsMax);
+        }
+
+        protected override void InboundContinue(NodeInformation nodeInfo, SocketChannel sc, Action<string> _ConsoleWriteLine)
+        {
+            Connection connection = new Connection(nodeInfo, sc, _ConsoleWriteLine);
+            int distanceLevel = GetDistanceLevel(nodeInfo);
+
+            lock (inboundConnectionsLock[distanceLevel])
+                inboundConnections[distanceLevel].Add(connection);
+
+            sc.Closed += (sender, e) => RemoveAndRefillConnections(distanceLevel, connection, inboundConnectionsLock, inboundConnections, inboundConnectionsMax);
+            sc.Failed += (sender, e) => RemoveAndRefillConnections(distanceLevel, connection, inboundConnectionsLock, inboundConnections, inboundConnectionsMax);
+
+            Continue(nodeInfo, sc, _ConsoleWriteLine);
+        }
+
+        protected override void OutboundContinue(NodeInformation nodeInfo, SocketChannel sc, Action<string> _ConsoleWriteLine)
+        {
+            Connection connection = new Connection(nodeInfo, sc, _ConsoleWriteLine);
+            int distanceLevel = GetDistanceLevel(nodeInfo);
+
+            lock (outboundConnectionsLock[distanceLevel])
+                outboundConnections[distanceLevel].Add(connection);
+
+            sc.Closed += (sender, e) => RemoveAndRefillConnections(distanceLevel, connection, outboundConnectionsLock, outboundConnections, outboundConnectionsMax);
+            sc.Failed += (sender, e) => RemoveAndRefillConnections(distanceLevel, connection, outboundConnectionsLock, outboundConnections, outboundConnectionsMax);
+
+            Continue(nodeInfo, sc, _ConsoleWriteLine);
+        }
+
+        private void RemoveAndRefillConnections(int distanceLevel, Connection connection, object[] locks, List<Connection>[] connections, int max)
+        {
+            lock (locks[distanceLevel])
+                connections[distanceLevel].Remove(connection);
+
+            List<NodeInformation> nodeInfos;
+            List<NodeInformation> nodeInfosConnected;
+            lock (kbucketsLocks[distanceLevel])
+                nodeInfos = new List<NodeInformation>(kbuckets[distanceLevel]);
+            lock (outboundConnectionsLock[distanceLevel])
+                nodeInfosConnected = new List<NodeInformation>(outboundConnections[distanceLevel].Select((elem) => elem.nodeInfo));
+            lock (inboundConnectionsLock[distanceLevel])
+                nodeInfosConnected.AddRange(inboundConnections[distanceLevel].Select((elem) => elem.nodeInfo));
+
+            foreach (var nodeInfo in nodeInfos)
+                if (connections[distanceLevel].Count < max)
+                {
+                    if (!nodeInfosConnected.Contains(nodeInfo))
+                        Connect(nodeInfo, false, () => { }, null);
+                }
+                else
+                    break;
+        }
+
+        private void Continue(NodeInformation nodeInfo, SocketChannel sc, Action<string> _ConsoleWriteLine)
+        {
+            _ConsoleWriteLine("常時接続");
+
+            sc.Sessioned += (sender, e) =>
+            {
+                try
+                {
+                    _ConsoleWriteLine("新しいセッション");
+
+                    InboundProtocol(nodeInfo, e, _ConsoleWriteLine);
+                }
+                catch (Exception ex)
+                {
+                    this.RaiseError("inbound_session", 5, ex);
+                }
+                finally
+                {
+                    e.Close();
+
+                    _ConsoleWriteLine("セッション終わり");
+                }
+            };
+        }
+
+        protected override SHAREDDATA[] Request(NodeInformation nodeInfo, Message message, params SHAREDDATA[] datas)
+        {
+            Connection connection = null;
+            if (isInitialized)
+            {
+                int distanceLevel = GetDistanceLevel(myNodeInfo);
+
+                if (outboundConnections[distanceLevel].Count > 0)
+                    lock (outboundConnectionsLock[distanceLevel])
+                        connection = outboundConnections[distanceLevel].Where((elem) => elem.nodeInfo.Equals(nodeInfo)).FirstOrDefault();
+
+                if (connection == null)
+                    if (inboundConnections[distanceLevel].Count > 0)
+                        lock (inboundConnectionsLock[distanceLevel])
+                            connection = inboundConnections[distanceLevel].Where((elem) => elem.nodeInfo.Equals(nodeInfo)).FirstOrDefault();
+            }
+
+            if (connection == null)
+                return Connect(nodeInfo, true, () => { }, message, datas);
+
+            SessionChannel sc2 = null;
+            try
+            {
+                sc2 = connection.sc.NewSession();
+
+                connection._ConsoleWriteLine("新しいセッション");
+
+                return OutboundProtocol(nodeInfo, message, datas, sc2, connection._ConsoleWriteLine);
+            }
+            catch (Exception ex)
+            {
+                this.RaiseError("outbound_session", 5, ex);
+            }
+            finally
+            {
+                if (sc2 != null)
+                {
+                    sc2.Close();
+
+                    connection._ConsoleWriteLine("セッション終わり");
+                }
+            }
+
+            return null;
+        }
+
+        protected override void Diffuse(NodeInformation source, Message message, params SHAREDDATA[] datas)
+        {
+            if (!isInitialized)
+                throw new InvalidOperationException("not_yet_connections_keeped");
+
+            List<Connection> connections = new List<Connection>();
+            for (int i = 0; i < NodeIdSizeBit; i++)
+            {
+                if (outboundConnections[i].Count > 0)
+                    lock (outboundConnectionsLock[i])
+                        connections.AddRange(outboundConnections[i]);
+                if (inboundConnections[i].Count > 0)
+                    lock (inboundConnectionsLock[i])
+                        connections.AddRange(inboundConnections[i]);
+            }
+
+            foreach (Connection connection in connections)
+            {
+                if (source != null && connection.nodeInfo.Equals(source))
+                    continue;
+
+                SessionChannel sc2 = null;
+                try
+                {
+                    sc2 = connection.sc.NewSession();
+
+                    connection._ConsoleWriteLine("新しいセッション");
+
+                    OutboundProtocol(connection.nodeInfo, message, datas, sc2, connection._ConsoleWriteLine);
+                }
+                catch (Exception ex)
+                {
+                    this.RaiseError("diffuse", 5, ex);
+                }
+                finally
+                {
+                    if (sc2 != null)
+                    {
+                        sc2.Close();
+
+                        connection._ConsoleWriteLine("セッション終わり");
+                    }
+                }
+            }
+        }
+
+        private void Initialize()
+        {
+            kbuckets = new List<NodeInformation>[NodeIdSizeBit];
+            kbucketsLocks = new object[NodeIdSizeBit];
+
+            outboundConnections = new List<Connection>[NodeIdSizeBit];
+            outboundConnectionsLock = new object[NodeIdSizeBit];
+            inboundConnections = new List<Connection>[NodeIdSizeBit];
+            inboundConnectionsLock = new object[NodeIdSizeBit];
+
+            for (int i = 0; i < NodeIdSizeBit; i++)
+            {
+                kbuckets[i] = new List<NodeInformation>();
+                kbucketsLocks[i] = new object();
+
+                outboundConnections[i] = new List<Connection>();
+                outboundConnectionsLock[i] = new object();
+                inboundConnections[i] = new List<Connection>();
+                inboundConnectionsLock[i] = new object();
+            }
+
+            isInitialized = true;
+        }
+
+        //<未実装>別スレッドで常時動かすべき？
+        protected override void KeepConnections()
+        {
+            if (myNodeInfo != null)
+            {
+                dhtNodeInfo = myNodeInfo;
+
+                Initialize();
+            }
+
+            if (firstNodeInfos.Length == 0)
+            {
+                //<未実装>初期ノード情報がない場合の処理
+                //選択肢1 -> 10分くらい待って再度初期ノード情報取得
+                //選択肢2 -> 使用者に任せる（使用者によって手動で初期ノード情報が追加された時に常時接続再実行）
+
+                return;
+            }
+
+            List<NodeInformation> nodeInfos = new List<NodeInformation>();
+            for (int i = 0; i < firstNodeInfos.Length && nodeInfos.Count < keepConnectionNodeInfosMin; i++)
+            {
+                SHAREDDATA[] resDatas = Connect(firstNodeInfos[i].ipAddress, firstNodeInfos[i].portNumber, true, () => { }, new Message(MessageName.reqNodeInfos, 0));
+                ResNodeInfos resNodeInfos;
+                if (resDatas != null && resDatas.Length == 1 && (resNodeInfos = resDatas[0] as ResNodeInfos) != null)
+                    //<要検討>更新時間順に並び替えるべき？
+                    nodeInfos.AddRange(resNodeInfos.nodeInfos);
+            }
+            if (nodeInfos.Count == 0)
+            {
+                //<未実装>初期ノードからノード情報を取得できなかった場合の処理
+                //選択肢1 -> 10分くらい待って再度ノード情報取得
+                //選択肢2 -> 使用者に任せる（使用者によって手動で初期ノード情報が追加された時に常時接続再実行）
+
+                return;
+            }
+
+            if (myNodeInfo == null)
+            {
+                dhtNodeInfo = nodeInfos[0];
+
+                Initialize();
+            }
+
+            foreach (var nodeInfo in nodeInfos)
+            {
+                int distanceLevel = GetDistanceLevel(nodeInfo);
+                if (distanceLevel != -1)
+                    lock (kbucketsLocks[distanceLevel])
+                        kbuckets[distanceLevel].Add(nodeInfo);
+            }
+
+            for (int i = 0; i < NodeIdSizeBit; i++)
+            {
+                if (kbuckets[i].Count == 0 || outboundConnections[i].Count >= outboundConnectionsMax)
+                    continue;
+
+                lock (kbucketsLocks[i])
+                    nodeInfos = new List<NodeInformation>(kbuckets[i]);
+
+                foreach (var nodeInfo in nodeInfos)
+                    if (outboundConnections[i].Count < outboundConnectionsMax)
+                    {
+                        if (!IsAlreadyConnected(nodeInfo))
+                            Connect(nodeInfo, false, () => { }, null);
+                    }
+                    else
+                        break;
+            }
+
+            this.RaiseNotification("keep_conn_completed", 5);
+        }
+
+        private int GetDistanceLevel(NodeInformation nodeInfo2)
+        {
+            Sha256Hash xor = dhtNodeInfo.Id.XOR(nodeInfo2.Id);
+
+            int distanceLevel = NodeIdSizeBit - 1;
+
+            int? minus = null;
+            for (int i = 0, j = 0; i < NodeIdSizeByte && (!minus.HasValue || minus.Value == 8); i++)
+                for (j = 0, minus = null; j < distanceParameters.Length && minus == null; j++)
+                    if (xor.hash[i] >= distanceParameters[j].hashByteMin && xor.hash[i] <= distanceParameters[j].hashByteMax)
+                        distanceLevel -= (minus = distanceParameters[j].minus).Value;
+
+            return distanceLevel;
+        }
+
+        private static readonly DistanceParameter[] distanceParameters = new DistanceParameter[]{
+            new DistanceParameter(0, 0, 8), 
+            new DistanceParameter(1, 1, 7), 
+            new DistanceParameter(2, 3, 6), 
+            new DistanceParameter(4, 7, 5), 
+            new DistanceParameter(8, 15, 4), 
+            new DistanceParameter(16, 31, 3), 
+            new DistanceParameter(32, 63, 2), 
+            new DistanceParameter(64, 127, 1), 
+            new DistanceParameter(128, 255, 0), 
+        };
+
+        public class DistanceParameter
+        {
+            public DistanceParameter(int _hashByteMin, int _hashByteMax, int _minus)
+            {
+                hashByteMin = _hashByteMin;
+                hashByteMax = _hashByteMax;
+                minus = _minus;
+            }
+
+            public int hashByteMin { get; private set; }
+            public int hashByteMax { get; private set; }
+            public int minus { get; private set; }
+        }
+
+        public class Connection
+        {
+            public Connection(NodeInformation _nodeInfo, SocketChannel _sc, Action<string> __ConsoleWriteLine)
+            {
+                nodeInfo = _nodeInfo;
+                sc = _sc;
+                _ConsoleWriteLine = __ConsoleWriteLine;
+            }
+
+            public readonly NodeInformation nodeInfo;
+            public readonly SocketChannel sc;
+            public readonly Action<string> _ConsoleWriteLine;
         }
     }
 

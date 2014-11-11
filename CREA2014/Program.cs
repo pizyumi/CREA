@@ -3458,61 +3458,43 @@ namespace CREA2014
         [STAThread]
         public static void Main(string[] args)
         {
-            //Console.WriteLine("ネットワーク宛先tネットマスクtゲートウェイtインターフェイスtメトリック");
-            //ManagementObjectSearcher ms = new ManagementObjectSearcher("select * from Win32_IP4RouteTable");
-            //foreach (var m in ms.Get())
-            //{
-            //    var name = m["Name"];
-            //    var mask = m["Mask"];
-            //    var nextHop = m["NextHop"];
-            //    if ((string)nextHop == "0.0.0.0")
-            //    {
-            //        nextHop = "リンク上";
-            //    }
-            //    var interfaceIndex = m["InterfaceIndex"];
-            //    var metric1 = m["Metric1"];
-            //    Console.WriteLine("{0,15}t{1,15}t{2,15}t{3,2}t{4}", name, mask, nextHop, interfaceIndex, metric1);
-            //}
-            //Console.WriteLine();
-            //Console.WriteLine("何かのキーを押してください。");
-            //Console.ReadKey();
+            string defaultNiName = null;
+            IPAddress defaultMachineIpAddress = null;
+            IPAddress defaultGatewayIpAddress = null;
+            int defaultNiIndex = int.MaxValue;
 
-
-
-            NetworkInterface[] networkInterfaces = NetworkInterface.GetAllNetworkInterfaces();
-
-
-
-            foreach (var networkInterface in NetworkInterface.GetAllNetworkInterfaces())
-            {
-                Console.WriteLine(networkInterface.Description);
-                Console.WriteLine(networkInterface.Id);
-                Console.WriteLine(networkInterface.IsReceiveOnly.ToString());
-                Console.WriteLine(networkInterface.Name);
-                Console.WriteLine(networkInterface.NetworkInterfaceType.ToString());
-                Console.WriteLine(networkInterface.OperationalStatus.ToString());
-                Console.WriteLine(networkInterface.Speed.ToString());
-                Console.WriteLine(networkInterface.SupportsMulticast.ToString());
-
-
+            foreach (NetworkInterface ni in NetworkInterface.GetAllNetworkInterfaces())
                 try
                 {
-                    IPv4InterfaceProperties ipv4ip = networkInterface.GetIPProperties().GetIPv4Properties();
-                    if (ipv4ip != null)
-                        Console.WriteLine(ipv4ip.Index.ToString());
+                    IPInterfaceProperties ipip = ni.GetIPProperties();
+
+                    if (ipip == null)
+                        continue;
+
+                    IPAddress machineIpAddress = ipip.UnicastAddresses.Select((elem) => elem.Address).FirstOrDefault((elem) => elem.AddressFamily == AddressFamily.InterNetwork);
+                    IPAddress gatewayIpAddress = ipip.GatewayAddresses.Select((elem) => elem.Address).FirstOrDefault((elem) => elem.AddressFamily == AddressFamily.InterNetwork);
+
+                    if (machineIpAddress == null || gatewayIpAddress == null)
+                        continue;
+
+                    IPv4InterfaceProperties ipv4ip = ipip.GetIPv4Properties();
+
+                    if (ipv4ip == null)
+                        continue;
+
+                    if (ipv4ip.Index < defaultNiIndex)
+                    {
+                        defaultNiName = ni.Name;
+                        defaultMachineIpAddress = machineIpAddress;
+                        defaultGatewayIpAddress = gatewayIpAddress;
+                        defaultNiIndex = ipv4ip.Index;
+                    }
                 }
                 catch (NetworkInformationException) { }
 
+            UPnP2 upnp = new UPnP2(defaultMachineIpAddress.ToString(), defaultGatewayIpAddress.ToString());
 
-                Console.WriteLine();
-
-            }
-
-
-            IPAddress ipAddress;
-            UPnPWanService upnpWanService = UPnPWanService.FindUPnPWanService();
-            if (upnpWanService != null)
-                ipAddress = upnpWanService.GetExternalIPAddress();
+            string returnString = upnp.GetExternalIPAddress();
 
 
 

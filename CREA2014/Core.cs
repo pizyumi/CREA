@@ -41,7 +41,9 @@ namespace CREA2014
         private readonly string appnameWithVersion;
 
         //試験用
-        private CreaNodeLocalTestContinueDHT creaNode;
+        private CreaNodeLocalTestContinueDHT creaNodeTest;
+
+        private CreaNode creaNode;
 
         private AccountHoldersDatabase ahDatabase;
         private BlockChainDatabase bcDatabase;
@@ -180,8 +182,8 @@ namespace CREA2014
             mining = new Mining();
 
             //試験用（ポート番号は暫定）
-            creaNode = new CreaNodeLocalTestContinueDHT(7777, creaVersion, appnameWithVersion);
-            creaNode.ReceivedNewTransaction += (sender, e) =>
+            creaNodeTest = new CreaNodeLocalTestContinueDHT(7777, creaVersion, appnameWithVersion);
+            creaNodeTest.ReceivedNewTransaction += (sender, e) =>
             {
             };
 
@@ -490,7 +492,7 @@ namespace CREA2014
 
                         bool isFirst = true;
                         int portNumber = 0;
-                        CreaNodeLocalTestContinueDHT cnlt = null;
+                        CreaNode cnlt = null;
                         tb.KeyDown += (sender2, e2) =>
                         {
                             if (e2.Key != Key.Enter)
@@ -500,7 +502,9 @@ namespace CREA2014
                             {
                                 portNumber = int.Parse(tb.Text);
 
-                                cnlt = new CreaNodeLocalTestContinueDHT((ushort)portNumber, 0, "test");
+                                FirstNodeInfosDatabase fnidb = new FirstNodeInfosDatabase(Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location));
+
+                                cnlt = new CreaNode((ushort)portNumber, 0, "test", fnidb);
                                 cnlt.Start();
 
                                 cnlt.ReceivedNewChat += (sender3, e3) =>
