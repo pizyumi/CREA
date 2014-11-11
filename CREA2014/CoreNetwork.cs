@@ -1266,8 +1266,7 @@ namespace CREA2014
         protected abstract Network Network { get; }
 
         protected abstract string GetPrivateRsaParameters();
-        protected abstract IPAddress GetIpAddress();
-        protected abstract bool OpenPort();
+        protected abstract IPAddress GetIpAddressAndOpenPort();
         protected abstract void NotifyFirstNodeInfo();
         protected abstract void CreateNodeInfo();
         protected abstract FirstNodeInformation[] GetFirstNodeInfos();
@@ -1296,13 +1295,11 @@ namespace CREA2014
                     this.RaiseNotification("port0", 5);
                 else
                 {
-                    //IPアドレスの取得には時間が掛かる可能性がある
-                    myIpAddress = GetIpAddress();
+                    //IPアドレスの取得やポートの開放には時間が掛かる可能性がある
+                    myIpAddress = GetIpAddressAndOpenPort();
 
                     if (IsServer)
                     {
-                        OpenPort().RaiseNotification(this.GetType(), "fail_port_open", 5);
-
                         myFirstNodeInfo = new FirstNodeInformation(myIpAddress, myPortNumber, Network);
 
                         NotifyFirstNodeInfo();
@@ -2277,8 +2274,8 @@ namespace CREA2014
 
         private static readonly int protocolVersion = 0;
 
-        private readonly int creaVersion;
-        private readonly string appnameWithVersion;
+        protected readonly int creaVersion;
+        protected readonly string appnameWithVersion;
 
         public NodeInformation myNodeInfo { get; private set; }
 
@@ -2563,68 +2560,98 @@ namespace CREA2014
                 return rsacsp.ToXmlString(true);
         }
 
-        protected override IPAddress GetIpAddress()
+        protected override IPAddress GetIpAddressAndOpenPort()
         {
+            string defaultNiName = null;
             IPAddress defaultMachineIpAddress = null;
             IPAddress defaultGatewayIpAddress = null;
             int defaultNiIndex = int.MaxValue;
 
             foreach (NetworkInterface ni in NetworkInterface.GetAllNetworkInterfaces())
             {
-                if (ni.NetworkInterfaceType == NetworkInterfaceType.Loopback || ni.NetworkInterfaceType == NetworkInterfaceType.Tunnel)
-                    continue;
-
                 try
                 {
                     IPInterfaceProperties ipip = ni.GetIPProperties();
+
+                    if (ipip == null)
+                        continue;
+
                     IPAddress machineIpAddress = ipip.UnicastAddresses.Select((elem) => elem.Address).FirstOrDefault((elem) => elem.AddressFamily == AddressFamily.InterNetwork);
                     IPAddress gatewayIpAddress = ipip.GatewayAddresses.Select((elem) => elem.Address).FirstOrDefault((elem) => elem.AddressFamily == AddressFamily.InterNetwork);
 
                     if (machineIpAddress == null || gatewayIpAddress == null)
                         continue;
 
-                    int niIndex = ipip.GetIPv4Properties().Index;
-                    if (niIndex < defaultNiIndex)
+                    IPv4InterfaceProperties ipv4ip = ipip.GetIPv4Properties();
+
+                    if (ipv4ip == null)
+                        continue;
+
+                    if (ipv4ip.Index < defaultNiIndex)
                     {
+                        defaultNiName = ni.Name;
                         defaultMachineIpAddress = machineIpAddress;
                         defaultGatewayIpAddress = gatewayIpAddress;
-                        defaultNiIndex = niIndex;
+                        defaultNiIndex = ipv4ip.Index;
                     }
                 }
                 catch (NetworkInformationException) { }
             }
 
-            if (defaultNiIndex == int.MaxValue)
+            if ((defaultNiIndex == int.MaxValue).RaiseWarning(this.GetType(), "fail_network_interface", 5))
                 return null;
 
+            this.RaiseNotification("succeed_network_interface", 5, defaultNiName);
+
             UPnP2 upnp = new UPnP2(defaultMachineIpAddress.ToString(), defaultGatewayIpAddress.ToString());
+            UPnPWanService upnpWanService = null;
 
             try
             {
-                return IPAddress.Parse(upnp.GetExternalIPAddress());
+                upnp.AddPortMapping(myPortNumber, myPortNumber, "TCP", appnameWithVersion);
+
+                this.RaiseNotification("succeed_open_port", 5);
             }
             catch (Exception ex)
             {
+                this.RaiseError("fail_open_port", 5, ex);
+
+                try
+                {
+                    upnpWanService = UPnPWanService.FindUPnPWanService();
+
+                    if (upnpWanService != null)
+                        upnpWanService.AddPortMapping(null, myPortNumber, "TCP", myPortNumber, upnpWanService.GetLocalIPAddress(), true, appnameWithVersion, 0);
+
+                    this.RaiseNotification("succeed_open_port", 5);
+                }
+                catch (Exception ex2)
+                {
+                    this.RaiseError("fail_open_port", 5, ex2);
+                }
             }
 
             try
             {
-                UPnPWanService upnpWanService = UPnPWanService.FindUPnPWanService();
+                return IPAddress.Parse(upnp.GetExternalIPAddress()).Pipe(() => this.RaiseNotification("succeed_get_global_ip", 5));
+            }
+            catch (Exception ex)
+            {
+                this.RaiseError("fail_get_global_ip", 5, ex);
+            }
+
+            try
+            {
                 if (upnpWanService == null)
                     return null;
-                return upnpWanService.GetExternalIPAddress();
+                return upnpWanService.GetExternalIPAddress().Pipe(() => this.RaiseNotification("succeed_get_global_ip", 5));
             }
             catch (Exception ex)
             {
-
+                this.RaiseError("fail_get_global_ip", 5, ex);
             }
 
             return null;
-        }
-
-        protected override bool OpenPort()
-        {
-            return true;
         }
 
         protected override void NotifyFirstNodeInfo()
@@ -2756,9 +2783,7 @@ namespace CREA2014
 
         protected override string GetPrivateRsaParameters() { return testPrivateRsaParameters; }
 
-        protected override IPAddress GetIpAddress() { return IPAddress.Loopback; }
-
-        protected override bool OpenPort() { return true; }
+        protected override IPAddress GetIpAddressAndOpenPort() { return IPAddress.Loopback; }
 
         protected override void NotifyFirstNodeInfo()
         {

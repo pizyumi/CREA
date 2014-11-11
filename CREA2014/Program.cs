@@ -3736,7 +3736,12 @@ namespace CREA2014
                 {"difficulty", (args) => string.Format("難易度：{0}".Multilanguage(169), args[0])},
                 {"alredy_processed_tx", (args) => "処理済みの取引を再び処理しようとしました。".Multilanguage(172)},
                 {"alredy_processed_chat", (args) => "処理済みのチャット発言を再び処理しようとしました。".Multilanguage(173)},
-                {"fail_port_open", (args) => "ポートの開放に失敗しました。".Multilanguage(174)},
+                {"fail_network_interface", (args) => "ネットワークインターフェイスの取得に失敗しました。".Multilanguage(174)},
+                {"succeed_network_interface", (args) => string.Format("ネットワークインターフェイスの取得に成功しました：{0}".Multilanguage(175), args[0])},
+                {"fail_open_port", (args) => "ポートの開放に失敗しました。".Multilanguage(176)},
+                {"succeed_open_port", (args) => "ポートの開放に成功しました。".Multilanguage(177)},
+                {"fail_get_global_ip", (args) => "グローバルIPアドレスの取得に失敗しました。".Multilanguage(178)},
+                {"succeed_get_global_ip", (args) => string.Format("グローバルIPアドレスの取得に成功しました：{0}".Multilanguage(179), args[0])},
             };
 
             exceptionMessages = new Dictionary<string, Func<string>>() {
