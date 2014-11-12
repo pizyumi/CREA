@@ -3455,9 +3455,61 @@ namespace CREA2014
         private static string version = string.Join(".", verMaj.ToString(), verMin.ToString(), verMMin.ToString()) + "(" + verS + ")" + "(" + verR.ToString() + ")" + "(" + verC.ToString() + ")";
         private static string appnameWithVersion = string.Join(" ", appname, version);
 
+        public class UPnP3
+        {
+            public UPnP3()
+            {
+                string responseString = string.Empty;
+                try
+                {
+                    EndPoint endPoint = new IPEndPoint(new IPAddress(new byte[] { 239, 255, 255, 250 }), 1900);
+                    string requestString = "M-SEARCH * HTTP/1.1\r\n" +
+                                           "HOST: 239.255.255.250:1900\r\n" +
+                                           "MAN: \"ssdp:discover\"\r\n" +
+                                           "MX: 3\r\n" +
+                                           "ST: urn:schemas-upnp-org:service:WANIPConnection:1\r\n" +
+                                           "\r\n";
+
+                    Socket socket = new Socket(AddressFamily.InterNetwork, SocketType.Dgram, ProtocolType.Udp);
+                    socket.ReceiveTimeout = msearchReceiveTimeout;
+                    socket.SendTimeout = msearchSendTimeout;
+                    socket.SendTo(Encoding.ASCII.GetBytes(requestString), endPoint);
+
+                    byte[] receivedBytes;
+                    using (MemoryStream ms = new MemoryStream())
+                    {
+                        while (true)
+                        {
+                            EndPoint endPoint2 = new IPEndPoint(IPAddress.Any, 0);
+                            byte[] receivedBytesBuffer = new byte[1024];
+                            int receivedBytesNum = socket.ReceiveFrom(receivedBytesBuffer, ref endPoint2);
+
+                            ms.Write(receivedBytesBuffer, 0, receivedBytesNum);
+
+                            if (receivedBytesNum != receivedBytesBuffer.Length)
+                                break;
+                        }
+
+                        receivedBytes = ms.ToArray();
+                    }
+                    responseString += Encoding.ASCII.GetString(receivedBytes);
+                }
+                catch (Exception ex)
+                {
+                    throw new Exception("通信中にエラーが発生しました。", ex);
+                }
+
+            }
+
+            private int msearchReceiveTimeout = 15000;
+            private int msearchSendTimeout = 15000;
+        }
+
         [STAThread]
         public static void Main(string[] args)
         {
+            UPnP3 upnp3 = new UPnP3();
+
             string defaultNiName = null;
             IPAddress defaultMachineIpAddress = null;
             IPAddress defaultGatewayIpAddress = null;
