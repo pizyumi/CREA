@@ -2629,19 +2629,23 @@ namespace CREA2014
 
             this.RaiseNotification("succeed_network_interface", 5, defaultNiName);
 
-            UPnP2 upnp = new UPnP2(defaultMachineIpAddress.ToString(), defaultGatewayIpAddress.ToString());
+            UPnP3 upnp = new UPnP3(defaultMachineIpAddress, defaultGatewayIpAddress);
             UPnPWanService upnpWanService = null;
 
+            //<未改良>最初にポートが開放されているか調べて開放されている場合は何もしない
+            bool isSucceed = false;
             try
             {
-                upnp.AddPortMapping(myPortNumber, myPortNumber, "TCP", appnameWithVersion);
+                isSucceed = upnp.AddPortMapping(myPortNumber, myPortNumber, "TCP", appnameWithVersion);
 
                 this.RaiseNotification("succeed_open_port", 5);
             }
             catch (Exception ex)
             {
                 this.RaiseError("fail_open_port", 5, ex);
+            }
 
+            if (!isSucceed)
                 try
                 {
                     upnpWanService = UPnPWanService.FindUPnPWanService();
@@ -2655,11 +2659,12 @@ namespace CREA2014
                 {
                     this.RaiseError("fail_open_port", 5, ex2);
                 }
-            }
 
             try
             {
-                return IPAddress.Parse(upnp.GetExternalIPAddress()).Pipe(() => this.RaiseNotification("succeed_get_global_ip", 5));
+                IPAddress externalIpAddress = upnp.GetExternalIPAddress().Pipe(() => this.RaiseNotification("succeed_get_global_ip", 5));
+                if (externalIpAddress != null)
+                    return externalIpAddress;
             }
             catch (Exception ex)
             {

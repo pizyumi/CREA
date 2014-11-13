@@ -20,489 +20,314 @@ namespace CREA2014
 {
     #region UPnP
 
-    //ネットワークインターフェイス情報
-    public class NetworkInterfaceInformation
+    //<未改良>いろいろ
+    public class UPnP3
     {
-        //名前
-        public string Name { get; set; }
-        //説明
-        public string Description { get; set; }
-        //種類
-        public NetworkInterfaceType NetworkInterfaceType { get; set; }
-        //ユニキャストアドレス
-        public List<IPAddress> UnicastAddresses { get; set; }
-        //ゲートウェイアドレス
-        public List<IPAddress> GatewayAddresses { get; set; }
-
-        //コンストラクタ
-        public NetworkInterfaceInformation()
+        public UPnP3(IPAddress _machineIpAddress, IPAddress _gatewayIpAddress)
         {
-            UnicastAddresses = new List<IPAddress>();
-            GatewayAddresses = new List<IPAddress>();
-        }
-
-        //コンストラクタ（名前／説明／種類／ユニキャストアドレス／ゲートウェイアドレス）
-        public NetworkInterfaceInformation(string _name, string _description, NetworkInterfaceType _networkInferfaceType, List<IPAddress> _unicastAddresses, List<IPAddress> _gatewayAddress)
-        {
-            Name = _name;
-            Description = _description;
-            NetworkInterfaceType = _networkInferfaceType;
-            UnicastAddresses = _unicastAddresses;
-            GatewayAddresses = _gatewayAddress;
-        }
-
-        //ネットワークインターフェイス情報を取得する
-        public static List<NetworkInterfaceInformation> GetNetworkInterfacesInformation()
-        {
-            List<NetworkInterfaceInformation> networkInterfacesInformation = new List<NetworkInterfaceInformation>();
-
-            //ネットワークインターフェイスを取得する
-            NetworkInterface[] networkInterfaces = NetworkInterface.GetAllNetworkInterfaces();
-            foreach (var networkInterface in networkInterfaces)
-            {
-                //情報クラスを作成
-                NetworkInterfaceInformation networkInterfaceInformation = new NetworkInterfaceInformation();
-
-                //名前・説明・種類
-                networkInterfaceInformation.Name = networkInterface.Name;
-                networkInterfaceInformation.Description = networkInterface.Description;
-                networkInterfaceInformation.NetworkInterfaceType = networkInterface.NetworkInterfaceType;
-
-                //ネットワークインターフェイスの構成情報を取得する
-                IPInterfaceProperties ipInterfaceProperties = networkInterface.GetIPProperties();
-
-                //ユニキャストアドレス
-                foreach (var unicastAddress in ipInterfaceProperties.UnicastAddresses)
-                    networkInterfaceInformation.UnicastAddresses.Add(unicastAddress.Address);
-
-                //ゲートウェイアドレス
-                foreach (var gatewayAddress in ipInterfaceProperties.GatewayAddresses)
-                    networkInterfaceInformation.GatewayAddresses.Add(gatewayAddress.Address);
-
-                //情報クラスを追加
-                networkInterfacesInformation.Add(networkInterfaceInformation);
-            }
-
-            return networkInterfacesInformation;
-        }
-
-        public override string ToString()
-        {
-            return Name;
-        }
-
-        public string ToDetailString()
-        {
-            return "名前：" + Name + Environment.NewLine +
-                   "説明：" + Description + Environment.NewLine +
-                   "種類：" + NetworkInterfaceType + Environment.NewLine +
-                   "マシンIP：" + (from u in UnicastAddresses select u.ToString()).Aggregate((w, n) => w + ", " + n) + Environment.NewLine +
-                   "ゲートウェイIP：" + (from g in GatewayAddresses select g.ToString()).Aggregate((w, n) => w + ", " + n);
-        }
-    }
-
-    //UPnP操作クラスVer.2
-    public class UPnP2
-    {
-        //受信タイムアウト値
-        public int receiveTimeout = 15000;
-        //送信タイムアウト値
-        public int sendTimeout = 15000;
-
-        //マシンのローカルIPアドレス
-        private string machineIpAddress = null;
-        //ゲートウェイ（ルータなど）のローカルIPアドレス
-        private string gatewayIpAddress = null;
-
-        //サービス文字列
-        string services = null;
-        //アクセスするポート
-        int gatewayPort = -1;
-
-        //外部ポート番号
-        private int externalPort = 0;
-        //プロトコル
-        private string protocol = "";
-        //内部ポート番号
-        private int internalPort = 0;
-        //内部クライアント（ローカル／LAN側IPアドレス）
-        private string internalClient = "";
-        //ポートマッピングの説明文（適当で良い）
-        private string portMappingDescription = "";
-        //ポートマッピングのインデックス
-        private int portMappingIndex = 0;
-
-        //コンストラクタ（マシンIP／ゲートウェイIP）
-        public UPnP2(string _machineIpAddress, string _gatewayIpAddress)
-        {
-            machineIpAddress = internalClient = _machineIpAddress;
+            machineIpAddress = _machineIpAddress;
             gatewayIpAddress = _gatewayIpAddress;
-        }
 
-        //グローバル／WAN側IPアドレス取得
-        public string GetExternalIPAddress()
-        {
-            return Command("GetExternalIPAddress");
-        }
-
-        //ポート開放
-        public string AddPortMapping(int _externalPort, int _internalPort, string _protocol, string _portMappingDescription)
-        {
-            //外部／内部ポート番号、プロトコル、説明文の設定が必要
-            externalPort = _externalPort;
-            internalPort = _internalPort;
-            protocol = _protocol;
-            portMappingDescription = _portMappingDescription;
-
-            return Command("AddPortMapping");
-        }
-
-        //ポート閉鎖
-        public string DeletePortMapping(int _externalPort, string _protocol)
-        {
-            //外部ポート番号、プロトコルの設定が必要
-            externalPort = _externalPort;
-            protocol = _protocol;
-
-            return Command("DeletePortMapping");
-        }
-
-        //ポートマッピング一覧取得
-        public string GetGenericPortMappingEntry(int _newPortMappingIndex)
-        {
-            //ポートマッピングのインデックスの設定が必要
-            portMappingIndex = _newPortMappingIndex;
-
-            return Command("GetGenericPortMappingEntry");
-        }
-
-        //ルータの情報を取得
-        public string GetRouterInformation()
-        {
-            if (services == null)
-                GetServicesFromDevice();
-
-            return services;
-        }
-
-        //サービス文字列とポート番号を取得
-        private void GetServicesFromDevice()
-        {
-            //応答文字列
-            string responseString = "";
-            try
+            string[] services = new string[]
             {
-                //ソケット作成
-                Socket socket = new Socket(AddressFamily.InterNetwork, SocketType.Dgram, ProtocolType.Udp);
-                //タイムアウト時間の設定
-                socket.ReceiveTimeout = receiveTimeout;
-                socket.SendTimeout = sendTimeout;
+                "urn:schemas-upnp-org:service:WANIPConnection:1", 
+                "urn:schemas-upnp-org:service:WANPPPConnection:1", 
+            };
 
-                //239.255.255.250:1900にM-SEARCHを送信する
-                EndPoint endPoint = new IPEndPoint(IPAddress.Parse("239.255.255.250"), 1900);
-                string requestString = "M-SEARCH * HTTP/1.1\r\n" +
-                                       "HOST: 239.255.255.250:1900\r\n" +
-                                       "ST: upnp:rootdevice\r\n" +
-                                       "MAN: \"ssdp:discover\"\r\n" +
-                                       "MX: 3\r\n" +
-                                       "\r\n";
-                byte[] requestByte = Encoding.ASCII.GetBytes(requestString);
-                socket.SendTo(requestByte, endPoint);
-
-                //while (true)
-                //{
-                //応答を受信
-                EndPoint endPoint2 = new IPEndPoint(IPAddress.Any, 0);
-                byte[] responseByte = new byte[1024];
-                socket.ReceiveFrom(responseByte, ref endPoint2);
-                responseString += Encoding.ASCII.GetString(responseByte);
-                //}
-            }
-            catch (Exception ex)
+            foreach (string service in services)
             {
-                throw new Exception("通信中にエラーが発生しました。", ex);
-            }
-
-            if (responseString.Length == 0)
-                throw new Exception("サービスを取得できませんでした。");
-
-            //応答のlocation部分を取得
-            string location = "";
-            string[] parts = responseString.Split(new string[] { System.Environment.NewLine }, StringSplitOptions.RemoveEmptyEntries);
-            foreach (var part in parts)
-                if (part.ToLower().StartsWith("location"))
+                string location = null;
+                try
                 {
-                    location = part.Substring(part.IndexOf(':') + 1);
-                    if (location.Length == 0)
-                        throw new Exception("サービスを取得できませんでした。");
+                    location = MSearch(service);
+                }
+                catch (Exception ex)
+                {
+                    this.RaiseError("fail_msearch", 5, ex, service);
+                }
 
-                    Uri uri = new Uri(location);
-                    gatewayPort = uri.Port;
+                if (location == null)
+                    continue;
+
+                this.RaiseNotification("succeed_msearch", 5, service);
+
+                string dv = null;
+                try
+                {
+                    using (WebClient webClient = new WebClient())
+                        dv = webClient.DownloadString(location);
+                }
+                catch (Exception ex)
+                {
+                    this.RaiseError("fail_device_description", 5, ex, service);
+                }
+
+                if (dv == null)
+                    continue;
+
+                int serviceIndex = dv.IndexOf(service);
+                if (serviceIndex == -1)
+                    continue;
+
+                this.RaiseNotification("succeed_device_description", 5, service);
+
+                controlURL = GetTagValue("controlURL", dv.Substring(serviceIndex));
+                serviceType = service;
+                deviceDescription = dv;
+                gatewayPort = (ushort)new Uri(location).Port;
+
+                return;
+            }
+
+            throw new DeviceDescriptionException();
+        }
+
+        private int msearchReceiveTimeout = 15000;
+        private int msearchSendTimeout = 15000;
+        private int soapReveiveTimeout = 15000;
+        private int soapSendTimeout = 15000;
+
+        private readonly string serviceType;
+        private readonly string deviceDescription;
+        private readonly string controlURL;
+        private readonly IPAddress gatewayIpAddress;
+        private readonly ushort gatewayPort;
+        private readonly IPAddress machineIpAddress;
+
+        private class DeviceDescriptionException : Exception { }
+
+        public IPAddress GetExternalIPAddress()
+        {
+            string result = Soap(gatewayIpAddress, gatewayPort, controlURL, "GetExternalIPAddress", CreateSoapGetExternalIPAddress(serviceType));
+
+            if (!result.ToLower().StartsWith("HTTP/1.1 200 OK".ToLower()))
+                return null;
+
+            return IPAddress.Parse(GetTagValue("NewExternalIPAddress", result));
+        }
+
+        public bool AddPortMapping(ushort externalPort, ushort internalPort, string protocol, string portMappingDescription)
+        {
+            string result = Soap(gatewayIpAddress, gatewayPort, controlURL, "AddPortMapping", CreateSoapAddPortMapping(serviceType, externalPort, protocol, internalPort, machineIpAddress, portMappingDescription));
+
+            return result.ToLower().StartsWith("HTTP/1.1 200 OK".ToLower());
+        }
+
+        public bool DeletePortMapping(ushort externalPort, string protocol)
+        {
+            string result = Soap(gatewayIpAddress, gatewayPort, controlURL, "DeletePortMapping", CreateSoapDeletePortMapping(serviceType, externalPort, protocol));
+
+            return result.ToLower().StartsWith("HTTP/1.1 200 OK".ToLower());
+        }
+
+        public GenericPortmappingEntry GetGenericPortMappingEntry(int portMappingIndex)
+        {
+            string result = Soap(gatewayIpAddress, gatewayPort, controlURL, "GetGenericPortMappingEntry", CreateSoapGetGenericPortMappingEntry(serviceType, portMappingIndex));
+
+            if (!result.ToLower().StartsWith("HTTP/1.1 200 OK".ToLower()))
+                return null;
+
+            string newRemoteHost = GetTagValue("NewRemoteHost", result);
+            ushort newExternalPort = ushort.Parse(GetTagValue("NewExternalPort", result));
+            string newProtocol = GetTagValue("NewProtocol", result);
+            ushort newInternalPort = ushort.Parse(GetTagValue("NewInternalPort", result));
+            IPAddress newInternalClient = IPAddress.Parse(GetTagValue("NewInternalClient", result));
+            int newEnabled = int.Parse(GetTagValue("NewEnabled", result));
+            string newPortMappingDescription = GetTagValue("NewPortMappingDescription", result);
+            int newLeaseDuration = int.Parse(GetTagValue("NewLeaseDuration", result));
+
+            return new GenericPortmappingEntry(newRemoteHost, newExternalPort, newProtocol, newInternalPort, newInternalClient, newEnabled, newPortMappingDescription, newLeaseDuration);
+        }
+
+        private string MSearch(string service)
+        {
+            EndPoint endPoint = new IPEndPoint(new IPAddress(new byte[] { 239, 255, 255, 250 }), 1900);
+            string requestString = "M-SEARCH * HTTP/1.1\r\n" +
+                                   "HOST: 239.255.255.250:1900\r\n" +
+                                   "MAN: \"ssdp:discover\"\r\n" +
+                                   "MX: 3\r\n" +
+                                   "ST: " + service + "\r\n" +
+                                   "\r\n";
+
+            Socket socket = new Socket(AddressFamily.InterNetwork, SocketType.Dgram, ProtocolType.Udp);
+            socket.ReceiveTimeout = msearchReceiveTimeout;
+            socket.SendTimeout = msearchSendTimeout;
+            socket.SendTo(Encoding.ASCII.GetBytes(requestString), endPoint);
+
+            byte[] receivedBytes;
+            using (MemoryStream ms = new MemoryStream())
+            {
+                EndPoint endPoint2 = new IPEndPoint(IPAddress.Any, 0);
+                byte[] receivedBytesBuffer = new byte[1024];
+                while (true)
+                {
+                    int receivedBytesNum = socket.ReceiveFrom(receivedBytesBuffer, ref endPoint2);
+
+                    ms.Write(receivedBytesBuffer, 0, receivedBytesNum);
+
+                    if (receivedBytesNum != receivedBytesBuffer.Length)
+                        break;
+                }
+
+                receivedBytes = ms.ToArray();
+            }
+
+            string location = null;
+            foreach (var line in Encoding.ASCII.GetString(receivedBytes).Split(new string[] { System.Environment.NewLine }, StringSplitOptions.RemoveEmptyEntries))
+                if (line.ToLower().StartsWith("location"))
+                {
+                    location = line.Substring(line.IndexOf(':') + 1);
+
                     break;
                 }
 
-            try
-            {
-                using (WebClient webClient = new WebClient())
-                {
-                    //サービス文字列を取得
-                    services = webClient.DownloadString(location);
-                }
-            }
-            catch (Exception ex)
-            {
-                throw new Exception("通信中にエラーが発生しました。", ex);
-            }
-
-            if (services.Length == 0)
-                throw new Exception("サービスを取得できませんでした。");
+            return location;
         }
 
-        //コマンドを送信する
-        private string Command(string _command)
+        private string Soap(IPAddress ipAddress, ushort port, string controlURL, string command, string body)
         {
-            //最初にWANPPPConnectionで試行
-            string returnString = Soap("urn:schemas-upnp-org:service:WANPPPConnection:1", _command);
-            //文字列が返ってきたなら成功
-            if (returnString != null)
-                return returnString;
-            //WANPPPConnectionで失敗したのでWANIPConnection
-            returnString = Soap("urn:schemas-upnp-org:service:WANIPConnection:1", _command);
-            return returnString;
-        }
-
-        //SOAPを送信する
-        private string Soap(string _serviceType, string _command)
-        {
-            //まだサービス文字列を取得していない場合は取得する
-            if (services == null)
-                GetServicesFromDevice();
-
-            //サービスタイプを探す
-            int serviceIndex = services.IndexOf(_serviceType);
-            if (serviceIndex == -1)
-                return null;
-
-            //コントロールURLを取り出す
-            string controlUrl = services.Substring(serviceIndex);
-            string tag1 = "<controlURL>";
-            string tag2 = "</controlURL>";
-            controlUrl = controlUrl.Substring(controlUrl.IndexOf(tag1) + tag1.Length);
-            controlUrl = controlUrl.Substring(0, controlUrl.IndexOf(tag2));
-
-            //HTTPリクエストを作成
-            string bodyString = CreateSoap(_serviceType, _command);
-            byte[] bodyByte = UTF8Encoding.ASCII.GetBytes(bodyString);
-            string headString = "POST " + controlUrl + " HTTP/1.1\r\n" +
-                    "HOST: " + gatewayIpAddress + ":" + gatewayPort + "\r\n" +
+            byte[] bodyByte = Encoding.ASCII.GetBytes(body);
+            string head = "POST " + controlURL + " HTTP/1.1\r\n" +
+                    "HOST: " + ipAddress.ToString() + ":" + port.ToString() + "\r\n" +
                     "CONTENT-LENGTH: " + bodyByte.Length + "\r\n" +
                     "CONTENT-TYPE: text/xml; charset=\"utf-8\"" + "\r\n" +
-                    "SOAPACTION: \"" + _serviceType + "#" + _command + "\"\r\n" +
+                    "SOAPACTION: \"" + serviceType + "#" + command + "\"\r\n" +
                     "\r\n";
-            byte[] headByte = Encoding.ASCII.GetBytes(headString);
+            byte[] headByte = Encoding.ASCII.GetBytes(head);
             byte[] requestByte = new byte[headByte.Length + bodyByte.Length];
             Array.Copy(headByte, 0, requestByte, 0, headByte.Length);
             Array.Copy(bodyByte, 0, requestByte, headByte.Length, bodyByte.Length);
 
-            //応答文字列
-            string responseString = "";
             try
             {
-                //ゲートウェイに接続
-                Socket socket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
-                EndPoint endPoint = new IPEndPoint(IPAddress.Parse(gatewayIpAddress), gatewayPort);
-                socket.Connect(endPoint);
-
-                //タイムアウト時間の設定
-                socket.ReceiveTimeout = receiveTimeout;
-                socket.SendTimeout = sendTimeout;
-
-                //HTTPリクエストを送信
-                socket.Send(requestByte, requestByte.Length, SocketFlags.None);
-
-                //HTTPレスポンスを受信
-                byte[] responseByte = new byte[1024];
-                using (MemoryStream memoryStream = new MemoryStream())
+                using (Socket socket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp))
                 {
-                    while (true)
-                    {
-                        int responseSize = socket.Receive(responseByte, responseByte.Length, SocketFlags.None);
-                        if (responseSize == 0)
-                            break;
-                        memoryStream.Write(responseByte, 0, responseSize);
-                    }
-                    responseString = Encoding.ASCII.GetString(memoryStream.ToArray(), 0, (int)memoryStream.Length);
-                }
+                    socket.ReceiveTimeout = soapReveiveTimeout;
+                    socket.SendTimeout = soapSendTimeout;
+                    socket.Connect(new IPEndPoint(ipAddress, port));
+                    socket.Send(requestByte, requestByte.Length, SocketFlags.None);
 
-                //ソケットを閉じる
-                socket.Shutdown(SocketShutdown.Both);
-                socket.Close();
+                    using (MemoryStream memoryStream = new MemoryStream())
+                    {
+                        byte[] responseByte = new byte[1024];
+                        while (true)
+                        {
+                            int responseSize = socket.Receive(responseByte, responseByte.Length, SocketFlags.None);
+                            if (responseSize == 0)
+                                break;
+                            memoryStream.Write(responseByte, 0, responseSize);
+                        }
+
+                        socket.Shutdown(SocketShutdown.Both);
+
+                        this.RaiseNotification("succeed_soap", 5, command);
+
+                        return Encoding.ASCII.GetString(memoryStream.ToArray());
+                    }
+                }
             }
             catch (Exception ex)
             {
-                throw new Exception("通信中にエラーが発生しました。", ex);
+                this.RaiseError("fail_soap", 5, ex, command);
             }
 
-            return CreateReturnString(_command, responseString);
+            return null;
         }
 
-        //SOAPメッセージを作成する
-        private string CreateSoap(string _serviceType, string _command)
+        private string CreateSoapGetExternalIPAddress(string serviceType)
         {
-            string bodyString = null;
-
-            if (_command == "GetExternalIPAddress")
-            {
-                bodyString =
-                    "<?xml version=\"1.0\" encoding=\"utf-8\"?>\r\n" +
-                    "<s:Envelope " + "xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\" " + "s:encodingStyle=\"http://schemas.xmlsoap.org/soap/encoding/\">" +
-                    " <s:Body>" +
-                    "  <u:GetExternalIPAddress xmlns:u=\"" + _serviceType + "\">" + "</u:GetExternalIPAddress>" +
-                    " </s:Body>" +
-                    "</s:Envelope>";
-            }
-            else if (_command == "AddPortMapping")
-            {
-                bodyString =
-                    "<?xml version=\"1.0\" encoding=\"utf-8\"?>\r\n" +
-                    "<s:Envelope " + "xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\" " + "s:encodingStyle=\"http://schemas.xmlsoap.org/soap/encoding/\">" +
-                    " <s:Body>" +
-                    "  <u:AddPortMapping xmlns:u=\"" + _serviceType + "\">" +
-                    "   <NewRemoteHost></NewRemoteHost>" +
-                    "   <NewExternalPort>" + externalPort + "</NewExternalPort>" +
-                    "   <NewProtocol>" + protocol + "</NewProtocol>" +
-                    "   <NewInternalPort>" + internalPort + "</NewInternalPort>" +
-                    "   <NewInternalClient>" + internalClient + "</NewInternalClient>" +
-                    "   <NewEnabled>1</NewEnabled>" +
-                    "   <NewPortMappingDescription>" + portMappingDescription + "</NewPortMappingDescription>" +
-                    "   <NewLeaseDuration>0</NewLeaseDuration>" +
-                    "  </u:AddPortMapping>" +
-                    " </s:Body>" +
-                    "</s:Envelope>";
-            }
-            else if (_command == "DeletePortMapping")
-            {
-                bodyString =
-                    "<?xml version=\"1.0\" encoding=\"utf-8\"?>\r\n" +
-                    "<s:Envelope " + "xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\" " + "s:encodingStyle=\"http://schemas.xmlsoap.org/soap/encoding/\">" +
-                    " <s:Body>" +
-                    "  <u:DeletePortMapping xmlns:u=\"" + _serviceType + "\">" +
-                    "   <NewRemoteHost></NewRemoteHost>" +
-                    "   <NewExternalPort>" + externalPort + "</NewExternalPort>" +
-                    "   <NewProtocol>" + protocol + "</NewProtocol>" +
-                    "  </u:DeletePortMapping>" +
-                    " </s:Body>" +
-                    "</s:Envelope>";
-            }
-            else if (_command == "GetGenericPortMappingEntry")
-            {
-                bodyString =
-                    "<?xml version=\"1.0\" encoding=\"utf-8\"?>\r\n" +
-                    "<s:Envelope " + "xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\" " + "s:encodingStyle=\"http://schemas.xmlsoap.org/soap/encoding/\">" +
-                    " <s:Body>" +
-                    "  <u:GetGenericPortMappingEntry xmlns:u=\"" + _serviceType + "\">" +
-                    "   <NewPortMappingIndex>" + portMappingIndex + "</NewPortMappingIndex>" +
-                    "  </u:GetGenericPortMappingEntry>" +
-                    " </s:Body>" +
-                    "</s:Envelope>";
-            }
-            else
-                throw new Exception("コマンド名が不正です。");
-
-            return bodyString;
+            return
+                CreateSoapHead() +
+                "  <u:GetExternalIPAddress xmlns:u=\"" + serviceType + "\">" + "</u:GetExternalIPAddress>" +
+                CreateSoapTail();
         }
 
-        //返却文字列を作成する
-        private string CreateReturnString(string _command, string _response)
+        private string CreateSoapAddPortMapping(string serviceType, ushort externalPort, string protocol, ushort internalPort, IPAddress internalClient, string portMappingDescription)
         {
-            string response = _response;
+            return
+                CreateSoapHead() +
+                "  <u:AddPortMapping xmlns:u=\"" + serviceType + "\">" +
+                "   <NewRemoteHost></NewRemoteHost>" +
+                "   <NewExternalPort>" + externalPort.ToString() + "</NewExternalPort>" +
+                "   <NewProtocol>" + protocol + "</NewProtocol>" +
+                "   <NewInternalPort>" + internalPort.ToString() + "</NewInternalPort>" +
+                "   <NewInternalClient>" + internalClient + "</NewInternalClient>" +
+                "   <NewEnabled>1</NewEnabled>" +
+                "   <NewPortMappingDescription>" + portMappingDescription + "</NewPortMappingDescription>" +
+                "   <NewLeaseDuration>0</NewLeaseDuration>" +
+                "  </u:AddPortMapping>" +
+                CreateSoapTail();
+        }
 
-            if (_command == "GetExternalIPAddress")
-            {
-                string tag3 = "<NewExternalIPAddress>";
-                string tag4 = "</NewExternalIPAddress>";
-                response = response.Substring(response.IndexOf(tag3) + tag3.Length);
-                response = response.Substring(0, response.IndexOf(tag4));
-            }
-            else if (_command == "AddPortMapping")
-                if (response.StartsWith("HTTP/1.1 200 OK"))
-                    response = "成功しました。";
-                else
-                    response = "失敗しました。" + Environment.NewLine + _response;
-            else if (_command == "DeletePortMapping")
-            {
-                if (response.StartsWith("HTTP/1.1 200 OK"))
-                    response = "成功しました。";
-                else
-                    response = "失敗しました。" + Environment.NewLine + _response;
-            }
-            else if (_command == "GetGenericPortMappingEntry")
-            {
-                if (response.StartsWith("HTTP/1.1 200 OK"))
-                {
-                    string value = "";
+        private string CreateSoapDeletePortMapping(string serviceType, ushort externalPort, string protocol)
+        {
+            return
+                CreateSoapHead() +
+                "  <u:DeletePortMapping xmlns:u=\"" + serviceType + "\">" +
+                "   <NewRemoteHost></NewRemoteHost>" +
+                "   <NewExternalPort>" + externalPort.ToString() + "</NewExternalPort>" +
+                "   <NewProtocol>" + protocol + "</NewProtocol>" +
+                "  </u:DeletePortMapping>" +
+                CreateSoapTail();
+        }
 
-                    string tag3 = "<NewRemoteHost>";
-                    string tag4 = "</NewRemoteHost>";
-                    value += response.Substring(response.IndexOf(tag3) + tag3.Length);
-                    value = value.Substring(0, value.IndexOf(tag4));
+        private string CreateSoapGetGenericPortMappingEntry(string serviceType, int portMappingIndex)
+        {
+            return
+                CreateSoapHead() +
+                "  <u:GetGenericPortMappingEntry xmlns:u=\"" + serviceType + "\">" +
+                "   <NewPortMappingIndex>" + portMappingIndex.ToString() + "</NewPortMappingIndex>" +
+                "  </u:GetGenericPortMappingEntry>" +
+                CreateSoapTail();
+        }
 
-                    value += " ";
+        private string CreateSoapHead()
+        {
+            return
+                "<?xml version=\"1.0\" encoding=\"utf-8\"?>\r\n" +
+                "<s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\" s:encodingStyle=\"http://schemas.xmlsoap.org/soap/encoding/\">" +
+                " <s:Body>";
+        }
 
-                    tag3 = "<NewExternalPort>";
-                    tag4 = "</NewExternalPort>";
-                    value += response.Substring(response.IndexOf(tag3) + tag3.Length);
-                    value = value.Substring(0, value.IndexOf(tag4));
+        private string CreateSoapTail()
+        {
+            return
+                " </s:Body>" +
+                "</s:Envelope>";
+        }
 
-                    value += " ";
+        private string GetTagValue(string tagName, string content)
+        {
+            return ("<" + tagName + ">").Pipe((tag) => content.Substring(content.IndexOf(tag) + tag.Length)).Pipe((val) => ("</" + tagName + ">").Pipe((tag) => val.Substring(0, val.IndexOf(tag))));
+        }
+    }
 
-                    tag3 = "<NewProtocol>";
-                    tag4 = "</NewProtocol>";
-                    value += response.Substring(response.IndexOf(tag3) + tag3.Length);
-                    value = value.Substring(0, value.IndexOf(tag4));
+    public class GenericPortmappingEntry
+    {
+        public GenericPortmappingEntry(string _newRemoteHost, ushort _newExternalPort, string _newProtocol, ushort _newInternalPort, IPAddress _newInternalClient, int _newEnabled, string _newPortMappingDescription, int _newLeaseDuration)
+        {
+            NewRemoteHost = _newRemoteHost;
+            NewExternalPort = _newExternalPort;
+            NewProtocol = _newProtocol;
+            NewInternalPort = _newInternalPort;
+            NewInternalClient = _newInternalClient;
+            NewEnabled = _newEnabled;
+            NewPortMappingDescription = _newPortMappingDescription;
+            NewLeaseDuration = _newLeaseDuration;
+        }
 
-                    value += " ";
+        public string NewRemoteHost { get; private set; }
+        public ushort NewExternalPort { get; private set; }
+        public string NewProtocol { get; private set; }
+        public ushort NewInternalPort { get; private set; }
+        public IPAddress NewInternalClient { get; private set; }
+        public int NewEnabled { get; private set; }
+        public string NewPortMappingDescription { get; private set; }
+        public int NewLeaseDuration { get; private set; }
 
-                    tag3 = "<NewInternalPort>";
-                    tag4 = "</NewInternalPort>";
-                    value += response.Substring(response.IndexOf(tag3) + tag3.Length);
-                    value = value.Substring(0, value.IndexOf(tag4));
-
-                    value += " ";
-
-                    tag3 = "<NewInternalClient>";
-                    tag4 = "</NewInternalClient>";
-                    value += response.Substring(response.IndexOf(tag3) + tag3.Length);
-                    value = value.Substring(0, value.IndexOf(tag4));
-
-                    value += " ";
-
-                    tag3 = "<NewEnabled>";
-                    tag4 = "</NewEnabled>";
-                    value += response.Substring(response.IndexOf(tag3) + tag3.Length);
-                    value = value.Substring(0, value.IndexOf(tag4));
-
-                    value += " ";
-
-                    tag3 = "<NewPortMappingDescription>";
-                    tag4 = "</NewPortMappingDescription>";
-                    value += response.Substring(response.IndexOf(tag3) + tag3.Length);
-                    value = value.Substring(0, value.IndexOf(tag4));
-
-                    value += " ";
-
-                    tag3 = "<NewLeaseDuration>";
-                    tag4 = "</NewLeaseDuration>";
-                    value += response.Substring(response.IndexOf(tag3) + tag3.Length);
-                    value = value.Substring(0, value.IndexOf(tag4));
-
-                    response = value;
-                }
-                else
-                    response = null;
-            }
-
-            return response;
+        public override string ToString()
+        {
+            return string.Join(" ", NewRemoteHost, NewExternalPort.ToString(), NewProtocol, NewInternalPort.ToString(), NewInternalClient.ToString(), NewEnabled.ToString(), NewPortMappingDescription, NewLeaseDuration.ToString());
         }
     }
 
