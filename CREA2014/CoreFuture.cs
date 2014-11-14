@@ -812,7 +812,7 @@ namespace New
 
         public override long Index { get { return index; } }
         public override X15Hash PrevId { get { return null; } }
-        public override Difficulty<X15Hash> Diff { get { return null; } }
+        public override Difficulty<X15Hash> Difficulty { get { return null; } }
         public override Transaction[] Transactions { get { return new Transaction[] { }; } }
 
         protected override Func<ReaderWriter, IEnumerable<MainDataInfomation>> StreamInfo
@@ -880,16 +880,20 @@ namespace New
             ufptempdb = _ufptempdb;
             udb = _udb;
 
-            blockManager = new BlockManager(bmdb, bdb, bfpdb);
+            blockManager = new BlockManager(bmdb, bdb, bfpdb, mainBlocksRetain, oldBlocksRetain, mainBlockFinalization);
             utxoManager = new UtxoManager(ufpdb, ufptempdb, udb);
 
-            pendingBlocks = new Dictionary<long, Dictionary<X15Hash, Block>>();
-            rejectedBlocks = new Dictionary<long, Dictionary<X15Hash, Block>>();
+            pendingBlocks = new Dictionary<X15Hash, Block>[capacity];
+            rejectedBlocks = new Dictionary<X15Hash, Block>[capacity];
+            blocksCurrent = new CirculatedInteger((int)capacity);
         }
 
         private static readonly long maxBlockIndexMargin = 100;
-        private static readonly int pendingBlocksCapacity = 200;
-        private static readonly int rejectedBlockscapacity = 1000;
+        private static readonly long mainBlockFinalization = 300;
+        private static readonly long capacity = (maxBlockIndexMargin + mainBlockFinalization) * 2;
+
+        private static readonly int mainBlocksRetain = 1000;
+        private static readonly int oldBlocksRetain = 1000;
 
         private readonly BlockManagerDB bmdb;
         private readonly BlockDB bdb;
@@ -901,12 +905,74 @@ namespace New
         private readonly BlockManager blockManager;
         private readonly UtxoManager utxoManager;
 
-        private readonly Dictionary<long, Dictionary<X15Hash, Block>> pendingBlocks;
-        private readonly Dictionary<long, Dictionary<X15Hash, Block>> rejectedBlocks;
+        private readonly Dictionary<X15Hash, Block>[] pendingBlocks;
+        private readonly Dictionary<X15Hash, Block>[] rejectedBlocks;
+        private readonly CirculatedInteger blocksCurrent;
+
+        public enum UpdateChainInnerReturnType { updated, invariable, pending, rejected }
+
+        public class UpdateChainInnerReturn
+        {
+            public UpdateChainInnerReturn(UpdateChainInnerReturnType _type)
+            {
+                if (type == UpdateChainInnerReturnType.rejected || type == UpdateChainInnerReturnType.pending)
+                    throw new ArgumentException();
+
+                type = _type;
+            }
+
+            public UpdateChainInnerReturn(UpdateChainInnerReturnType _type, int _position)
+            {
+                if (type != UpdateChainInnerReturnType.pending)
+                    throw new ArgumentException();
+
+                type = _type;
+                position = _position;
+            }
+
+            public UpdateChainInnerReturn(UpdateChainInnerReturnType _type, int _position, List<Block> _rejectedBlocks)
+            {
+                if (type != UpdateChainInnerReturnType.rejected)
+                    throw new ArgumentException();
+
+                type = _type;
+                position = _position;
+                rejectedBlocks = _rejectedBlocks;
+            }
+
+            public UpdateChainInnerReturnType type { get; set; }
+            public int position { get; set; }
+            public List<Block> rejectedBlocks { get; set; }
+        }
 
         public void UpdateChain(Block block)
         {
-            long minBlockIndex = blockManager.headBlockIndex - BlockManager.mainBlockFinalization;
+            UpdateChainInnerReturn ret = UpdateChainInner(block);
+
+            if (ret.type == UpdateChainInnerReturnType.pending)
+            {
+                if (pendingBlocks[ret.position] == null)
+                    pendingBlocks[ret.position] = new Dictionary<X15Hash, Block>();
+                if (!pendingBlocks[ret.position].Keys.Contains(block.Id))
+                    pendingBlocks[ret.position].Add(block.Id, block);
+            }
+            else if (ret.type == UpdateChainInnerReturnType.rejected)
+            {
+                CirculatedInteger ci2 = new CirculatedInteger(ret.position, (int)capacity);
+                for (int i = 0; i < ret.rejectedBlocks.Count; i++, ci2.Previous())
+                {
+                    if (pendingBlocks[ci2.value] != null && pendingBlocks[ci2.value].Keys.Contains(ret.rejectedBlocks[i].Id))
+                        pendingBlocks[ci2.value].Remove(ret.rejectedBlocks[i].Id);
+                    if (rejectedBlocks[ci2.value] == null)
+                        rejectedBlocks[ci2.value] = new Dictionary<X15Hash, Block>();
+                    rejectedBlocks[ci2.value].Add(ret.rejectedBlocks[i].Id, ret.rejectedBlocks[i]);
+                }
+            }
+        }
+
+        public UpdateChainInnerReturn UpdateChainInner(Block block)
+        {
+            long minBlockIndex = blockManager.mainBlockFinalization;
             long maxBlockIndex = blockManager.headBlockIndex + maxBlockIndexMargin;
 
             if (block.Index > maxBlockIndex)
@@ -914,83 +980,107 @@ namespace New
             if (block.Index <= minBlockIndex)
                 throw new InvalidOperationException();
 
-            if (rejectedBlocks.Keys.Contains(block.Index) && rejectedBlocks[block.Index].Keys.Contains(block.Id))
-                return;
-            Dictionary<X15Hash, Block> pending = pendingBlocks.Keys.Contains(block.Index) ? pendingBlocks[block.Index] : null;
-            if (pending != null && pending.Keys.Contains(block.Id))
-                return;
+            int position = blocksCurrent.GetForward((int)(block.Index - blockManager.headBlockIndex));
+            if (rejectedBlocks[position] != null && rejectedBlocks[position].Keys.Contains(block.Id))
+                return new UpdateChainInnerReturn(UpdateChainInnerReturnType.invariable);
 
-            Block currentBlock = block;
-            List<Block> candidates = new List<Block>() { block };
-            double mainDiff = 0.0;
+            if (block.Index == blockManager.headBlockIndex + 1)
+            {
+                if (block.PrevId.Equals(blockManager.GetHeadBlock().Id) && VerifyBlock(block))
+                {
+
+
+                    blockManager.AddMainBlock(block);
+                    //utxoManager.ApplyBlock(block);
+
+                    return new UpdateChainInnerReturn(UpdateChainInnerReturnType.updated);
+                }
+
+                return new UpdateChainInnerReturn(UpdateChainInnerReturnType.pending, position);
+            }
+
+            Block currentBrunchBlock = block;
+            Block currentMainBlock = blockManager.GetMainBlock(currentBrunchBlock.Index);
+
+            if (currentBrunchBlock.Id.Equals(currentMainBlock.Id))
+                return new UpdateChainInnerReturn(UpdateChainInnerReturnType.invariable);
+
             double brunchDiff = 0.0;
+            double mainDiff = 0.0;
+
+            List<Block> brunches = new List<Block>();
+            CirculatedInteger ci = new CirculatedInteger(position, (int)capacity);
             while (true)
             {
-                long prevIndex = currentBlock.Index - 1;
+                brunches.Add(currentBrunchBlock);
 
-                brunchDiff += currentBlock.Diff.Diff;
+                brunchDiff += currentBrunchBlock.Difficulty.Diff;
+                mainDiff += currentMainBlock.Difficulty.Diff;
 
-                Block prevMainBlock = blockManager.GetMainBlock(prevIndex);
-                if (prevMainBlock.Id.Equals(currentBlock.PrevId))
+                if (currentBrunchBlock.PrevId.Equals(currentMainBlock.PrevId))
                     break;
 
-                mainDiff += prevMainBlock.Diff.Diff;
+                long prevIndex = currentBrunchBlock.Index - 1;
 
                 if (prevIndex <= minBlockIndex)
-                {
-                    if (pending == null)
-                        pendingBlocks.Add(block.Index, pending = new Dictionary<X15Hash, Block>());
-                    pending.Add(block.Id, block);
+                    return new UpdateChainInnerReturn(UpdateChainInnerReturnType.rejected, position, brunches);
 
-                    return;
-                }
+                ci.Previous();
 
-                Block prevBlock = null;
-                foreach (var kvp in pendingBlocks.Keys.Contains(prevIndex) ? pendingBlocks[prevIndex] : new Dictionary<X15Hash, Block>() { })
-                    if (kvp.Value.Id.Equals(currentBlock.PrevId))
-                        prevBlock = kvp.Value;
+                if (pendingBlocks[ci.value] == null || !pendingBlocks[ci.value].Keys.Contains(currentBrunchBlock.PrevId))
+                    if (rejectedBlocks[ci.value] != null && rejectedBlocks[ci.value].Keys.Contains(currentBrunchBlock.PrevId))
+                        return new UpdateChainInnerReturn(UpdateChainInnerReturnType.rejected, position, brunches);
+                    else
+                        return new UpdateChainInnerReturn(UpdateChainInnerReturnType.pending, position);
 
-                if (prevBlock == null)
-                {
-                    if (pending == null)
-                        pendingBlocks.Add(block.Index, pending = new Dictionary<X15Hash, Block>());
-                    pending.Add(block.Id, block);
-
-                    return;
-                }
-
-                candidates.Insert(0, prevBlock);
-
-                currentBlock = prevBlock;
+                currentBrunchBlock = pendingBlocks[ci.value][currentBrunchBlock.PrevId];
+                currentMainBlock = blockManager.GetMainBlock(prevIndex);
             }
 
-            currentBlock = block;
-            while (currentBlock.Index <= maxBlockIndex)
+            if (brunchDiff <= mainDiff)
+                return new UpdateChainInnerReturn(UpdateChainInnerReturnType.pending, position);
+
+            Block currentBrunchBlock2 = block;
+            ci = new CirculatedInteger(position, (int)capacity);
+            while (true)
             {
-                long nextIndex = currentBlock.Index + 1;
+                ci.Next();
 
-                Block nextBlock = null;
-                foreach (var kvp in pendingBlocks.Keys.Contains(nextIndex) ? pendingBlocks[nextIndex] : new Dictionary<X15Hash, Block>() { })
-                    if (kvp.Value.PrevId.Equals(currentBlock.Id) && (nextBlock == null || kvp.Value.Diff.Diff > nextBlock.Diff.Diff))
-                        nextBlock = kvp.Value;
-
-                if (nextBlock == null)
+                if (pendingBlocks[ci.value] == null)
                     break;
 
-                candidates.Add(nextBlock);
+                currentBrunchBlock2 = pendingBlocks[ci.value].Values.Where((elem) => elem.PrevId.Equals(currentBrunchBlock2.Id)).FirstOrDefault();
+                if (currentBrunchBlock2 == null)
+                    break;
 
-                currentBlock = nextBlock;
+                brunches.Insert(0, currentBrunchBlock2);
 
-                brunchDiff += currentBlock.Diff.Diff;
+                brunchDiff += currentBrunchBlock2.Difficulty.Diff;
             }
 
-            if (mainDiff >= brunchDiff)
+            Block currentMainBlock2 = blockManager.GetMainBlock(currentBrunchBlock.Index);
+            while (currentMainBlock2.Index != blockManager.headBlockIndex)
             {
-                if (pending == null)
-                    pendingBlocks.Add(block.Index, pending = new Dictionary<X15Hash, Block>());
-                pending.Add(block.Id, block);
+                currentMainBlock2 = blockManager.GetMainBlock(currentMainBlock2.Index + 1);
 
-                return;
+                mainDiff += currentMainBlock2.Difficulty.Diff;
+            }
+
+            if (brunchDiff <= mainDiff)
+                return new UpdateChainInnerReturn(UpdateChainInnerReturnType.pending, position);
+
+            //検証
+
+
+            for (long i = blockManager.headBlockIndex; i >= currentMainBlock.Index; i--)
+            {
+                blockManager.DeleteMainBlock(i);
+                //utxoManager.RevertBlock()
+            }
+            for (long i = blockManager.headBlockIndex + 1; i <= brunches[0].Index; i++)
+            {
+                blockManager.AddMainBlock(brunches[(int)(brunches[0].Index - i)]);
+                //utxoManager.ApplyBlock(brunches[(int)(brunches[0].Index - i)]);
             }
 
 
@@ -999,102 +1089,45 @@ namespace New
 
 
 
-            //if (block.Index > blockManager.headBlockIndex + 1)
-            //{
-            //    if (rejectedBlocks.Keys.Contains(block.Index) && rejectedBlocks[block.Index].Keys.Contains(block.Id))
-            //        return;
-
-            //    Dictionary<X15Hash, Block> pending = null;
-            //    if (pendingBlocks.Keys.Contains(block.Index))
-            //    {
-            //        pending = pendingBlocks[block.Index];
-            //        if (pending.Keys.Contains(block.Id))
-            //            return;
-            //    }
-            //    else
-            //    {
-            //        pendingBlocks.Add(block.Index, pending = new Dictionary<X15Hash, Block>());
-
-            //        while (pendingBlocks.Count > pendingBlocksCapacity)
-            //            pendingBlocks.Remove(pendingBlocks.First().Key);
-            //    }
-
-            //    pending.Add(block.Id, block);
-
-            //    return;
-            //}
-
-            //if (block.Index == blockManager.headBlockIndex + 1)
-            //{
-            //    Func<Block, Dictionary<X15Hash, Block>, bool> _VerifyBlock = (verifiedBlock, rejected2) =>
-            //    {
-            //        return VerifyBlock(verifiedBlock).Pipe((valid) =>
-            //        {
-            //            if (valid)
-            //            {
-            //                blockManager.AddMainBlock(verifiedBlock);
-            //                utxoManager.ApplyBlock(verifiedBlock);
-            //            }
-            //            else
-            //            {
-            //                if (rejected2 == null)
-            //                {
-            //                    rejectedBlocks.Add(verifiedBlock.Index, rejected2 = new Dictionary<X15Hash, Block>());
-
-            //                    while (rejectedBlocks.Count > rejectedBlockscapacity)
-            //                        rejectedBlocks.Remove(rejectedBlocks.First().Key);
-            //                }
-
-            //                rejected2.Add(verifiedBlock.Id, verifiedBlock);
-            //            }
-            //        });
-            //    };
-
-            //    Dictionary<X15Hash, Block> rejected = null;
-            //    if (rejectedBlocks.Keys.Contains(block.Index))
-            //    {
-            //        rejected = rejectedBlocks[block.Index];
-            //        if (rejected.Keys.Contains(block.Id))
-            //            return;
-            //    }
-
-            //    if (!_VerifyBlock(block, rejected))
-            //        return;
-
-            //    for (int i = 1; i <= maxBlockIndexMargin; i++)
-            //    {
-            //        long nextBlockIndex = block.Index + i;
-
-            //        if (!pendingBlocks.Keys.Contains(nextBlockIndex))
-            //            break;
-
-            //        Dictionary<X15Hash, Block> pending = pendingBlocks[nextBlockIndex];
-            //        Block nextBlock = null;
-            //        foreach (var p in pending)
-            //            if (p.Value.PrevId.Equals(block.Id))
-            //                nextBlock = p.Value;
-
-            //        if (nextBlock == null)
-            //            break;
-
-            //        if (pending.Count == 1)
-            //            pendingBlocks.Remove(nextBlockIndex);
-            //        else
-            //            pending.Remove(nextBlock.Id);
-
-            //        Dictionary<X15Hash, Block> rejected2 = null;
-            //        if (rejectedBlocks.Keys.Contains(nextBlockIndex))
-            //            rejected2 = rejectedBlocks[nextBlockIndex];
-
-            //        if (!_VerifyBlock(nextBlock, rejected2))
-            //            break;
-            //    }
-
-            //    return;
-            //}
         }
 
-        private bool VerifyBlock(Block block)
+        private void AddUtxo(Dictionary<Sha256Ripemd160Hash, List<Utxo>> utxoDict, Sha256Ripemd160Hash address, Utxo utxo)
+        {
+            List<Utxo> utxos = null;
+            if (utxoDict.Keys.Contains(address))
+                utxos = utxoDict[address];
+            else
+                utxoDict.Add(address, utxos = new List<Utxo>());
+            utxos.Add(utxo);
+        }
+
+        private void RetrieveTransactionTransitionForward(Block block, TransactionOutput[][] prevTxOutss, Dictionary<Sha256Ripemd160Hash, List<Utxo>> addedUtxos, Dictionary<Sha256Ripemd160Hash, List<Utxo>> removedUtxos)
+        {
+            block.Transactions.ForEach((i, tx) =>
+            {
+                tx.TxInputs.ForEach((j, txIn) => AddUtxo(removedUtxos, prevTxOutss[i][j].Address, new Utxo(txIn.PrevTxBlockIndex, txIn.PrevTxIndex, txIn.PrevTxOutputIndex, prevTxOutss[i][j].Amount)));
+                tx.TxOutputs.ForEach((j, txOut) => AddUtxo(addedUtxos, txOut.Address, new Utxo(block.Index, i, j, txOut.Amount)));
+            });
+        }
+
+        private void RetrieveTransactionTransitionBackward(Block block, TransactionOutput[][] prevTxOutss, Dictionary<Sha256Ripemd160Hash, List<Utxo>> addedUtxos, Dictionary<Sha256Ripemd160Hash, List<Utxo>> removedUtxos)
+        {
+            block.Transactions.ForEach((i, tx) =>
+            {
+                tx.TxInputs.ForEach((j, txIn) => AddUtxo(addedUtxos, prevTxOutss[i][j].Address, new Utxo(txIn.PrevTxBlockIndex, txIn.PrevTxIndex, txIn.PrevTxOutputIndex, prevTxOutss[i][j].Amount)));
+                tx.TxOutputs.ForEach((j, txOut) => AddUtxo(removedUtxos, txOut.Address, new Utxo(block.Index, i, j, txOut.Amount)));
+            });
+        }
+
+        private TransactionOutput[][] GetPrevTxOutputss(Block block)
+        {
+            //block.Transactions
+        }
+
+
+
+
+        private bool VerifyBlock(Block block, TransactionOutput[][] prevTxOutss, Dictionary<Sha256Ripemd160Hash, List<Utxo>> addedUtxos, Dictionary<Sha256Ripemd160Hash, List<Utxo>> removedUtxos)
         {
             throw new NotImplementedException();
         }
@@ -1102,7 +1135,7 @@ namespace New
 
     public class BlockManager
     {
-        public BlockManager(BlockManagerDB _bmdb, BlockDB _bdb, BlockFilePointersDB _bfpdb)
+        public BlockManager(BlockManagerDB _bmdb, BlockDB _bdb, BlockFilePointersDB _bfpdb, int _mainBlocksRetain, int _oldBlocksRetain, long _mainBlockFinalization)
         {
             if (mainBlocksRetain < mainBlockFinalization)
                 throw new InvalidOperationException();
@@ -1110,6 +1143,10 @@ namespace New
             bmdb = _bmdb;
             bdb = _bdb;
             bfpdb = _bfpdb;
+
+            mainBlocksRetain = _mainBlocksRetain;
+            oldBlocksRetain = _oldBlocksRetain;
+            mainBlockFinalization = _mainBlockFinalization;
 
             bmd = bmdb.GetData().Pipe((bmdBytes) => bmdBytes.Length != 0 ? SHAREDDATA.FromBinary<BlockManagerData>(bmdBytes) : new BlockManagerData());
 
@@ -1123,11 +1160,11 @@ namespace New
                 AddMainBlock(new GenesisBlock());
         }
 
-        public static readonly int mainBlocksRetain = 1000;
-        public static readonly int oldBlocksRetain = 1000;
-        public static readonly int mainBlockFinalization = 300;
+        private static readonly long blockFileCapacity = 100000;
 
-        public static readonly long blockFileCapacity = 100000;
+        public readonly int mainBlocksRetain;
+        public readonly int oldBlocksRetain;
+        public readonly long mainBlockFinalization;
 
         private readonly BlockManagerDB bmdb;
         private readonly BlockDB bdb;
@@ -1147,6 +1184,8 @@ namespace New
             if (blockIndex != bmd.headBlockIndex)
                 throw new InvalidOperationException();
             if (blockIndex <= bmd.finalizedBlockIndex)
+                throw new InvalidOperationException();
+            if (blockIndex < 0)
                 throw new InvalidOperationException();
 
             if (sideBlocks[mainBlocksCurrent.value] == null)
@@ -1170,7 +1209,7 @@ namespace New
 
         public void AddMainBlock(Block block)
         {
-            if (block.Index == bmd.headBlockIndex + 1)
+            if (block.Index != bmd.headBlockIndex + 1)
                 throw new InvalidOperationException();
 
             mainBlocksCurrent.Next();
@@ -1189,6 +1228,8 @@ namespace New
         {
 
         }
+
+        public Block GetHeadBlock() { return GetMainBlock(headBlockIndex); }
 
         public Block GetMainBlock(long blockIndex)
         {
@@ -1344,11 +1385,11 @@ namespace New
                 throw new InvalidOperationException();
         }
 
-        public void ApplyBlock(Block block)
+        public void ApplyBlock(Block block, TransactionOutput[][] prevTxOutss)
         {
             block.Transactions.ForEach((i, tx) =>
             {
-                tx.TxInputs.ForEach((j, txIn) => RemoveUtxo(txIn.PrevTxOutputAddress, txIn.PrevTxBlockIndex, txIn.PrevTxIndex, txIn.PrevTxOutputIndex));
+                tx.TxInputs.ForEach((j, txIn) => RemoveUtxo(prevTxOutss[i][j].Address, txIn.PrevTxBlockIndex, txIn.PrevTxIndex, txIn.PrevTxOutputIndex));
                 tx.TxOutputs.ForEach((j, txOut) => AddUtxo(txOut.Address, block.Index, i, j, txOut.Amount));
             });
         }
@@ -1363,7 +1404,7 @@ namespace New
                 if (tx.TxInputs.Length != prevTxOutss[i].Length)
                     throw new ArgumentException();
 
-                tx.TxInputs.ForEach((j, txIn) => AddUtxo(txIn.PrevTxOutputAddress, txIn.PrevTxBlockIndex, txIn.PrevTxIndex, txIn.PrevTxOutputIndex, prevTxOutss[i][j].Amount));
+                tx.TxInputs.ForEach((j, txIn) => AddUtxo(prevTxOutss[i][j].Address, txIn.PrevTxBlockIndex, txIn.PrevTxIndex, txIn.PrevTxOutputIndex, prevTxOutss[i][j].Amount));
                 tx.TxOutputs.ForEach((j, txOut) => RemoveUtxo(txOut.Address, block.Index, i, j));
             });
         }
