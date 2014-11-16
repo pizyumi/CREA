@@ -6,9 +6,7 @@ using System.Collections;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
-using System.Linq;
 using System.Net;
-using System.Net.NetworkInformation;
 using System.Net.Sockets;
 using System.Numerics;
 using System.Runtime.InteropServices;
@@ -18,6 +16,77 @@ using System.Text;
 
 namespace CREA2014
 {
+    public class JSON
+    {
+        public string[] CreateJSONObject(params string[][] members)
+        {
+            int length = 0;
+            for (int i = 0; i < members.Length; i++)
+                length += members[i].Length;
+
+            string[] obj = new string[length + 2];
+            obj[0] = "{";
+
+            int index = 1;
+            string indent = "    ";
+            for (int i = 0; i < members.Length; i++)
+                for (int j = 0; j < members[i].Length; j++, index++)
+                    if (j == members[i].Length - 1 && i != members.Length - 1)
+                        obj[index] = indent + members[i][j] + ", ";
+                    else
+                        obj[index] = indent + members[i][j];
+
+            obj[obj.Length - 1] = "}";
+
+            return obj;
+        }
+
+        public string[] CreateJSONPair(string key, params string[] value)
+        {
+            string[] pair = new string[value.Length];
+
+            if (value.Length > 0)
+            {
+                if (value.Length == 1)
+                    pair[0] = string.Join(" : ", "\"" + key + "\"", "\"" + value[0] + "\"");
+                else
+                    pair[0] = string.Join(" : ", "\"" + key + "\"", value[0]);
+                for (int i = 1; i < value.Length; i++)
+                    pair[i] = value[i];
+            }
+
+            return pair;
+        }
+
+        public string[] CreateJSONPair(string key, int i)
+        {
+            return new string[] { string.Join(" : ", "\"" + key + "\"", i.ToString()) };
+        }
+
+        public string[] CreateJSONArray(params string[][] elements)
+        {
+            int length = 0;
+            for (int i = 0; i < elements.Length; i++)
+                length += elements[i].Length;
+
+            string[] obj = new string[length + 2];
+            obj[0] = "[";
+
+            int index = 1;
+            string indent = "    ";
+            for (int i = 0; i < elements.Length; i++)
+                for (int j = 0; j < elements[i].Length; j++, index++)
+                    if (j == elements[i].Length - 1)
+                        obj[index] = indent + elements[i][j] + ", ";
+                    else
+                        obj[index] = indent + elements[i][j];
+
+            obj[obj.Length - 1] = "]";
+
+            return obj;
+        }
+    }
+
     #region UPnP
 
     //<未改良>いろいろ
@@ -71,7 +140,7 @@ namespace CREA2014
 
                 this.RaiseNotification("succeed_device_description", 5, service);
 
-                controlURL = GetTagValue("controlURL", dv.Substring(serviceIndex));
+                controlURL = "controlURL".GetTagValue(dv.Substring(serviceIndex));
                 serviceType = service;
                 deviceDescription = dv;
                 gatewayPort = (ushort)new Uri(location).Port;
@@ -100,15 +169,19 @@ namespace CREA2014
         {
             string result = Soap(gatewayIpAddress, gatewayPort, controlURL, "GetExternalIPAddress", CreateSoapGetExternalIPAddress(serviceType));
 
+            this.RaiseNotification("soap", 3, result);
+
             if (!result.ToLower().StartsWith("HTTP/1.1 200 OK".ToLower()))
                 return null;
 
-            return IPAddress.Parse(GetTagValue("NewExternalIPAddress", result));
+            return IPAddress.Parse("NewExternalIPAddress".GetTagValue(result));
         }
 
         public bool AddPortMapping(ushort externalPort, ushort internalPort, string protocol, string portMappingDescription)
         {
             string result = Soap(gatewayIpAddress, gatewayPort, controlURL, "AddPortMapping", CreateSoapAddPortMapping(serviceType, externalPort, protocol, internalPort, machineIpAddress, portMappingDescription));
+
+            this.RaiseNotification("soap", 3, result);
 
             return result.ToLower().StartsWith("HTTP/1.1 200 OK".ToLower());
         }
@@ -117,26 +190,30 @@ namespace CREA2014
         {
             string result = Soap(gatewayIpAddress, gatewayPort, controlURL, "DeletePortMapping", CreateSoapDeletePortMapping(serviceType, externalPort, protocol));
 
+            this.RaiseNotification("soap", 3, result);
+
             return result.ToLower().StartsWith("HTTP/1.1 200 OK".ToLower());
         }
 
-        public GenericPortmappingEntry GetGenericPortMappingEntry(int portMappingIndex)
+        public GenericPortMappingEntry GetGenericPortMappingEntry(int portMappingIndex)
         {
             string result = Soap(gatewayIpAddress, gatewayPort, controlURL, "GetGenericPortMappingEntry", CreateSoapGetGenericPortMappingEntry(serviceType, portMappingIndex));
+
+            this.RaiseNotification("soap", 3, result);
 
             if (!result.ToLower().StartsWith("HTTP/1.1 200 OK".ToLower()))
                 return null;
 
-            string newRemoteHost = GetTagValue("NewRemoteHost", result);
-            ushort newExternalPort = ushort.Parse(GetTagValue("NewExternalPort", result));
-            string newProtocol = GetTagValue("NewProtocol", result);
-            ushort newInternalPort = ushort.Parse(GetTagValue("NewInternalPort", result));
-            IPAddress newInternalClient = IPAddress.Parse(GetTagValue("NewInternalClient", result));
-            int newEnabled = int.Parse(GetTagValue("NewEnabled", result));
-            string newPortMappingDescription = GetTagValue("NewPortMappingDescription", result);
-            int newLeaseDuration = int.Parse(GetTagValue("NewLeaseDuration", result));
+            string newRemoteHost = "NewRemoteHost".GetTagValue(result);
+            ushort newExternalPort = ushort.Parse("NewExternalPort".GetTagValue(result));
+            string newProtocol = "NewProtocol".GetTagValue(result);
+            ushort newInternalPort = ushort.Parse("NewInternalPort".GetTagValue(result));
+            IPAddress newInternalClient = IPAddress.Parse("NewInternalClient".GetTagValue(result));
+            int newEnabled = int.Parse("NewEnabled".GetTagValue(result));
+            string newPortMappingDescription = "NewPortMappingDescription".GetTagValue(result);
+            int newLeaseDuration = int.Parse("NewLeaseDuration".GetTagValue(result));
 
-            return new GenericPortmappingEntry(newRemoteHost, newExternalPort, newProtocol, newInternalPort, newInternalClient, newEnabled, newPortMappingDescription, newLeaseDuration);
+            return new GenericPortMappingEntry(newRemoteHost, newExternalPort, newProtocol, newInternalPort, newInternalClient, newEnabled, newPortMappingDescription, newLeaseDuration);
         }
 
         private string MSearch(string service)
@@ -295,16 +372,11 @@ namespace CREA2014
                 " </s:Body>" +
                 "</s:Envelope>";
         }
-
-        private string GetTagValue(string tagName, string content)
-        {
-            return ("<" + tagName + ">").Pipe((tag) => content.Substring(content.IndexOf(tag) + tag.Length)).Pipe((val) => ("</" + tagName + ">").Pipe((tag) => val.Substring(0, val.IndexOf(tag))));
-        }
     }
 
-    public class GenericPortmappingEntry
+    public class GenericPortMappingEntry
     {
-        public GenericPortmappingEntry(string _newRemoteHost, ushort _newExternalPort, string _newProtocol, ushort _newInternalPort, IPAddress _newInternalClient, int _newEnabled, string _newPortMappingDescription, int _newLeaseDuration)
+        public GenericPortMappingEntry(string _newRemoteHost, ushort _newExternalPort, string _newProtocol, ushort _newInternalPort, IPAddress _newInternalClient, int _newEnabled, string _newPortMappingDescription, int _newLeaseDuration)
         {
             NewRemoteHost = _newRemoteHost;
             NewExternalPort = _newExternalPort;

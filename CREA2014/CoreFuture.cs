@@ -986,15 +986,15 @@ namespace New
 
             if (block.Index == blockManager.headBlockIndex + 1)
             {
-                if (block.PrevId.Equals(blockManager.GetHeadBlock().Id) && VerifyBlock(block))
-                {
+                //if (block.PrevId.Equals(blockManager.GetHeadBlock().Id) && VerifyBlock(block))
+                //{
 
 
-                    blockManager.AddMainBlock(block);
-                    //utxoManager.ApplyBlock(block);
+                //    blockManager.AddMainBlock(block);
+                //    //utxoManager.ApplyBlock(block);
 
-                    return new UpdateChainInnerReturn(UpdateChainInnerReturnType.updated);
-                }
+                //    return new UpdateChainInnerReturn(UpdateChainInnerReturnType.updated);
+                //}
 
                 return new UpdateChainInnerReturn(UpdateChainInnerReturnType.pending, position);
             }
@@ -1087,7 +1087,7 @@ namespace New
 
 
 
-
+            throw new NotImplementedException();
 
         }
 
@@ -1121,6 +1121,7 @@ namespace New
 
         private TransactionOutput[][] GetPrevTxOutputss(Block block)
         {
+            throw new NotImplementedException();
             //block.Transactions
         }
 

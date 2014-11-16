@@ -8,6 +8,7 @@ using System.Drawing.Imaging;
 using System.IO;
 using System.Linq;
 using System.Net;
+using System.Net.Mime;
 using System.Reflection;
 using System.Text;
 using System.Threading;
@@ -480,6 +481,15 @@ namespace CREA2014
 
                 iWebServerData.Add(wallpaperFileName = _GetWallpaperFileName(null), _GetWallpaperData());
 
+                byte[] iconData = null;
+                using (Stream stream = assembly.GetManifestResourceStream("CREA2014.up0669_2.ico"))
+                {
+                    iconData = new byte[stream.Length];
+                    stream.Read(iconData, 0, iconData.Length);
+                }
+
+                iWebServerData.Add("/favicon.ico", iconData);
+
                 Func<string, string> homeHtmProcessor = (data) =>
                 {
                     data = data.Replace("%%title%%", appnameWithVersion).Replace("%%address%%", _GetWssAddress(mws.PortWebSocket));
@@ -494,11 +504,17 @@ namespace CREA2014
 
                     return data;
                 };
+                Func<string, string> homeHtmProcessor2 = (data) =>
+                {
+                    data = data.Replace("%%address%%", _GetWssAddress(mws.PortWebSocket));
+
+                    return data;
+                };
                 Func<string, string> doNothing = (data) => data;
 
                 foreach (var wsr in new[] {
                     //new {path = pathHomeHtm, url = "/", processor = homeHtmProcessor}, 
-                    new {path = "CREA2014.WebResources.home2.htm", url = "/", processor = doNothing}, 
+                    new {path = "CREA2014.WebResources.home2.htm", url = "/", processor = homeHtmProcessor2}, 
                     new {path = "CREA2014.WebResources.knockout-3.2.0.js", url = "/knockout-3.2.0.js", processor = doNothing}, 
                     new {path = "CREA2014.WebResources.jquery-2.0.3.min.js", url = "/jquery-2.0.3.min.js", processor = doNothing}, 
                     new {path = "CREA2014.WebResources.jquery-ui-1.10.4.custom.js", url = "/jquery-ui-1.10.4.custom.js", processor = doNothing}, 
@@ -511,6 +527,9 @@ namespace CREA2014
 
             Action _StartWebServer = () =>
             {
+                if (!HttpListener.IsSupported)
+                    throw new Exception("http_listener_not_supported");
+
                 HttpListener innerHl = hl = new HttpListener();
                 innerHl.Prefixes.Add("http://*:" + mws.PortWebServer.ToString() + "/");
                 try
@@ -540,7 +559,16 @@ namespace CREA2014
 
                         using (HttpListenerResponse hlres = hlc.Response)
                             if (webServerData.Keys.Contains(hlc.Request.RawUrl) && webServerData[hlc.Request.RawUrl] != null)
+                            {
+                                if (hlc.Request.RawUrl == "/")
+                                {
+                                    hlres.StatusCode = (int)HttpStatusCode.OK;
+                                    hlres.ContentType = MediaTypeNames.Text.Html;
+                                    hlres.ContentEncoding = Encoding.UTF8;
+                                }
+
                                 hlres.OutputStream.Write(webServerData[hlc.Request.RawUrl], 0, webServerData[hlc.Request.RawUrl].Length);
+                            }
                             else
                                 throw new KeyNotFoundException("web_server_data");
                     }
@@ -612,12 +640,42 @@ namespace CREA2014
             wss = new WebSocketServer();
             wss.NewSessionConnected += (wssession) =>
             {
-                wssession.Send("acc_hols " + _GetAccountHolderHtml());
+                JSON json = new JSON();
+                string[] usableName = json.CreateJSONPair("name", "使用可能");
+                string[] usableValue = json.CreateJSONPair("value", 0);
+                string[] usableUnit = json.CreateJSONPair("unit", Creacoin.Name);
+                string[] usable = json.CreateJSONObject(usableName, usableValue, usableUnit);
 
-                foreach (var log in logger.Logs.Reverse())
-                    wssession.Send("log " + _GetLogHtml(log));
+                string[] unusableName = json.CreateJSONPair("name", "使用不能");
+                string[] unusableValue = json.CreateJSONPair("value", 0);
+                string[] unusableUnit = json.CreateJSONPair("unit", Creacoin.Name);
+                string[] unusable = json.CreateJSONObject(unusableName, unusableValue, unusableUnit);
 
-                _SendBalance(wssession);
+                string[] balanceName = json.CreateJSONPair("name", "残高");
+                string[] balanceValue = json.CreateJSONPair("value", 0);
+                string[] balanceUnit = json.CreateJSONPair("unit", Creacoin.Name);
+                string[] balanceUsable = json.CreateJSONPair("usable", usable);
+                string[] balanceUnusable = json.CreateJSONPair("unusable", unusable);
+                string[] balance = json.CreateJSONObject(balanceName, balanceValue, balanceUnit, balanceUsable, balanceUnusable);
+
+                string[] partBalanceName = json.CreateJSONPair("name", "残高");
+                string[] partBalanceDetail = json.CreateJSONPair("detail", balance);
+                string[] partBalance = json.CreateJSONObject(partBalanceName, partBalanceDetail);
+
+                string[] universeTitle = json.CreateJSONPair("title", appnameWithVersion);
+                string[] universePartBalance = json.CreateJSONPair("partBalance", partBalance);
+                string[] universe = json.CreateJSONObject(universePartBalance);
+
+                string jsonString = string.Join(Environment.NewLine, universe);
+
+                wssession.Send("initial_data " + jsonString);
+
+                //wssession.Send("acc_hols " + _GetAccountHolderHtml());
+
+                //foreach (var log in logger.Logs.Reverse())
+                //    wssession.Send("log " + _GetLogHtml(log));
+
+                //_SendBalance(wssession);
             };
             wss.NewMessageReceived += newMessageReceived;
             wss.Setup(mws.PortWebSocket);

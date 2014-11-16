@@ -554,6 +554,11 @@ namespace CREA2014
                 return false;
         }
 
+        public static string GetTagValue(this string tagName, string content)
+        {
+            return ("<" + tagName + ">").Pipe((tag) => content.Substring(content.IndexOf(tag, StringComparison.InvariantCultureIgnoreCase) + tag.Length)).Pipe((val) => ("</" + tagName + ">").Pipe((tag) => val.Substring(0, val.IndexOf(tag, StringComparison.InvariantCultureIgnoreCase))));
+        }
+
         //バイト配列から16進文字列に変換する（拡張：バイト配列型）
         public static string ToHexstring(this byte[] bytes)
         {
@@ -3656,7 +3661,7 @@ namespace CREA2014
                 {"server_started", (args) => string.Format("サーバのリッスンを開始しました：{0}:{1}".Multilanguage(104), args[0], args[1])},
                 {"server_ended", (args) => string.Format("サーバのリッスンを終了しました：{0}:{1}".Multilanguage(105), args[0], args[1])},
                 {"server_restart", (args) => string.Format("ポートが変更されました。現在起動しているサーバを停止し、新たなサーバを起動します：{0}:{1}".Multilanguage(106), args[0], args[1])},
-                {"cant_decode_fbi", (args) => "初期ノード情報を解読できませんでした。".Multilanguage(171)},
+                {"cant_decode_fni", (args) => "初期ノード情報を解読できませんでした。".Multilanguage(171)},
                 {"aite_wrong_node_info", (args) => string.Format("ノードが申告したIPアドレスと実際のIPアドレスが異なります：{0}:{1}".Multilanguage(107), args[0], args[1])},
                 {"aite_wrong_network", (args) => string.Format("ノードが所属しているネットワークが異なります：{0}:{1}".Multilanguage(108), args[0], args[1])},
                 {"aite_already_connected", (args) => string.Format("既に接続しているノードから再び接続が要求されました：{0}:{1}".Multilanguage(109), args[0], args[1])},
@@ -3690,6 +3695,11 @@ namespace CREA2014
                 {"succeed_device_description", (args) => string.Format("機器の説明成功：{0}".Multilanguage(183), args[0])},
                 {"fail_soap", (args) => string.Format("SOAP失敗：{0}".Multilanguage(184), args[0])},
                 {"succeed_soap", (args) => string.Format("SOAP成功：{0}".Multilanguage(185), args[0])},
+                {"soap", (args) => string.Format("SOAP：{0}".Multilanguage(186), args[0])},
+                {"start_open_port_search", (args) => "開放ポートの検索を開始しました。".Multilanguage(187)},
+                {"already_port_opened", (args) => "既にポートが開放されています。".Multilanguage(188)},
+                {"generic_port_mapping_entry", (args) => string.Format("開放ポート：{0}".Multilanguage(189), args[0])},
+                {"add_fni", (args) => string.Format("初期ノード情報を追加しました：{0}".Multilanguage(190), args[0])},
             };
 
             exceptionMessages = new Dictionary<string, Func<string>>() {
@@ -3700,6 +3710,7 @@ namespace CREA2014
                 {"lisence_text_not_found", () => "ソフトウェア使用許諾契約書が見付かりません。".Multilanguage(90)},
                 {"web_server_data", () => "内部ウェブサーバデータが存在しません。".Multilanguage(91)},
                 {"wss_command", () => "内部ウェブソケット命令が存在しません。".Multilanguage(92)},
+                {"http_listener_not_supported", () => "HTTP Listenerに対応していません。".Multilanguage(191)},
             };
 
             Extension.Tasked += (sender, e) => tasker.New(new TaskData(e, taskNumber++));
@@ -3871,8 +3882,8 @@ namespace CREA2014
 
             TestApplication testApplication;
 #if TEST
-            //testApplication = null;
-            testApplication = new CreaNetworkLocalTestApplication(logger);
+            testApplication = null;
+            //testApplication = new CreaNetworkLocalTestApplication(logger);
 #else
                 testApplication = null;
 #endif

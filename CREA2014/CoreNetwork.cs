@@ -2598,6 +2598,9 @@ namespace CREA2014
             foreach (NetworkInterface ni in NetworkInterface.GetAllNetworkInterfaces())
                 try
                 {
+                    if (ni.OperationalStatus != OperationalStatus.Up)
+                        continue;
+
                     IPInterfaceProperties ipip = ni.GetIPProperties();
 
                     if (ipip == null)
@@ -2632,20 +2635,42 @@ namespace CREA2014
             UPnP3 upnp = new UPnP3(defaultMachineIpAddress, defaultGatewayIpAddress);
             UPnPWanService upnpWanService = null;
 
-            //<未改良>最初にポートが開放されているか調べて開放されている場合は何もしない
-            bool isSucceed = false;
+            this.RaiseNotification("start_open_port_search", 5);
+
+            bool isNeededOpenPort = true;
             try
             {
-                isSucceed = upnp.AddPortMapping(myPortNumber, myPortNumber, "TCP", appnameWithVersion);
+                for (int i = 0; ; i++)
+                {
+                    GenericPortMappingEntry gpe = upnp.GetGenericPortMappingEntry(i);
+                    if (gpe == null)
+                        break;
 
-                this.RaiseNotification("succeed_open_port", 5);
-            }
-            catch (Exception ex)
-            {
-                this.RaiseError("fail_open_port", 5, ex);
-            }
+                    this.RaiseNotification("generic_port_mapping_entry", 5, gpe.ToString());
 
-            if (!isSucceed)
+                    if (gpe.NewInternalPort == myPortNumber && gpe.NewExternalPort == myPortNumber)
+                    {
+                        this.RaiseNotification("already_port_opened", 5);
+
+                        isNeededOpenPort = false;
+
+                        break;
+                    }
+                }
+            }
+            catch (Exception) { }
+
+            if (isNeededOpenPort)
+                try
+                {
+                    isNeededOpenPort = !(upnp.AddPortMapping(myPortNumber, myPortNumber, "TCP", appnameWithVersion)).Pipe((isSucceed) => isSucceed.RaiseNotification(this.GetType(), "succeed_open_port", 5).NotRaiseNotification(this.GetType(), "fail_open_port", 5));
+                }
+                catch (Exception ex)
+                {
+                    this.RaiseError("fail_open_port", 5, ex);
+                }
+
+            if (isNeededOpenPort)
                 try
                 {
                     upnpWanService = UPnPWanService.FindUPnPWanService();
@@ -2655,16 +2680,19 @@ namespace CREA2014
 
                     this.RaiseNotification("succeed_open_port", 5);
                 }
-                catch (Exception ex2)
+                catch (Exception ex)
                 {
-                    this.RaiseError("fail_open_port", 5, ex2);
+                    this.RaiseError("fail_open_port", 5, ex);
                 }
 
             try
             {
-                IPAddress externalIpAddress = upnp.GetExternalIPAddress().Pipe(() => this.RaiseNotification("succeed_get_global_ip", 5));
+                IPAddress externalIpAddress = upnp.GetExternalIPAddress();
+
                 if (externalIpAddress != null)
-                    return externalIpAddress;
+                    return externalIpAddress.Pipe((ipaddress) => this.RaiseNotification("succeed_get_global_ip", 5, ipaddress.ToString()));
+
+                this.RaiseError("fail_get_global_ip", 5);
             }
             catch (Exception ex)
             {
@@ -2675,7 +2703,7 @@ namespace CREA2014
             {
                 if (upnpWanService == null)
                     return null;
-                return upnpWanService.GetExternalIPAddress().Pipe(() => this.RaiseNotification("succeed_get_global_ip", 5));
+                return upnpWanService.GetExternalIPAddress().Pipe((ipaddress) => this.RaiseNotification("succeed_get_global_ip", 5, ipaddress.ToString()));
             }
             catch (Exception ex)
             {
@@ -2691,7 +2719,7 @@ namespace CREA2014
             using (HttpWebResponse hwres = hwreq.GetResponse() as HttpWebResponse)
             using (Stream stream = hwres.GetResponseStream())
             using (StreamReader sr = new StreamReader(stream, Encoding.UTF8))
-                AddFirstNodeInfos(sr.ReadToEnd().Split(new string[] { Environment.NewLine }, StringSplitOptions.RemoveEmptyEntries));
+                AddFirstNodeInfos(sr.ReadToEnd().Split(new string[] { Environment.NewLine }, StringSplitOptions.RemoveEmptyEntries).Select((elem) => elem.Trim()));
         }
 
         protected override FirstNodeInformation[] GetFirstNodeInfos()
@@ -2701,7 +2729,7 @@ namespace CREA2014
             return fnis.ToArray();
         }
 
-        private void AddFirstNodeInfos(string[] nodes)
+        private void AddFirstNodeInfos(IEnumerable<string> nodes)
         {
             foreach (string node in nodes)
             {
@@ -2716,7 +2744,11 @@ namespace CREA2014
                 }
 
                 if (fni != null && !fnis.Contains(fni))
+                {
                     fnis.Add(fni);
+
+                    this.RaiseNotification("add_fni", 5, fni.ToString());
+                }
             }
         }
 

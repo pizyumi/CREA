@@ -1688,6 +1688,7 @@ namespace CREA2014
             rawAmount = (long)amountInMinimumUnit;
         }
 
+        public static string Name = "CREA";
         public static decimal CreacoinInMinimumUnit = 100000000.0m;
 
         public override decimal Amount { get { return rawAmount / CreacoinInMinimumUnit; } }
@@ -1710,6 +1711,7 @@ namespace CREA2014
             rawAmount = (long)amountInMinimumUnit;
         }
 
+        public static string Name = "Yumina";
         public static decimal YuminaInMinimumUnit = 1000000.0m;
 
         public override decimal Amount { get { return rawAmount / YuminaInMinimumUnit; } }
