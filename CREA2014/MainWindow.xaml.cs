@@ -530,6 +530,9 @@ namespace CREA2014
                 if (!HttpListener.IsSupported)
                     throw new Exception("http_listener_not_supported");
 
+                DefaltNetworkInterface defaultNetworkInterface = new DefaltNetworkInterface();
+                defaultNetworkInterface.Get();
+
                 HttpListener innerHl = hl = new HttpListener();
                 innerHl.Prefixes.Add("http://*:" + mws.PortWebServer.ToString() + "/");
                 try
@@ -567,7 +570,14 @@ namespace CREA2014
                                     hlres.ContentEncoding = Encoding.UTF8;
                                 }
 
-                                hlres.OutputStream.Write(webServerData[hlc.Request.RawUrl], 0, webServerData[hlc.Request.RawUrl].Length);
+                                if (hlc.Request.RawUrl == "/" && (hlc.Request.RemoteEndPoint.Address != IPAddress.Loopback || hlc.Request.RemoteEndPoint.Address != IPAddress.IPv6Loopback))
+                                {
+                                    byte[] bytes = Encoding.UTF8.GetBytes(Encoding.UTF8.GetString(webServerData[hlc.Request.RawUrl]).Replace("localhost", defaultNetworkInterface.MachineIpAddress.ToString()));
+
+                                    hlres.OutputStream.Write(bytes, 0, bytes.Length);
+                                }
+                                else
+                                    hlres.OutputStream.Write(webServerData[hlc.Request.RawUrl], 0, webServerData[hlc.Request.RawUrl].Length);
                             }
                             else
                                 throw new KeyNotFoundException("web_server_data");
@@ -662,9 +672,27 @@ namespace CREA2014
                 string[] partBalanceDetail = json.CreateJSONPair("detail", balance);
                 string[] partBalance = json.CreateJSONObject(partBalanceName, partBalanceDetail);
 
+                List<string[]> logsList = new List<string[]>();
+                foreach (var log in logger.Logs.Reverse())
+                {
+                    string[] logType = json.CreateJSONPair("type", log.Kind.ToString());
+                    string[] logMessage = json.CreateJSONPair("message", log.ToString());
+                    logsList.Add(json.CreateJSONObject(logType, logMessage));
+                }
+                string[] logs = json.CreateJSONArray(logsList.ToArray());
+
+                string[] partAccountName = json.CreateJSONPair("name", "受け取り口座");
+                string[] partAccount = json.CreateJSONObject(partAccountName);
+
+                string[] partLogName = json.CreateJSONPair("name", "運用記録");
+                string[] partLogItems = json.CreateJSONPair("logs", logs);
+                string[] partLog = json.CreateJSONObject(partLogName, partLogItems);
+
                 string[] universeTitle = json.CreateJSONPair("title", appnameWithVersion);
                 string[] universePartBalance = json.CreateJSONPair("partBalance", partBalance);
-                string[] universe = json.CreateJSONObject(universePartBalance);
+                string[] universePartAccount = json.CreateJSONPair("partAccount", partAccount);
+                string[] universePartLog = json.CreateJSONPair("partLog", partLog);
+                string[] universe = json.CreateJSONObject(universeTitle, universePartBalance, universePartAccount, universePartLog);
 
                 string jsonString = string.Join(Environment.NewLine, universe);
 

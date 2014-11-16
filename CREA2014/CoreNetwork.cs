@@ -2590,49 +2590,15 @@ namespace CREA2014
 
         protected override IPAddress GetIpAddressAndOpenPort()
         {
-            string defaultNiName = null;
-            IPAddress defaultMachineIpAddress = null;
-            IPAddress defaultGatewayIpAddress = null;
-            int defaultNiIndex = int.MaxValue;
+            DefaltNetworkInterface defaultNetworkInterface = new DefaltNetworkInterface();
+            defaultNetworkInterface.Get();
 
-            foreach (NetworkInterface ni in NetworkInterface.GetAllNetworkInterfaces())
-                try
-                {
-                    if (ni.OperationalStatus != OperationalStatus.Up)
-                        continue;
-
-                    IPInterfaceProperties ipip = ni.GetIPProperties();
-
-                    if (ipip == null)
-                        continue;
-
-                    IPAddress machineIpAddress = ipip.UnicastAddresses.Select((elem) => elem.Address).FirstOrDefault((elem) => elem.AddressFamily == AddressFamily.InterNetwork);
-                    IPAddress gatewayIpAddress = ipip.GatewayAddresses.Select((elem) => elem.Address).FirstOrDefault((elem) => elem.AddressFamily == AddressFamily.InterNetwork);
-
-                    if (machineIpAddress == null || gatewayIpAddress == null)
-                        continue;
-
-                    IPv4InterfaceProperties ipv4ip = ipip.GetIPv4Properties();
-
-                    if (ipv4ip == null)
-                        continue;
-
-                    if (ipv4ip.Index < defaultNiIndex)
-                    {
-                        defaultNiName = ni.Name;
-                        defaultMachineIpAddress = machineIpAddress;
-                        defaultGatewayIpAddress = gatewayIpAddress;
-                        defaultNiIndex = ipv4ip.Index;
-                    }
-                }
-                catch (NetworkInformationException) { }
-
-            if ((defaultNiIndex == int.MaxValue).RaiseWarning(this.GetType(), "fail_network_interface", 5))
+            if ((!defaultNetworkInterface.IsExisted).RaiseWarning(this.GetType(), "fail_network_interface", 5))
                 return null;
 
-            this.RaiseNotification("succeed_network_interface", 5, defaultNiName);
+            this.RaiseNotification("succeed_network_interface", 5, defaultNetworkInterface.Name);
 
-            UPnP3 upnp = new UPnP3(defaultMachineIpAddress, defaultGatewayIpAddress);
+            UPnP3 upnp = new UPnP3(defaultNetworkInterface.MachineIpAddress, defaultNetworkInterface.GatewayIpAddress);
             UPnPWanService upnpWanService = null;
 
             this.RaiseNotification("start_open_port_search", 5);

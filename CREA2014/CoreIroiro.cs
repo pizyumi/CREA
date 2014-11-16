@@ -7,12 +7,14 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Net;
+using System.Net.NetworkInformation;
 using System.Net.Sockets;
 using System.Numerics;
 using System.Runtime.InteropServices;
 using System.Security;
 using System.Security.Cryptography;
 using System.Text;
+using System.Linq;
 
 namespace CREA2014
 {
@@ -84,6 +86,58 @@ namespace CREA2014
             obj[obj.Length - 1] = "]";
 
             return obj;
+        }
+    }
+
+    public class DefaltNetworkInterface
+    {
+        public bool IsExisted { get; private set; }
+        public string Name { get; private set; }
+        public IPAddress MachineIpAddress { get; private set; }
+        public IPAddress GatewayIpAddress { get; private set; }
+
+        public void Get()
+        {
+            IsExisted = false;
+            Name = null;
+            MachineIpAddress = null;
+            GatewayIpAddress = null;
+
+            int defaultNiIndex = int.MaxValue;
+
+            foreach (NetworkInterface ni in NetworkInterface.GetAllNetworkInterfaces())
+                try
+                {
+                    if (ni.OperationalStatus != OperationalStatus.Up)
+                        continue;
+
+                    IPInterfaceProperties ipip = ni.GetIPProperties();
+
+                    if (ipip == null)
+                        continue;
+
+                    IPAddress machineIpAddress = ipip.UnicastAddresses.Select((elem) => elem.Address).FirstOrDefault((elem) => elem.AddressFamily == AddressFamily.InterNetwork);
+                    IPAddress gatewayIpAddress = ipip.GatewayAddresses.Select((elem) => elem.Address).FirstOrDefault((elem) => elem.AddressFamily == AddressFamily.InterNetwork);
+
+                    if (machineIpAddress == null || gatewayIpAddress == null)
+                        continue;
+
+                    IPv4InterfaceProperties ipv4ip = ipip.GetIPv4Properties();
+
+                    if (ipv4ip == null)
+                        continue;
+
+                    if (ipv4ip.Index < defaultNiIndex)
+                    {
+                        Name = ni.Name;
+                        MachineIpAddress = machineIpAddress;
+                        GatewayIpAddress = gatewayIpAddress;
+                        defaultNiIndex = ipv4ip.Index;
+
+                        IsExisted = true;
+                    }
+                }
+                catch (NetworkInformationException) { }
         }
     }
 
