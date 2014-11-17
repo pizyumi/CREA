@@ -78,7 +78,7 @@ namespace CREA2014
             string indent = "    ";
             for (int i = 0; i < elements.Length; i++)
                 for (int j = 0; j < elements[i].Length; j++, index++)
-                    if (j == elements[i].Length - 1)
+                    if (j == elements[i].Length - 1 && i != elements.Length - 1)
                         obj[index] = indent + elements[i][j] + ", ";
                     else
                         obj[index] = indent + elements[i][j];
@@ -217,7 +217,7 @@ namespace CREA2014
         private readonly ushort gatewayPort;
         private readonly IPAddress machineIpAddress;
 
-        private class DeviceDescriptionException : Exception { }
+        public class DeviceDescriptionException : Exception { }
 
         public IPAddress GetExternalIPAddress()
         {

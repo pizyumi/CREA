@@ -1298,7 +1298,9 @@ namespace CREA2014
                     //IPアドレスの取得やポートの開放には時間が掛かる可能性がある
                     myIpAddress = GetIpAddressAndOpenPort();
 
-                    if (IsServer)
+                    if (!IsServer)
+                        this.RaiseNotification("not_server", 5);
+                    else
                     {
                         myFirstNodeInfo = new FirstNodeInformation(myIpAddress, myPortNumber, Network);
 
@@ -2598,8 +2600,17 @@ namespace CREA2014
 
             this.RaiseNotification("succeed_network_interface", 5, defaultNetworkInterface.Name);
 
-            UPnP3 upnp = new UPnP3(defaultNetworkInterface.MachineIpAddress, defaultNetworkInterface.GatewayIpAddress);
-            UPnPWanService upnpWanService = null;
+            UPnP3 upnp = null;
+            try
+            {
+                upnp = new UPnP3(defaultNetworkInterface.MachineIpAddress, defaultNetworkInterface.GatewayIpAddress);
+            }
+            catch (UPnP3.DeviceDescriptionException)
+            {
+                this.RaiseError("fail_upnp", 5);
+
+                return null;
+            }
 
             this.RaiseNotification("start_open_port_search", 5);
 
@@ -2629,22 +2640,7 @@ namespace CREA2014
             if (isNeededOpenPort)
                 try
                 {
-                    isNeededOpenPort = !(upnp.AddPortMapping(myPortNumber, myPortNumber, "TCP", appnameWithVersion)).Pipe((isSucceed) => isSucceed.RaiseNotification(this.GetType(), "succeed_open_port", 5).NotRaiseNotification(this.GetType(), "fail_open_port", 5));
-                }
-                catch (Exception ex)
-                {
-                    this.RaiseError("fail_open_port", 5, ex);
-                }
-
-            if (isNeededOpenPort)
-                try
-                {
-                    upnpWanService = UPnPWanService.FindUPnPWanService();
-
-                    if (upnpWanService != null)
-                        upnpWanService.AddPortMapping(null, myPortNumber, "TCP", myPortNumber, upnpWanService.GetLocalIPAddress(), true, appnameWithVersion, 0);
-
-                    this.RaiseNotification("succeed_open_port", 5);
+                    upnp.AddPortMapping(myPortNumber, myPortNumber, "TCP", appnameWithVersion).Pipe((isSucceed) => isSucceed.RaiseNotification(this.GetType(), "succeed_open_port", 5).NotRaiseNotification(this.GetType(), "fail_open_port", 5));
                 }
                 catch (Exception ex)
                 {
@@ -2665,17 +2661,6 @@ namespace CREA2014
                 this.RaiseError("fail_get_global_ip", 5, ex);
             }
 
-            try
-            {
-                if (upnpWanService == null)
-                    return null;
-                return upnpWanService.GetExternalIPAddress().Pipe((ipaddress) => this.RaiseNotification("succeed_get_global_ip", 5, ipaddress.ToString()));
-            }
-            catch (Exception ex)
-            {
-                this.RaiseError("fail_get_global_ip", 5, ex);
-            }
-
             return null;
         }
 
@@ -2686,6 +2671,9 @@ namespace CREA2014
             using (Stream stream = hwres.GetResponseStream())
             using (StreamReader sr = new StreamReader(stream, Encoding.UTF8))
                 AddFirstNodeInfos(sr.ReadToEnd().Split(new string[] { Environment.NewLine }, StringSplitOptions.RemoveEmptyEntries).Select((elem) => elem.Trim()));
+
+            this.RaiseNotification("register_fni", 5);
+            this.RaiseNotification("get_fnis", 5);
         }
 
         protected override FirstNodeInformation[] GetFirstNodeInfos()
@@ -3155,6 +3143,8 @@ namespace CREA2014
                 //選択肢1 -> 10分くらい待って再度初期ノード情報取得
                 //選択肢2 -> 使用者に任せる（使用者によって手動で初期ノード情報が追加された時に常時接続再実行）
 
+                this.RaiseNotification("keep_connection_fnis_zero", 5);
+
                 return;
             }
 
@@ -3172,6 +3162,8 @@ namespace CREA2014
                 //<未実装>初期ノードからノード情報を取得できなかった場合の処理
                 //選択肢1 -> 10分くらい待って再度ノード情報取得
                 //選択肢2 -> 使用者に任せる（使用者によって手動で初期ノード情報が追加された時に常時接続再実行）
+
+                this.RaiseNotification("keep_connection_nis_zero", 5);
 
                 return;
             }

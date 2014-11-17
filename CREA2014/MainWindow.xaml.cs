@@ -650,7 +650,25 @@ namespace CREA2014
             wss = new WebSocketServer();
             wss.NewSessionConnected += (wssession) =>
             {
+                this.RaiseNotification("test", 5);
+                this.RaiseError("test", 5);
+                this.RaiseWarning("test", 5);
+
                 JSON json = new JSON();
+
+                Func<IAccount[], string[]> _CreateAccountsJSON = (iaccounts) =>
+                {
+                    List<string[]> anonymousAccountsList = new List<string[]>();
+                    foreach (var iaccount in iaccounts)
+                    {
+                        string[] accountName = json.CreateJSONPair("name", iaccount.iName);
+                        string[] accountDescription = json.CreateJSONPair("description", iaccount.iDescription);
+                        string[] accountAddress = json.CreateJSONPair("address", iaccount.iAddress);
+                        anonymousAccountsList.Add(json.CreateJSONObject(accountName, accountDescription, accountAddress));
+                    }
+                    return json.CreateJSONArray(anonymousAccountsList.ToArray());
+                };
+
                 string[] usableName = json.CreateJSONPair("name", "使用可能");
                 string[] usableValue = json.CreateJSONPair("value", 0);
                 string[] usableUnit = json.CreateJSONPair("unit", Creacoin.Name);
@@ -672,6 +690,34 @@ namespace CREA2014
                 string[] partBalanceDetail = json.CreateJSONPair("detail", balance);
                 string[] partBalance = json.CreateJSONObject(partBalanceName, partBalanceDetail);
 
+                string[] accountHolderColumnName = json.CreateJSONPair("name", "口座名");
+                string[] accountHolderColumnDescription = json.CreateJSONPair("description", "説明");
+                string[] accountHolderColumnAddress = json.CreateJSONPair("address", "口座番号");
+                string[] accountHolderColumns = json.CreateJSONObject(accountHolderColumnName, accountHolderColumnDescription, accountHolderColumnAddress);
+
+                string[] buttonNewAccountHolderName = json.CreateJSONPair("name", "新しい口座名義");
+                string[] buttonNewAccountHolderKeyName = json.CreateJSONPair("keyName", "A");
+                string[] buttonNewAccountHolderKey = json.CreateJSONPair("key", 65);
+                string[] buttonNewAccountHolder = json.CreateJSONPair("buttonNewAccountHolder", json.CreateJSONObject(buttonNewAccountHolderName, buttonNewAccountHolderKeyName, buttonNewAccountHolderKey));
+
+                string[] buttonNewAccountName = json.CreateJSONPair("name", "新しい口座");
+                string[] buttonNewAccountKeyName = json.CreateJSONPair("keyName", "B");
+                string[] buttonNewAccountKey = json.CreateJSONPair("key", 66);
+                string[] buttonNewAccount = json.CreateJSONPair("buttonNewAccount", json.CreateJSONObject(buttonNewAccountName, buttonNewAccountKeyName, buttonNewAccountKey));
+
+                string[] accountButtons = json.CreateJSONPair("accountButtons", json.CreateJSONObject(buttonNewAccountHolder, buttonNewAccount));
+
+                string[] anonymousAccountHolderName = json.CreateJSONPair("name", "匿名");
+                string[] anonymousAccounts = json.CreateJSONPair("accounts", _CreateAccountsJSON(core.iAccountHolders.iAnonymousAccountHolder.iAccounts));
+
+                List<string[]> pseudonymousAccountHoldersList = new List<string[]>();
+                foreach (var pah in core.iAccountHolders.iPseudonymousAccountHolders)
+                {
+                    string[] pseudonymousAccountHolderName = json.CreateJSONPair("name", pah.iSign);
+                    string[] pseudonymousAccounts = json.CreateJSONPair("accounts", _CreateAccountsJSON(pah.iAccounts));
+                    pseudonymousAccountHoldersList.Add(json.CreateJSONObject(pseudonymousAccountHolderName, pseudonymousAccounts));
+                }
+
                 List<string[]> logsList = new List<string[]>();
                 foreach (var log in logger.Logs.Reverse())
                 {
@@ -679,13 +725,15 @@ namespace CREA2014
                     string[] logMessage = json.CreateJSONPair("message", log.ToString());
                     logsList.Add(json.CreateJSONObject(logType, logMessage));
                 }
-                string[] logs = json.CreateJSONArray(logsList.ToArray());
 
                 string[] partAccountName = json.CreateJSONPair("name", "受け取り口座");
-                string[] partAccount = json.CreateJSONObject(partAccountName);
+                string[] partAccountColumns = json.CreateJSONPair("accountHolderColumns", accountHolderColumns);
+                string[] anonymousAccountHolder = json.CreateJSONPair("anonymousAccountHolder", json.CreateJSONObject(anonymousAccountHolderName, anonymousAccounts));
+                string[] pseudonymousAccountHolders = json.CreateJSONPair("pseudonymousAccountHolders", json.CreateJSONArray(pseudonymousAccountHoldersList.ToArray()));
+                string[] partAccount = json.CreateJSONObject(partAccountName, accountButtons, partAccountColumns, anonymousAccountHolder, pseudonymousAccountHolders);
 
                 string[] partLogName = json.CreateJSONPair("name", "運用記録");
-                string[] partLogItems = json.CreateJSONPair("logs", logs);
+                string[] partLogItems = json.CreateJSONPair("logs", json.CreateJSONArray(logsList.ToArray()));
                 string[] partLog = json.CreateJSONObject(partLogName, partLogItems);
 
                 string[] universeTitle = json.CreateJSONPair("title", appnameWithVersion);

@@ -10,7 +10,12 @@
         var ws = null;
 
         $(function () {
-            document.title = "%%title%%";
+            function AccountHolder() {
+                var self = this;
+
+                self.name = ko.observable("");
+                self.accounts = ko.observableArray();
+            }
 
             function AppViewModel() {
                 var self = this;
@@ -41,6 +46,28 @@
                 self.unusableBalance = ko.computed(function () {
                     return self.unusableValue() + self.unusableUnit();
                 });
+
+                self.buttonNewAccountHolderName = ko.observable("");
+                self.buttonNewAccountHolderKeyName = ko.observable("");
+                self.buttonNewAccountHolderKey = ko.observable();
+                self.buttonNewAccountHolderCaption = ko.computed(function () {
+                    return $("<div>").text(self.buttonNewAccountHolderName()).html() + "(<U>" + $("<div>").text(self.buttonNewAccountHolderKeyName()).html() + "</U>)...";
+                });
+
+                self.buttonNewAccountName = ko.observable("");
+                self.buttonNewAccountKeyName = ko.observable("");
+                self.buttonNewAccountKey = ko.observable();
+                self.buttonNewAccountCaption = ko.computed(function () {
+                    return $("<div>").text(self.buttonNewAccountName()).html() + "(<U>" + $("<div>").text(self.buttonNewAccountKeyName()).html() + "</U>)...";
+                });
+
+                self.accountHoldersColumnName = ko.observable("");
+                self.accountHoldersColumnDescription = ko.observable("");
+                self.accountHoldersColumnAddress = ko.observable("");
+                self.anonymousAccountHolder = new AccountHolder();
+                self.pseudonymousAccountHolders = ko.observableArray();
+
+                self.logs = ko.observableArray();
 
                 self.activatePartBalance = function () {
                     self.activatedPart(0);
@@ -96,6 +123,52 @@
                     vm.unusableName(obj.partBalance.detail.unusable.name);
                     vm.unusableValue(obj.partBalance.detail.unusable.value);
                     vm.unusableUnit(obj.partBalance.detail.unusable.unit);
+
+                    vm.buttonNewAccountHolderName(obj.partAccount.accountButtons.buttonNewAccountHolder.name);
+                    vm.buttonNewAccountHolderKeyName(obj.partAccount.accountButtons.buttonNewAccountHolder.keyName);
+                    vm.buttonNewAccountHolderKey(obj.partAccount.accountButtons.buttonNewAccountHolder.key);
+
+                    vm.buttonNewAccountName(obj.partAccount.accountButtons.buttonNewAccount.name);
+                    vm.buttonNewAccountKey(obj.partAccount.accountButtons.buttonNewAccount.key);
+                    vm.buttonNewAccountKeyName(obj.partAccount.accountButtons.buttonNewAccount.keyName);
+
+                    vm.accountHoldersColumnName(obj.partAccount.accountHolderColumns.name);
+                    vm.accountHoldersColumnDescription(obj.partAccount.accountHolderColumns.description);
+                    vm.accountHoldersColumnAddress(obj.partAccount.accountHolderColumns.address);
+
+                    vm.anonymousAccountHolder.name(obj.partAccount.anonymousAccountHolder.name);
+                    for (var i = 0; i < obj.partAccount.anonymousAccountHolder.accounts.length; i++) {
+                        vm.anonymousAccountHolder.accounts.push(obj.partAccount.anonymousAccountHolder.accounts[i]);
+                    }
+                    vm.anonymousAccountHolder.accounts.subscribe(function () {
+                        var accounts = $(".acc");
+
+                        accounts.hover(function () {
+                            if (!$(this).hasClass("acc_selected"))
+                                $(this).switchClass("acc", "acc_hover", 200);
+                        }, function () {
+                            if (!$(this).hasClass("acc_selected"))
+                                $(this).switchClass("acc_hover", "acc", 200);
+                        });
+
+                        accounts.click(function () {
+                            $(".acc_selected").switchClass("acc_selected", "acc", 200);
+                            $(this).switchClass("acc_hover", "acc_selected", 200);
+                        });
+                    });
+
+                    for (var i = 0; i < obj.partAccount.pseudonymousAccountHolders.length; i++) {
+                        var pah = new AccountHolder();
+                        pah.name(obj.partAccount.pseudonymousAccountHolders[i].name);
+                        for (var j = 0; j < obj.partAccount.pseudonymousAccountHolders[i].accounts.length; j++) {
+                            pah.accounts.push(obj.partAccount.pseudonymousAccountHolders[i].accounts[j]);
+                        }
+                        vm.pseudonymousAccountHolders.push(pah);
+                    }
+
+                    for (var i = 0; i < obj.partLog.logs.length; i++) {
+                        vm.logs.splice(0, 0, obj.partLog.logs[i]);
+                    }
                 }
             };
 
@@ -220,6 +293,7 @@
                     }
 
                     #logs_container {
+                        font-family: Consolas, Meiryo;
                         height: 100%;
                         overflow-y: scroll;
                     }
@@ -260,43 +334,152 @@
                         margin: 15px 0px 0px 45px;
                     }
 
-                    .log_item {
-                        color: yellow;
+                    .button {
+                        float: left;
+                    }
+
+                    .button1_content {
+                        font-size: 12px;
+                        color: #0073ea;
+                        margin: 1px;
+                        padding: 4px;
+                        border: solid gray;
+                        border-width: 1px;
+                        border-radius: 3px;
+                        background-color: lightgray;
+                    }
+
+                    .button1_content_hover {
+                        font-size: 12px;
+                        color: white;
+                        margin: 1px;
+                        padding: 4px;
+                        border: solid gray;
+                        border-width: 1px;
+                        border-radius: 3px;
+                        background-color: #0073ea;
+                    }
+
+                    .button1_content_mouse_down {
+                        font-size: 12px;
+                        color: #ff0084;
+                        margin: 1px;
+                        padding: 4px;
+                        border: solid gray;
+                        border-width: 1px;
+                        border-radius: 3px;
+                        background-color: white;
+                    }
+
+                    .acc_hol {
+                        clear: left;
+                        margin: 15px 5px 0px 5px;
+                        font-size: 16px;
+                        border: solid;
+                        border-color: rgba(128,128,128,0.4);
+                        border-width: 2px;
+                        background-color: rgba(255,255,255,0.4);
+                    }
+
+                    .acc_hol_title {
+                        padding: 5px;
+                    }
+
+                    table {
+                        display: inline-table;
+                        width: 100%;
+                        border-collapse: collapse;
+                    }
+
+                    .acc_header td, .acc_header th {
+                        font-size: 12px;
+                        white-space: pre;
+                        padding: 3px;
+                        color: #2e6e9e;
+                        border: 1px solid #c5dbec;
+                        background-color: rgba(223,239,252,0.5);
+                    }
+
+                    .acc td, .acc th {
+                        font-size: 12px;
+                        padding: 2px;
+                        border: 1px solid #a6c9e2;
+                    }
+
+                    .acc_hover td, .acc_hover th {
+                        font-size: 12px;
+                        padding: 2px;
+                        border: 1px solid #79b7e7;
+                        background-color: rgba(208,229,245,0.5);
+                    }
+
+                    .acc_selected td, .acc_selected th {
+                        font-size: 12px;
+                        padding: 2px;
+                        border: 1px solid #fad42e;
+                        background-color: rgba(251,236,136,0.5);
+                    }
+
+                    .acc_name {
+                        width: 25%;
+                    }
+
+                    .acc_desc {
+                        width: 25%;
+                    }
+
+                    .acc_addr {
+                        width: 50%;
+                    }
+
+                    .log_item_notification {
+                        color: yellowgreen;
+                    }
+
+                    .log_item_error {
+                        color: red;
+                    }
+
+                    .log_item_warning {
+                        color: orange;
                     }
                 </style>
                 <script type="text/javascript">
                     $(function () {
                         var items = $(".tab1_tabitem");
-                        var contents = $(".tab1_tabcontent");
-
-                        if (items.length != contents.length)
-                            throw "tab1_items_contents";
-
-                        items.each(function (i) {
-                            $.data($(this).get(0), "i", i);
-                        });
-                        contents.each(function (i) {
-                            $.data($(this).get(0), "i", i);
-                        });
-
                         items.hover(function () {
                             $(this).switchClass("tab1_tabitem", "tab1_tabitem_hover", 200);
                         }, function () {
                             $(this).switchClass("tab1_tabitem_hover", "tab1_tabitem", 200);
                         });
-                        items.click(function () {
-                            if (!$(this).hasClass("tab1_tabitem_selected")) {
-                                var i = $.data($(this).get(0), "i");
-                                contents.each(function () {
-                                    if ($.data($(this).get(0), "i") == i) {
-                                        $(".tab1_tabcontent_selected").children(".button").removeClass("activated");
-                                        $(this).children(".button").addClass("activated");
-                                    }
-                                });
-                            }
+
+                        var buttons = $(".button1_content");
+                        buttons.hover(function () {
+                            $(this).switchClass("button1_content", "button1_content_hover", 200);
+                        }, function () {
+                            $(this).switchClass("button1_content_hover", "button1_content", 200);
+                        });
+                        buttons.mousedown(function () {
+                            $(this).switchClass("button1_content_hover", "button1_content_mouse_down", 50);
+                        });
+                        buttons.mouseup(function () {
+                            $(this).switchClass("button1_content_mouse_down", "button1_content_hover", 50);
                         });
 
-                        contents.first().children(".button").addClass("activated");
+                        var accounts = $(".acc");
+
+                        accounts.hover(function () {
+                            if (!$(this).hasClass("acc_selected"))
+                                $(this).switchClass("acc", "acc_hover", 200);
+                        }, function () {
+                            if (!$(this).hasClass("acc_selected"))
+                                $(this).switchClass("acc_hover", "acc", 200);
+                        });
+
+                        accounts.click(function () {
+                            $(".acc_selected").switchClass("acc_selected", "acc", 200);
+                            $(this).switchClass("acc_hover", "acc_selected", 200);
+                        });
                     });
                 </script>
                 <div id="tab1items">
@@ -314,12 +497,45 @@
                         <div id="zandaka_huka" data-bind="text: unusableBalance"></div>
                     </div>
                     <div id="tab1_tabcontent2" class="tab1_tabcontent" data-bind="visible: activatedPart() == 1">
-                        %%new_account_holder%%
-                        %%new_account%%
-                        <div id="acc_hols_container"></div>
+                        <div id="button1" class="button">
+                            <div id="button1_content" class="button1_content" data-bind="html: buttonNewAccountHolderCaption"></div>
+                        </div>
+                        <div id="button2" class="button">
+                            <div id="button2_content" class="button1_content" data-bind="html: buttonNewAccountCaption"></div>
+                        </div>
+                        <div id="acc_hols_container">
+                            <div class="acc_hol">
+                                <div class="acc_hol_title" data-bind="text: anonymousAccountHolder.name"></div>
+                                <table>
+                                    <thead>
+                                        <tr class="acc_header">
+                                            <th data-bind="text: accountHoldersColumnName"></th>
+                                            <th data-bind="text: accountHoldersColumnDescription"></th>
+                                            <th data-bind="text: accountHoldersColumnAddress"></th>
+                                        </tr>
+                                    </thead>
+                                    <tbody data-bind="foreach: anonymousAccountHolder.accounts">
+                                        <tr class="acc">
+                                            <td class="acc_name" data-bind="text: name"></td>
+                                            <td class="acc_desc" data-bind="text: description"></td>
+                                            <td class="acc_addr" data-bind="text: address"></td>
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                            <div id="psu_acc_hols">
+                                %%psu_acc_hols%%
+   
+                            </div>
+                        </div>
                     </div>
                     <div id="tab1_tabcontent3" class="tab1_tabcontent" data-bind="visible: activatedPart() == 2">
-                        <div id="logs_container"></div>
+                        <div id="logs_container">
+                            <div data-bind="foreach: logs">
+                                <span data-bind="text: message, css: { log_item_notification: type == 'notification', log_item_error: type == 'error', log_item_warning: type == 'warning' }"></span>
+                                <br />
+                            </div>
+                        </div>
                     </div>
                 </div>
             </div>

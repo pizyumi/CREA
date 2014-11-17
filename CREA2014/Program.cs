@@ -1234,9 +1234,9 @@ namespace CREA2014
 
         //例外過誤ログイベントを発生させる（拡張：任意型）
         public static void RaiseError<T>(this T self, string rawMessage, int level, Exception ex) { Errored(self.GetType(), new LogInfomation(self.GetType(), rawMessage, string.Join(Environment.NewLine, GetLogMessage(rawMessage), ex.CreateMessage(0)), level)); }
-        public static void RaiseError<T>(this T self, string rawMessage, int level, Exception ex, params string[] arguments) { Errored(self.GetType(), new LogInfomation(self.GetType(), rawMessage, string.Join(Environment.NewLine, GetLogMessage(rawMessage), ex.CreateMessage(0)), level)); }
+        public static void RaiseError<T>(this T self, string rawMessage, int level, Exception ex, params string[] arguments) { Errored(self.GetType(), new LogInfomation(self.GetType(), rawMessage, string.Join(Environment.NewLine, GetLogMessage(rawMessage, arguments), ex.CreateMessage(0)), level)); }
         public static void RaiseError(this Type type, string rawMessage, int level, Exception ex) { Errored(type, new LogInfomation(type, rawMessage, string.Join(Environment.NewLine, GetLogMessage(rawMessage), ex.CreateMessage(0)), level)); }
-        public static void RaiseError(this Type type, string rawMessage, int level, Exception ex, params string[] arguments) { Errored(type, new LogInfomation(type, rawMessage, string.Join(Environment.NewLine, GetLogMessage(rawMessage), ex.CreateMessage(0)), level)); }
+        public static void RaiseError(this Type type, string rawMessage, int level, Exception ex, params string[] arguments) { Errored(type, new LogInfomation(type, rawMessage, string.Join(Environment.NewLine, GetLogMessage(rawMessage, arguments), ex.CreateMessage(0)), level)); }
 
         //真偽値が真のときのみ各種ログイベントを発生させ、真偽値をそのまま返す（拡張：真偽型）
         public static bool RaiseTest(this bool flag, Type type, string message, int level) { if (flag) type.RaiseTest(message, level); return flag; }
@@ -3637,6 +3637,7 @@ namespace CREA2014
             };
 
             logMessages = new Dictionary<string, Func<string[], string>>() {
+                {"test", (args) => "テスト"},
                 {"exist_same_name_account_holder", (args) => "同名の口座名義人が存在します。".Multilanguage(93)},
                 {"outbound_chennel", (args) => "エラーが発生しました：outbound_chennel".Multilanguage(94)},
                 {"inbound_channel", (args) => "エラーが発生しました：inbound_channel".Multilanguage(95)},
@@ -3700,6 +3701,12 @@ namespace CREA2014
                 {"already_port_opened", (args) => "既にポートが開放されています。".Multilanguage(188)},
                 {"generic_port_mapping_entry", (args) => string.Format("開放ポート：{0}".Multilanguage(189), args[0])},
                 {"add_fni", (args) => string.Format("初期ノード情報を追加しました：{0}".Multilanguage(190), args[0])},
+                {"fail_upnp", (args) => "UPnP機器が見付かりませんでした。".Multilanguage(192)},
+                {"not_server", (args) => "グローバルIPアドレスを取得できなかったため、サーバは起動されませんでした。".Multilanguage(193)},
+                {"register_fni", (args) => "初期ノード情報を登録しました。".Multilanguage(194)},
+                {"get_fnis", (args) => "初期ノード情報を取得しました。".Multilanguage(195)},
+                {"keep_connection_fnis_zero", (args) => "初期ノード情報を取得できなかったため、常時接続を開始できませんでした。".Multilanguage(196)},
+                {"keep_connection_nis_zero", (args) => "初期ノードからノード情報を取得できなかったため、常時接続を開始できませんでした。".Multilanguage(197)},
             };
 
             exceptionMessages = new Dictionary<string, Func<string>>() {
