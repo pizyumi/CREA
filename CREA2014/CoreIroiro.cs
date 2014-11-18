@@ -65,6 +65,11 @@ namespace CREA2014
             return new string[] { string.Join(" : ", "\"" + key + "\"", i.ToString()) };
         }
 
+        public string[] CreateJSONPair(string key, decimal d)
+        {
+            return new string[] { string.Join(" : ", "\"" + key + "\"", d.ToString()) };
+        }
+
         public string[] CreateJSONArray(params string[][] elements)
         {
             int length = 0;

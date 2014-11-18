@@ -267,30 +267,118 @@ namespace CREA2014
 
         public abstract class WebResourceBase
         {
-            public WebResourceBase(string _url) { url = _url; }
-
-            public string url { get; private set; }
             public abstract byte[] GetData();
         }
 
-        public class RebResourceWallpaper : WebResourceBase
+        public class WebResourceWallpaper : WebResourceBase
         {
-            public RebResourceWallpaper(string _url) : base(_url) { }
+            public WebResourceWallpaper(string _path, float _opacity)
+            {
+                path = _path;
+                opacity = _opacity;
+            }
+
+            private readonly string path;
+            private readonly float opacity;
+
+            private byte[] cache;
+
+            //<未実装>ぼかし効果に対応
+            //<未実装>埋め込まれたリソースを選択できるようにする
+            public override byte[] GetData()
+            {
+                if (cache == null)
+                    if (path == null || !File.Exists(path))
+                        cache = new byte[] { };
+                    else
+                        using (MemoryStream ms = new MemoryStream())
+                        using (Bitmap bitmap = new Bitmap(path))
+                        using (Bitmap bitmap2 = new Bitmap(bitmap.Width, bitmap.Height))
+                        using (Graphics g = Graphics.FromImage(bitmap2))
+                        {
+                            ColorMatrix cm = new ColorMatrix();
+                            cm.Matrix00 = 1;
+                            cm.Matrix11 = 1;
+                            cm.Matrix22 = 1;
+                            cm.Matrix33 = opacity;
+                            cm.Matrix44 = 1;
+
+                            ImageAttributes ia = new ImageAttributes();
+                            ia.SetColorMatrix(cm);
+
+                            g.DrawImage(bitmap, new System.Drawing.Rectangle(0, 0, bitmap.Width, bitmap.Height), 0, 0, bitmap.Width, bitmap.Height, GraphicsUnit.Pixel, ia);
+
+                            bitmap2.Save(ms, ImageFormat.Png);
+
+                            return ms.ToArray();
+                        }
+
+                return cache;
+            }
+        }
+
+        public class WebResourceEmbedded : WebResourceBase
+        {
+            public WebResourceEmbedded(string _path, Assembly _assembly)
+            {
+                path = _path;
+                assembly = _assembly;
+            }
+
+            private readonly string path;
+            private readonly Assembly assembly;
 
             private byte[] cache;
 
             public override byte[] GetData()
             {
                 if (cache == null)
-                {
-
-                }
+                    using (Stream stream = assembly.GetManifestResourceStream(path))
+                    {
+                        cache = new byte[stream.Length];
+                        stream.Read(cache, 0, cache.Length);
+                    }
 
                 return cache;
             }
         }
 
+        public class WebResourceHome : WebResourceBase
+        {
+            public WebResourceHome(bool _isDefault, string _embeddedPath, string _customPath, Assembly _assembly)
+            {
+                isDefault = _isDefault;
+                embeddedPath = _embeddedPath;
+                customPath = _customPath;
+                assembly = _assembly;
+            }
 
+            private readonly bool isDefault;
+            private readonly string embeddedPath;
+            private readonly string customPath;
+            private readonly Assembly assembly;
+
+            public string host { get; set; }
+            public ushort port { get; set; }
+
+            private string cache;
+
+            public override byte[] GetData()
+            {
+                if (cache == null)
+                    if (!isDefault && customPath != null && File.Exists(customPath))
+                        cache = File.ReadAllText(customPath);
+                    else
+                        using (Stream stream = assembly.GetManifestResourceStream(embeddedPath))
+                        {
+                            byte[] cacheBytes = new byte[stream.Length];
+                            stream.Read(cacheBytes, 0, cacheBytes.Length);
+                            cache = Encoding.UTF8.GetString(cacheBytes);
+                        }
+
+                return Encoding.UTF8.GetBytes(cache.Replace("%%host%%", host).Replace("%%port%%", port.ToString()));
+            }
+        }
 
         public MainWindow(Core _core, Program.Logger _logger, Program.ProgramSettings _psettings, Program.ProgramStatus _pstatus, string _appname, string _version, string _appnameWithVersion, string _lisenceTextFilename, Assembly _assembly, string _basepath, Action<Exception, Program.ExceptionKind> __OnException, Func<byte[], Version, bool> __UpVersion, List<UnhandledExceptionEventHandler> _unhandledExceptionEventHandlers, List<DispatcherUnhandledExceptionEventHandler> _dispatcherUnhandledExceptionEventHandlers)
         {
@@ -394,100 +482,22 @@ namespace CREA2014
                 pstatus.IsFirst = false;
             }
 
-            //<未実装>ぼかし効果に対応
-            //<未実装>埋め込まれたリソースを選択できるようにする
-            Func<byte[]> _GetWallpaperData = () =>
-            {
-                if (mws.IsWallpaper && File.Exists(mws.Wallpaper))
-                    using (MemoryStream memoryStream = new MemoryStream())
-                    using (Bitmap bitmap = new Bitmap(mws.Wallpaper))
-                    using (Bitmap bitmap2 = new Bitmap(bitmap.Width, bitmap.Height))
-                    using (Graphics g = Graphics.FromImage(bitmap2))
-                    {
-                        ColorMatrix cm = new ColorMatrix();
-                        cm.Matrix00 = 1;
-                        cm.Matrix11 = 1;
-                        cm.Matrix22 = 1;
-                        cm.Matrix33 = mws.WallpaperOpacity;
-                        cm.Matrix44 = 1;
+            string wallpaperFileName = "/back.png";
 
-                        ImageAttributes ia = new ImageAttributes();
-                        ia.SetColorMatrix(cm);
+            WebResourceHome webResourceHome = new WebResourceHome(mws.IsDefaultUi, "CREA2014.WebResources.home2.htm", Path.Combine(mws.UiFilesDirectory, "home2.htm"), assembly);
+            webResourceHome.port = (ushort)mws.PortWebSocket;
 
-                        g.DrawImage(bitmap, new System.Drawing.Rectangle(0, 0, bitmap.Width, bitmap.Height), 0, 0, bitmap.Width, bitmap.Height, GraphicsUnit.Pixel, ia);
-
-                        bitmap2.Save(memoryStream, ImageFormat.Png);
-
-                        return memoryStream.ToArray();
-                    }
-                else
-                    return new byte[] { };
-            };
-            Func<string, string> _GetWallpaperFileName = (id) => id == null ? "/back.png" : "/back" + id + ".png";
-
-            Func<int, string> _GetWssAddress = (wssPort) => "ws://localhost:" + wssPort.ToString() + "/";
-
-            //2014/07/02
-            //UIファイルが変更された場合には、一旦空にする
-            //<未改良>Streamをif文の中に、処理を纏める
-            Dictionary<string, string> webResourceCache = new Dictionary<string, string>();
-            Func<string, string> _GetWebResource = (filename) =>
-            {
-                if (mws.IsDefaultUi)
-                    using (Stream stream = assembly.GetManifestResourceStream(filename))
-                    {
-                        string webResource = null;
-
-                        if (webResourceCache.Keys.Contains(filename))
-                            webResource = webResourceCache[filename];
-                        else
-                        {
-                            byte[] data = new byte[stream.Length];
-                            stream.Read(data, 0, data.Length);
-                            webResourceCache.Add(filename, webResource = Encoding.UTF8.GetString(data));
-                        }
-
-                        return webResource;
-                    }
-                else
-                {
-                    string webResource = null;
-
-                    if (webResourceCache.Keys.Contains(filename))
-                        webResource = webResourceCache[filename];
-                    else
-                    {
-                        string path = Path.Combine(mws.UiFilesDirectory, filename);
-                        if (File.Exists(path))
-                            webResourceCache.Add(filename, webResource = File.ReadAllText(path));
-                        else
-                            using (Stream stream = assembly.GetManifestResourceStream(filename))
-                            {
-                                byte[] data = new byte[stream.Length];
-                                stream.Read(data, 0, data.Length);
-                                webResourceCache.Add(filename, webResource = Encoding.UTF8.GetString(data));
-
-                                File.WriteAllText(path, webResource);
-                            }
-                    }
-
-                    return webResource;
-                }
-            };
-
-            string pathHomeHtm = "CREA2014.WebResources.home.htm";
-            string pathButtonHtm = "CREA2014.WebResources.button.htm";
-            string pathAccHolsHtm = "CREA2014.WebResources.acc_hols.htm";
-            string pathAccHolHtm = "CREA2014.WebResources.acc_hol.htm";
-            string pathAccHtm = "CREA2014.WebResources.acc.htm";
-            string pathErrorLogHtm = "CREA2014.WebResources.error_log.htm";
-            string pathLogHtm = "CREA2014.WebResources.log.htm";
-
-            string[] paths = new string[] { pathHomeHtm, pathButtonHtm, pathAccHolsHtm, pathAccHolHtm, pathAccHtm, pathErrorLogHtm, pathLogHtm };
+            Dictionary<string, WebResourceBase> resources = new Dictionary<string, WebResourceBase>();
+            resources.Add(wallpaperFileName, new WebResourceWallpaper(mws.IsWallpaper ? mws.Wallpaper : null, mws.WallpaperOpacity));
+            resources.Add("/favicon.ico", new WebResourceEmbedded("CREA2014.up0669_2.ico", assembly));
+            resources.Add("/knockout-3.2.0.js", new WebResourceEmbedded("CREA2014.WebResources.knockout-3.2.0.js", assembly));
+            resources.Add("/jquery-2.1.1.js", new WebResourceEmbedded("CREA2014.WebResources.jquery-2.1.1.js", assembly));
+            resources.Add("/jquery-ui-1.10.4.custom.js", new WebResourceEmbedded("CREA2014.WebResources.jquery-ui-1.10.4.custom.js", assembly));
+            resources.Add("/", webResourceHome);
 
             _CreateUiFiles = (basePath) =>
             {
-                foreach (var path in paths)
+                foreach (var path in new string[] { "CREA2014.WebResources.home2.htm" })
                 {
                     string fullPath = Path.Combine(basePath, path);
                     if (File.Exists(fullPath))
@@ -500,57 +510,6 @@ namespace CREA2014
                     }
                 }
             };
-
-            string wallpaperFileName = null;
-            Func<Dictionary<string, byte[]>> _GetWebServerData = () =>
-            {
-                Dictionary<string, byte[]> iWebServerData = new Dictionary<string, byte[]>();
-
-                iWebServerData.Add(wallpaperFileName = _GetWallpaperFileName(null), _GetWallpaperData());
-
-                byte[] iconData = null;
-                using (Stream stream = assembly.GetManifestResourceStream("CREA2014.up0669_2.ico"))
-                {
-                    iconData = new byte[stream.Length];
-                    stream.Read(iconData, 0, iconData.Length);
-                }
-
-                iWebServerData.Add("/favicon.ico", iconData);
-
-                Func<string, string> homeHtmProcessor = (data) =>
-                {
-                    data = data.Replace("%%title%%", appnameWithVersion).Replace("%%address%%", _GetWssAddress(mws.PortWebSocket));
-
-                    string buttonBaseHtml = _GetWebResource(pathButtonHtm);
-
-                    foreach (var button in new[] { 
-                        new { identifier = "new_account_holder", name = "button1", text = "新しい口座名義".Multilanguage(60) + "(<u>A</u>)...", command = "new_account_holder", key = Key.A }, 
-                        new { identifier = "new_account", name = "button2", text = "新しい口座".Multilanguage(61) + "(<u>B</u>)...", command = "new_account", key = Key.B }, 
-                    })
-                        data = data.Replace("%%" + button.identifier + "%%", buttonBaseHtml.Replace("button1", button.name).Replace("%%text%%", button.text).Replace("%%command%%", button.command).Replace("%%key%%", ((int)button.key).ToString()));
-
-                    return data;
-                };
-                Func<string, string> homeHtmProcessor2 = (data) =>
-                {
-                    data = data.Replace("%%address%%", _GetWssAddress(mws.PortWebSocket));
-
-                    return data;
-                };
-                Func<string, string> doNothing = (data) => data;
-
-                foreach (var wsr in new[] {
-                    //new {path = pathHomeHtm, url = "/", processor = homeHtmProcessor}, 
-                    new {path = "CREA2014.WebResources.home2.htm", url = "/", processor = homeHtmProcessor2}, 
-                    new {path = "CREA2014.WebResources.knockout-3.2.0.js", url = "/knockout-3.2.0.js", processor = doNothing}, 
-                    new {path = "CREA2014.WebResources.jquery-2.1.1.js", url = "/jquery-2.1.1.js", processor = doNothing}, 
-                    new {path = "CREA2014.WebResources.jquery-ui-1.10.4.custom.js", url = "/jquery-ui-1.10.4.custom.js", processor = doNothing}, 
-                })
-                    iWebServerData.Add(wsr.url, Encoding.UTF8.GetBytes(wsr.processor(_GetWebResource(wsr.path))));
-
-                return iWebServerData;
-            };
-            Dictionary<string, byte[]> webServerData = _GetWebServerData();
 
             Action _StartWebServer = () =>
             {
@@ -588,23 +547,28 @@ namespace CREA2014
                         }
 
                         using (HttpListenerResponse hlres = hlc.Response)
-                            if (webServerData.Keys.Contains(hlc.Request.RawUrl) && webServerData[hlc.Request.RawUrl] != null)
+                            if (resources.Keys.Contains(hlc.Request.RawUrl))
                             {
+                                byte[] data = null;
                                 if (hlc.Request.RawUrl == "/")
                                 {
                                     hlres.StatusCode = (int)HttpStatusCode.OK;
                                     hlres.ContentType = MediaTypeNames.Text.Html;
                                     hlres.ContentEncoding = Encoding.UTF8;
-                                }
 
-                                if (hlc.Request.RawUrl == "/" && (hlc.Request.RemoteEndPoint.Address != IPAddress.Loopback || hlc.Request.RemoteEndPoint.Address != IPAddress.IPv6Loopback))
-                                {
-                                    byte[] bytes = Encoding.UTF8.GetBytes(Encoding.UTF8.GetString(webServerData[hlc.Request.RawUrl]).Replace("localhost", defaultNetworkInterface.MachineIpAddress.ToString()));
+                                    WebResourceHome wrh = resources[hlc.Request.RawUrl] as WebResourceHome;
 
-                                    hlres.OutputStream.Write(bytes, 0, bytes.Length);
+                                    if (!hlc.Request.RemoteEndPoint.Address.Equals(IPAddress.Loopback) && !hlc.Request.RemoteEndPoint.Address.Equals(IPAddress.IPv6Loopback))
+                                        wrh.host = defaultNetworkInterface.MachineIpAddress.ToString();
+                                    else
+                                        wrh.host = "localhost";
+
+                                    data = wrh.GetData();
                                 }
                                 else
-                                    hlres.OutputStream.Write(webServerData[hlc.Request.RawUrl], 0, webServerData[hlc.Request.RawUrl].Length);
+                                    data = resources[hlc.Request.RawUrl].GetData();
+
+                                hlres.OutputStream.Write(data, 0, data.Length);
                             }
                             else
                                 throw new KeyNotFoundException("web_server_data");
@@ -641,98 +605,50 @@ namespace CREA2014
                 }
             };
 
-            Func<string> _GetAccountHolderHtml = () =>
+            JSON json = new JSON();
+
+            Func<string[]> _CreateBalanceJSON = () =>
             {
-                string accHolsHtml = _GetWebResource(pathAccHolsHtm);
-                string accHolHtml = _GetWebResource(pathAccHolHtm);
-                string accHtml = _GetWebResource(pathAccHtm);
-
-                string accs = string.Concat(from i in core.iAccountHolders.iAnonymousAccountHolder.iAccounts
-                                            select accHtml.Replace("%%name%%", i.iName).Replace("%%description%%", i.iDescription).Replace("%%address%%", i.iAddress));
-
-                string psu_acc_hols = string.Concat(from i in core.iAccountHolders.iPseudonymousAccountHolders
-                                                    select accHolHtml.Replace("%%title%%", i.iSign).Replace("%%accs%%",
-                                      string.Concat(from j in i.iAccounts
-                                                    select accHtml.Replace("%%name%%", j.iName).Replace("%%description%%", j.iDescription).Replace("%%address%%", j.iAddress))));
-
-                return accHolsHtml.Replace("%%accs%%", accs).Replace("%%psu_acc_hols%%", psu_acc_hols);
-            };
-
-            Func<Program.LogData, string> _GetLogHtml = (logData) =>
-            {
-                if (logData.Kind == Program.LogData.LogKind.error)
-                    return _GetWebResource(pathErrorLogHtm).Replace("%%log%%", logData.ToString().Replace(Environment.NewLine, "<br/>"));
-                else
-                    return _GetWebResource(pathLogHtm).Replace("%%log%%", logData.ToString().Replace(Environment.NewLine, "<br/>"));
-            };
-
-            Action<WebSocketSession> _SendBalance = (wssession) =>
-            {
-                wssession.Send("balance " + core.Balance.AmountInCreacoin.Amount.ToString() + "CREA");
-                wssession.Send("usable_balance " + core.UsableBalance.AmountInCreacoin.Amount.ToString() + "CREA");
-                wssession.Send("unusable_balance " + core.UnusableBalance.AmountInCreacoin.Amount.ToString() + "CREA");
-            };
-
-            WebSocketServer oldWss;
-            wss = new WebSocketServer();
-            wss.NewSessionConnected += (wssession) =>
-            {
-                JSON json = new JSON();
-
-                Func<IAccount[], string[]> _CreateAccountsJSON = (iaccounts) =>
-                {
-                    List<string[]> anonymousAccountsList = new List<string[]>();
-                    foreach (var iaccount in iaccounts)
-                    {
-                        string[] accountName = json.CreateJSONPair("name", iaccount.iName);
-                        string[] accountDescription = json.CreateJSONPair("description", iaccount.iDescription);
-                        string[] accountAddress = json.CreateJSONPair("address", iaccount.iAddress);
-                        anonymousAccountsList.Add(json.CreateJSONObject(accountName, accountDescription, accountAddress));
-                    }
-                    return json.CreateJSONArray(anonymousAccountsList.ToArray());
-                };
-
-                string[] usableName = json.CreateJSONPair("name", "使用可能");
-                string[] usableValue = json.CreateJSONPair("value", 0);
+                string[] usableName = json.CreateJSONPair("name", "使用可能".Multilanguage(198));
+                string[] usableValue = json.CreateJSONPair("value", core.UsableBalance.AmountInCreacoin.Amount);
                 string[] usableUnit = json.CreateJSONPair("unit", Creacoin.Name);
                 string[] usable = json.CreateJSONObject(usableName, usableValue, usableUnit);
 
-                string[] unusableName = json.CreateJSONPair("name", "使用不能");
-                string[] unusableValue = json.CreateJSONPair("value", 0);
+                string[] unusableName = json.CreateJSONPair("name", "使用不能".Multilanguage(199));
+                string[] unusableValue = json.CreateJSONPair("value", core.UnusableBalance.AmountInCreacoin.Amount);
                 string[] unusableUnit = json.CreateJSONPair("unit", Creacoin.Name);
                 string[] unusable = json.CreateJSONObject(unusableName, unusableValue, unusableUnit);
 
-                string[] balanceName = json.CreateJSONPair("name", "残高");
-                string[] balanceValue = json.CreateJSONPair("value", 0);
+                string[] balanceName = json.CreateJSONPair("name", "残高".Multilanguage(200));
+                string[] balanceValue = json.CreateJSONPair("value", core.Balance.AmountInCreacoin.Amount);
                 string[] balanceUnit = json.CreateJSONPair("unit", Creacoin.Name);
                 string[] balanceUsable = json.CreateJSONPair("usable", usable);
                 string[] balanceUnusable = json.CreateJSONPair("unusable", unusable);
-                string[] balance = json.CreateJSONObject(balanceName, balanceValue, balanceUnit, balanceUsable, balanceUnusable);
+                return json.CreateJSONObject(balanceName, balanceValue, balanceUnit, balanceUsable, balanceUnusable);
+            };
 
-                string[] partBalanceName = json.CreateJSONPair("name", "残高");
-                string[] partBalanceDetail = json.CreateJSONPair("detail", balance);
-                string[] partBalance = json.CreateJSONObject(partBalanceName, partBalanceDetail);
+            Func<IAccount[], string[]> _CreateAccountsJSON = (iaccounts) =>
+            {
+                List<string[]> anonymousAccountsList = new List<string[]>();
+                foreach (var iaccount in iaccounts)
+                {
+                    string[] accountName = json.CreateJSONPair("name", iaccount.iName);
+                    string[] accountDescription = json.CreateJSONPair("description", iaccount.iDescription);
+                    string[] accountAddress = json.CreateJSONPair("address", iaccount.iAddress);
+                    anonymousAccountsList.Add(json.CreateJSONObject(accountName, accountDescription, accountAddress));
+                }
+                return json.CreateJSONArray(anonymousAccountsList.ToArray());
+            };
 
-                string[] accountHolderColumnName = json.CreateJSONPair("name", "口座名");
-                string[] accountHolderColumnDescription = json.CreateJSONPair("description", "説明");
-                string[] accountHolderColumnAddress = json.CreateJSONPair("address", "口座番号");
-                string[] accountHolderColumns = json.CreateJSONObject(accountHolderColumnName, accountHolderColumnDescription, accountHolderColumnAddress);
-
-                string[] buttonNewAccountHolderName = json.CreateJSONPair("name", "新しい口座名義");
-                string[] buttonNewAccountHolderKeyName = json.CreateJSONPair("keyName", "A");
-                string[] buttonNewAccountHolderKey = json.CreateJSONPair("key", ((int)Key.A).ToString());
-                string[] buttonNewAccountHolder = json.CreateJSONPair("buttonNewAccountHolder", json.CreateJSONObject(buttonNewAccountHolderName, buttonNewAccountHolderKeyName, buttonNewAccountHolderKey));
-
-                string[] buttonNewAccountName = json.CreateJSONPair("name", "新しい口座");
-                string[] buttonNewAccountKeyName = json.CreateJSONPair("keyName", "B");
-                string[] buttonNewAccountKey = json.CreateJSONPair("key", ((int)Key.B).ToString());
-                string[] buttonNewAccount = json.CreateJSONPair("buttonNewAccount", json.CreateJSONObject(buttonNewAccountName, buttonNewAccountKeyName, buttonNewAccountKey));
-
-                string[] accountButtons = json.CreateJSONPair("accountButtons", json.CreateJSONObject(buttonNewAccountHolder, buttonNewAccount));
-
-                string[] anonymousAccountHolderName = json.CreateJSONPair("name", "匿名");
+            Func<string[]> _CreateAahJSON = () =>
+            {
+                string[] anonymousAccountHolderName = json.CreateJSONPair("name", "匿名".Multilanguage(207));
                 string[] anonymousAccounts = json.CreateJSONPair("accounts", _CreateAccountsJSON(core.iAccountHolders.iAnonymousAccountHolder.iAccounts));
+                return json.CreateJSONObject(anonymousAccountHolderName, anonymousAccounts);
+            };
 
+            Func<string[]> _CreatePahsJSON = () =>
+            {
                 List<string[]> pseudonymousAccountHoldersList = new List<string[]>();
                 foreach (var pah in core.iAccountHolders.iPseudonymousAccountHolders)
                 {
@@ -740,98 +656,34 @@ namespace CREA2014
                     string[] pseudonymousAccounts = json.CreateJSONPair("accounts", _CreateAccountsJSON(pah.iAccounts));
                     pseudonymousAccountHoldersList.Add(json.CreateJSONObject(pseudonymousAccountHolderName, pseudonymousAccounts));
                 }
-
-                List<string[]> logsList = new List<string[]>();
-                foreach (var log in logger.Logs.Reverse())
-                {
-                    string[] logType = json.CreateJSONPair("type", log.Kind.ToString());
-                    string[] logMessage = json.CreateJSONPair("message", log.ToString());
-                    logsList.Add(json.CreateJSONObject(logType, logMessage));
-                }
-
-                string[] partAccountName = json.CreateJSONPair("name", "受け取り口座");
-                string[] partAccountColumns = json.CreateJSONPair("accountHolderColumns", accountHolderColumns);
-                string[] anonymousAccountHolder = json.CreateJSONPair("anonymousAccountHolder", json.CreateJSONObject(anonymousAccountHolderName, anonymousAccounts));
-                string[] pseudonymousAccountHolders = json.CreateJSONPair("pseudonymousAccountHolders", json.CreateJSONArray(pseudonymousAccountHoldersList.ToArray()));
-                string[] partAccount = json.CreateJSONObject(partAccountName, accountButtons, partAccountColumns, anonymousAccountHolder, pseudonymousAccountHolders);
-
-                string[] partLogName = json.CreateJSONPair("name", "運用記録");
-                string[] partLogItems = json.CreateJSONPair("logs", json.CreateJSONArray(logsList.ToArray()));
-                string[] partLog = json.CreateJSONObject(partLogName, partLogItems);
-
-                string[] universeTitle = json.CreateJSONPair("title", appnameWithVersion);
-                string[] universePartBalance = json.CreateJSONPair("partBalance", partBalance);
-                string[] universePartAccount = json.CreateJSONPair("partAccount", partAccount);
-                string[] universePartLog = json.CreateJSONPair("partLog", partLog);
-                string[] universe = json.CreateJSONObject(universeTitle, universePartBalance, universePartAccount, universePartLog);
-
-                string jsonString = string.Join(Environment.NewLine, universe);
-
-                wssession.Send("initial_data " + jsonString);
+                return json.CreateJSONArray(pseudonymousAccountHoldersList.ToArray());
             };
-            wss.NewMessageReceived += newMessageReceived;
-            wss.Setup(mws.PortWebSocket);
-            wss.Start();
 
-            //wb.Navigated += (sender2, e2) => ((mshtml.HTMLDocument)wb.Document).focus();
-            wb.Navigate("http://localhost:" + mws.PortWebServer.ToString() + "/");
-
-            mws.SettingsChanged += (sender2, e2) =>
+            Func<Program.LogData, string[]> _CreateLogJSON = (log) =>
             {
-                if (mws.isPortWebServerAltered)
-                {
-                    hl.Abort();
+                string[] logType = json.CreateJSONPair("type", log.Kind.ToString());
+                string[] logMessage = json.CreateJSONPair("message", log.ToString());
+                return json.CreateJSONObject(logType, logMessage);
+            };
 
-                    webServerData = _GetWebServerData();
-                    _StartWebServer();
+            core.BalanceUpdated += (sender2, e2) =>
+            {
+                string[] balance = _CreateBalanceJSON();
 
-                    wb.Navigate("http://localhost:" + mws.PortWebServer.ToString() + "/");
-                }
-                else
-                {
-                    if (mws.isIsWallpaperAltered || mws.isWallpaperAltered || mws.isWallpaperOpacityAltered)
-                    {
-                        webServerData.Remove(wallpaperFileName);
-                        wallpaperFileName = _GetWallpaperFileName(DateTime.Now.Ticks.ToString());
-                        webServerData.Add(wallpaperFileName, _GetWallpaperData());
-
-                        foreach (var wssession in wss.GetAllSessions())
-                            wssession.Send("wallpaper " + wallpaperFileName);
-                    }
-                    if (mws.isPortWebSocketAltered)
-                    {
-                        //2014/07/02
-                        //<未実装>古いイベントの登録を解除していない
-                        oldWss = wss;
-                        wss = new WebSocketServer();
-                        wss.NewSessionConnected += (session) =>
-                        {
-                            if (oldWss != null)
-                            {
-                                oldWss.Stop();
-                                oldWss = null;
-                            }
-                        };
-                        wss.NewMessageReceived += newMessageReceived;
-                        wss.Setup(mws.PortWebSocket);
-                        wss.Start();
-
-                        foreach (var wssession in oldWss.GetAllSessions())
-                            wssession.Send("wss " + _GetWssAddress(mws.PortWebSocket));
-                    }
-                    if (mws.isIsDefaultUiAltered || mws.isUiFilesDirectoryAltered)
-                    {
-                        webResourceCache.Clear();
-
-                        wb.Navigate("http://localhost:" + mws.PortWebServer.ToString() + "/");
-                    }
-                }
+                foreach (var wssession in wss.GetAllSessions())
+                    wssession.Send("balanceUpdated " + string.Join(Environment.NewLine, balance));
             };
 
             Action _SendAccountHolders = () =>
             {
+                string[] aah = _CreateAahJSON();
+                string[] pahs = _CreatePahsJSON();
+
                 foreach (var wssession in wss.GetAllSessions())
-                    wssession.Send("acc_hols " + _GetAccountHolderHtml());
+                {
+                    wssession.Send("aahUpdated " + string.Join(Environment.NewLine, aah));
+                    wssession.Send("pahsUpdated " + string.Join(Environment.NewLine, pahs));
+                }
             };
 
             EventHandler _AccountChanged = (sender2, e2) => _SendAccountHolders();
@@ -878,14 +730,138 @@ namespace CREA2014
 
             logger.LogAdded += (sender2, e2) =>
             {
+                string[] log = _CreateLogJSON(e2);
+
                 foreach (var wssession in wss.GetAllSessions())
-                    wssession.Send("log " + _GetLogHtml(e2));
+                    wssession.Send("logAdded " + string.Join(Environment.NewLine, log));
             };
 
-            core.BalanceUpdated += (sender2, e2) =>
+            WebSocketServer oldWss;
+            wss = new WebSocketServer();
+            wss.NewSessionConnected += (wssession) =>
             {
-                foreach (var wssession in wss.GetAllSessions())
-                    _SendBalance(wssession);
+                string[] partBalanceName = json.CreateJSONPair("name", "残高".Multilanguage(201));
+                string[] partBalanceDetail = json.CreateJSONPair("detail", _CreateBalanceJSON());
+                string[] partBalance = json.CreateJSONObject(partBalanceName, partBalanceDetail);
+
+                string[] accountHolderColumnName = json.CreateJSONPair("name", "口座名".Multilanguage(202));
+                string[] accountHolderColumnDescription = json.CreateJSONPair("description", "説明".Multilanguage(203));
+                string[] accountHolderColumnAddress = json.CreateJSONPair("address", "口座番号".Multilanguage(204));
+                string[] accountHolderColumns = json.CreateJSONObject(accountHolderColumnName, accountHolderColumnDescription, accountHolderColumnAddress);
+
+                string[] buttonNewAccountHolderName = json.CreateJSONPair("name", "新しい口座名義".Multilanguage(205));
+                string[] buttonNewAccountHolderKeyName = json.CreateJSONPair("keyName", "A");
+                string[] buttonNewAccountHolderKey = json.CreateJSONPair("key", ((int)Key.A).ToString());
+                string[] buttonNewAccountHolder = json.CreateJSONPair("buttonNewAccountHolder", json.CreateJSONObject(buttonNewAccountHolderName, buttonNewAccountHolderKeyName, buttonNewAccountHolderKey));
+
+                string[] buttonNewAccountName = json.CreateJSONPair("name", "新しい口座".Multilanguage(206));
+                string[] buttonNewAccountKeyName = json.CreateJSONPair("keyName", "B");
+                string[] buttonNewAccountKey = json.CreateJSONPair("key", ((int)Key.B).ToString());
+                string[] buttonNewAccount = json.CreateJSONPair("buttonNewAccount", json.CreateJSONObject(buttonNewAccountName, buttonNewAccountKeyName, buttonNewAccountKey));
+
+                List<string[]> logsList = new List<string[]>();
+                foreach (var log in logger.Logs.Reverse())
+                    logsList.Add(_CreateLogJSON(log));
+
+                List<string[]> chatsList = new List<string[]>();
+
+                Chat chat1 = new Chat();
+                chat1.LoadVersion0("ゆみにゃん", "ぬるぽ");
+                Chat chat2 = new Chat();
+                chat2.LoadVersion0("ゆいにゃん", "ガッ");
+
+                foreach (var chat in new Chat[] { chat1, chat2 })
+                {
+                    string[] chatName = json.CreateJSONPair("name", chat.Name);
+                    string[] chatMessage = json.CreateJSONPair("message", chat.Message);
+                    chatsList.Add(json.CreateJSONObject(chatName, chatMessage));
+                }
+
+                string[] partAccountName = json.CreateJSONPair("name", "受け取り口座".Multilanguage(208));
+                string[] partAccountButtons = json.CreateJSONPair("accountButtons", json.CreateJSONObject(buttonNewAccountHolder, buttonNewAccount));
+                string[] partAccountColumns = json.CreateJSONPair("accountHolderColumns", accountHolderColumns);
+                string[] partAccountAah = json.CreateJSONPair("anonymousAccountHolder", _CreateAahJSON());
+                string[] partAccountPahs = json.CreateJSONPair("pseudonymousAccountHolders", _CreatePahsJSON());
+                string[] partAccount = json.CreateJSONObject(partAccountName, partAccountButtons, partAccountColumns, partAccountAah, partAccountPahs);
+
+                string[] partLogName = json.CreateJSONPair("name", "運用記録".Multilanguage(209));
+                string[] partLogItems = json.CreateJSONPair("logs", json.CreateJSONArray(logsList.ToArray()));
+                string[] partLog = json.CreateJSONObject(partLogName, partLogItems);
+
+                string[] partChatName = json.CreateJSONPair("name", "チャット");
+                string[] partChatItems = json.CreateJSONPair("chats", json.CreateJSONArray(chatsList.ToArray()));
+                string[] partChat = json.CreateJSONObject(partChatName, partChatItems);
+
+                string[] universeTitle = json.CreateJSONPair("title", appnameWithVersion);
+                string[] universePartBalance = json.CreateJSONPair("partBalance", partBalance);
+                string[] universePartAccount = json.CreateJSONPair("partAccount", partAccount);
+                string[] universePartLog = json.CreateJSONPair("partLog", partLog);
+                string[] universePartChat = json.CreateJSONPair("partChat", partChat);
+                string[] universe = json.CreateJSONObject(universeTitle, universePartBalance, universePartAccount, universePartLog, universePartChat);
+
+                string jsonString = string.Join(Environment.NewLine, universe);
+
+                wssession.Send("initial_data " + jsonString);
+            };
+            wss.NewMessageReceived += newMessageReceived;
+            wss.Setup(mws.PortWebSocket);
+            wss.Start();
+
+            //wb.Navigated += (sender2, e2) => ((mshtml.HTMLDocument)wb.Document).focus();
+            wb.Navigate("http://localhost:" + mws.PortWebServer.ToString() + "/");
+
+            mws.SettingsChanged += (sender2, e2) =>
+            {
+                if (mws.isPortWebServerAltered)
+                {
+                    hl.Abort();
+
+                    _StartWebServer();
+
+                    wb.Navigate("http://localhost:" + mws.PortWebServer.ToString() + "/");
+                }
+                else
+                {
+                    if (mws.isIsWallpaperAltered || mws.isWallpaperAltered || mws.isWallpaperOpacityAltered)
+                    {
+                        resources.Remove(wallpaperFileName);
+                        wallpaperFileName = "/back" + DateTime.Now.Ticks.ToString() + ".png";
+                        resources.Add(wallpaperFileName, new WebResourceWallpaper(mws.IsWallpaper ? mws.Wallpaper : null, mws.WallpaperOpacity));
+
+                        foreach (var wssession in wss.GetAllSessions())
+                            wssession.Send("wallpaper " + wallpaperFileName);
+                    }
+                    if (mws.isPortWebSocketAltered)
+                    {
+                        (resources["/"] as WebResourceHome).port = (ushort)mws.PortWebSocket;
+
+                        //2014/07/02
+                        //<未実装>古いイベントの登録を解除していない
+                        oldWss = wss;
+                        wss = new WebSocketServer();
+                        wss.NewSessionConnected += (session) =>
+                        {
+                            if (oldWss != null)
+                            {
+                                oldWss.Stop();
+                                oldWss = null;
+                            }
+                        };
+                        wss.NewMessageReceived += newMessageReceived;
+                        wss.Setup(mws.PortWebSocket);
+                        wss.Start();
+
+                        foreach (var wssession in oldWss.GetAllSessions())
+                            wssession.Send("wss " + mws.PortWebSocket.ToString());
+                    }
+                    if (mws.isIsDefaultUiAltered || mws.isUiFilesDirectoryAltered)
+                    {
+                        resources.Remove("/");
+                        resources.Add("/", new WebResourceHome(mws.IsDefaultUi, "CREA2014.WebResources.home2.htm", Path.Combine(mws.UiFilesDirectory, "home2.htm"), assembly));
+
+                        wb.Navigate("http://localhost:" + mws.PortWebServer.ToString() + "/");
+                    }
+                }
             };
         }
 
