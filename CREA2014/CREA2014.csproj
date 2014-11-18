@@ -211,7 +211,6 @@
     <EmbeddedResource Include="WebResources\home.htm">
       <SubType>Designer</SubType>
     </EmbeddedResource>
-    <EmbeddedResource Include="WebResources\jquery-2.0.3.min.js" />
   </ItemGroup>
   <ItemGroup>
     <BootstrapperPackage Include=".NETFramework,Version=v4.5">
@@ -284,6 +283,9 @@
   </ItemGroup>
   <ItemGroup>
     <EmbeddedResource Include="up0669_2.ico" />
+  </ItemGroup>
+  <ItemGroup>
+    <EmbeddedResource Include="WebResources\jquery-2.1.1.js" />
   </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
   <!-- To modify your build process, add your task inside one of the targets below and uncomment it. 

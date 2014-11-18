@@ -265,6 +265,33 @@ namespace CREA2014
 
         private Action<string> _CreateUiFiles;
 
+        public abstract class WebResourceBase
+        {
+            public WebResourceBase(string _url) { url = _url; }
+
+            public string url { get; private set; }
+            public abstract byte[] GetData();
+        }
+
+        public class RebResourceWallpaper : WebResourceBase
+        {
+            public RebResourceWallpaper(string _url) : base(_url) { }
+
+            private byte[] cache;
+
+            public override byte[] GetData()
+            {
+                if (cache == null)
+                {
+
+                }
+
+                return cache;
+            }
+        }
+
+
+
         public MainWindow(Core _core, Program.Logger _logger, Program.ProgramSettings _psettings, Program.ProgramStatus _pstatus, string _appname, string _version, string _appnameWithVersion, string _lisenceTextFilename, Assembly _assembly, string _basepath, Action<Exception, Program.ExceptionKind> __OnException, Func<byte[], Version, bool> __UpVersion, List<UnhandledExceptionEventHandler> _unhandledExceptionEventHandlers, List<DispatcherUnhandledExceptionEventHandler> _dispatcherUnhandledExceptionEventHandlers)
         {
             core = _core;
@@ -516,7 +543,7 @@ namespace CREA2014
                     //new {path = pathHomeHtm, url = "/", processor = homeHtmProcessor}, 
                     new {path = "CREA2014.WebResources.home2.htm", url = "/", processor = homeHtmProcessor2}, 
                     new {path = "CREA2014.WebResources.knockout-3.2.0.js", url = "/knockout-3.2.0.js", processor = doNothing}, 
-                    new {path = "CREA2014.WebResources.jquery-2.0.3.min.js", url = "/jquery-2.0.3.min.js", processor = doNothing}, 
+                    new {path = "CREA2014.WebResources.jquery-2.1.1.js", url = "/jquery-2.1.1.js", processor = doNothing}, 
                     new {path = "CREA2014.WebResources.jquery-ui-1.10.4.custom.js", url = "/jquery-ui-1.10.4.custom.js", processor = doNothing}, 
                 })
                     iWebServerData.Add(wsr.url, Encoding.UTF8.GetBytes(wsr.processor(_GetWebResource(wsr.path))));
@@ -650,10 +677,6 @@ namespace CREA2014
             wss = new WebSocketServer();
             wss.NewSessionConnected += (wssession) =>
             {
-                this.RaiseNotification("test", 5);
-                this.RaiseError("test", 5);
-                this.RaiseWarning("test", 5);
-
                 JSON json = new JSON();
 
                 Func<IAccount[], string[]> _CreateAccountsJSON = (iaccounts) =>
@@ -697,12 +720,12 @@ namespace CREA2014
 
                 string[] buttonNewAccountHolderName = json.CreateJSONPair("name", "新しい口座名義");
                 string[] buttonNewAccountHolderKeyName = json.CreateJSONPair("keyName", "A");
-                string[] buttonNewAccountHolderKey = json.CreateJSONPair("key", 65);
+                string[] buttonNewAccountHolderKey = json.CreateJSONPair("key", ((int)Key.A).ToString());
                 string[] buttonNewAccountHolder = json.CreateJSONPair("buttonNewAccountHolder", json.CreateJSONObject(buttonNewAccountHolderName, buttonNewAccountHolderKeyName, buttonNewAccountHolderKey));
 
                 string[] buttonNewAccountName = json.CreateJSONPair("name", "新しい口座");
                 string[] buttonNewAccountKeyName = json.CreateJSONPair("keyName", "B");
-                string[] buttonNewAccountKey = json.CreateJSONPair("key", 66);
+                string[] buttonNewAccountKey = json.CreateJSONPair("key", ((int)Key.B).ToString());
                 string[] buttonNewAccount = json.CreateJSONPair("buttonNewAccount", json.CreateJSONObject(buttonNewAccountName, buttonNewAccountKeyName, buttonNewAccountKey));
 
                 string[] accountButtons = json.CreateJSONPair("accountButtons", json.CreateJSONObject(buttonNewAccountHolder, buttonNewAccount));
@@ -745,13 +768,6 @@ namespace CREA2014
                 string jsonString = string.Join(Environment.NewLine, universe);
 
                 wssession.Send("initial_data " + jsonString);
-
-                //wssession.Send("acc_hols " + _GetAccountHolderHtml());
-
-                //foreach (var log in logger.Logs.Reverse())
-                //    wssession.Send("log " + _GetLogHtml(log));
-
-                //_SendBalance(wssession);
             };
             wss.NewMessageReceived += newMessageReceived;
             wss.Setup(mws.PortWebSocket);

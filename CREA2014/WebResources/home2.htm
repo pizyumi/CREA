@@ -3,7 +3,7 @@
 <html lang="ja" xmlns="http://www.w3.org/1999/xhtml">
 <head>
     <meta charset="utf-8" />
-    <script type="text/javascript" src="jquery-2.0.3.min.js"></script>
+    <script type="text/javascript" src="jquery-2.1.1.js"></script>
     <script type="text/javascript" src="jquery-ui-1.10.4.custom.js"></script>
     <script type="text/javascript" src="knockout-3.2.0.js"></script>
     <script type="text/javascript">
@@ -53,6 +53,9 @@
                 self.buttonNewAccountHolderCaption = ko.computed(function () {
                     return $("<div>").text(self.buttonNewAccountHolderName()).html() + "(<U>" + $("<div>").text(self.buttonNewAccountHolderKeyName()).html() + "</U>)...";
                 });
+                self.buttonNewAccountHolderClicked = function () {
+                    ws.send("new_account_holder");
+                }
 
                 self.buttonNewAccountName = ko.observable("");
                 self.buttonNewAccountKeyName = ko.observable("");
@@ -60,6 +63,9 @@
                 self.buttonNewAccountCaption = ko.computed(function () {
                     return $("<div>").text(self.buttonNewAccountName()).html() + "(<U>" + $("<div>").text(self.buttonNewAccountKeyName()).html() + "</U>)...";
                 });
+                self.buttonNewAccountClicked = function () {
+                    ws.send("new_account");
+                }
 
                 self.accountHoldersColumnName = ko.observable("");
                 self.accountHoldersColumnDescription = ko.observable("");
@@ -140,22 +146,6 @@
                     for (var i = 0; i < obj.partAccount.anonymousAccountHolder.accounts.length; i++) {
                         vm.anonymousAccountHolder.accounts.push(obj.partAccount.anonymousAccountHolder.accounts[i]);
                     }
-                    vm.anonymousAccountHolder.accounts.subscribe(function () {
-                        var accounts = $(".acc");
-
-                        accounts.hover(function () {
-                            if (!$(this).hasClass("acc_selected"))
-                                $(this).switchClass("acc", "acc_hover", 200);
-                        }, function () {
-                            if (!$(this).hasClass("acc_selected"))
-                                $(this).switchClass("acc_hover", "acc", 200);
-                        });
-
-                        accounts.click(function () {
-                            $(".acc_selected").switchClass("acc_selected", "acc", 200);
-                            $(this).switchClass("acc_hover", "acc_selected", 200);
-                        });
-                    });
 
                     for (var i = 0; i < obj.partAccount.pseudonymousAccountHolders.length; i++) {
                         var pah = new AccountHolder();
@@ -169,6 +159,8 @@
                     for (var i = 0; i < obj.partLog.logs.length; i++) {
                         vm.logs.splice(0, 0, obj.partLog.logs[i]);
                     }
+
+                    AccUI();
                 }
             };
 
@@ -178,6 +170,34 @@
             ws.onerror = function (error) {
             };
             ws.onmessage = om;
+
+            $(document).keydown(function (e) {
+                if (vm.activatedPart() == 1) {
+                    if (e.keyCode == vm.buttonNewAccountHolderKey()) {
+                        ws.send("new_account_holder");
+                    }
+                    else if (e.keyCode == vm.buttonNewAccountKey()) {
+                        ws.send("new_account");
+                    }
+                }
+            });
+
+            function AccUI() {
+                var accounts = $(".acc");
+
+                accounts.hover(function () {
+                    if (!$(this).hasClass("acc_selected"))
+                        $(this).switchClass("acc", "acc_hover", 200);
+                }, function () {
+                    if (!$(this).hasClass("acc_selected"))
+                        $(this).switchClass("acc_hover", "acc", 200);
+                });
+
+                accounts.click(function () {
+                    $(".acc_selected").switchClass("acc_selected", "acc", 200);
+                    $(this).switchClass("acc_hover", "acc_selected", 200);
+                });
+            }
         });
 
         window.onunload = function () {
@@ -465,21 +485,6 @@
                         buttons.mouseup(function () {
                             $(this).switchClass("button1_content_mouse_down", "button1_content_hover", 50);
                         });
-
-                        var accounts = $(".acc");
-
-                        accounts.hover(function () {
-                            if (!$(this).hasClass("acc_selected"))
-                                $(this).switchClass("acc", "acc_hover", 200);
-                        }, function () {
-                            if (!$(this).hasClass("acc_selected"))
-                                $(this).switchClass("acc_hover", "acc", 200);
-                        });
-
-                        accounts.click(function () {
-                            $(".acc_selected").switchClass("acc_selected", "acc", 200);
-                            $(this).switchClass("acc_hover", "acc_selected", 200);
-                        });
                     });
                 </script>
                 <div id="tab1items">
@@ -498,10 +503,10 @@
                     </div>
                     <div id="tab1_tabcontent2" class="tab1_tabcontent" data-bind="visible: activatedPart() == 1">
                         <div id="button1" class="button">
-                            <div id="button1_content" class="button1_content" data-bind="html: buttonNewAccountHolderCaption"></div>
+                            <div id="button1_content" class="button1_content" data-bind="html: buttonNewAccountHolderCaption, click: buttonNewAccountHolderClicked"></div>
                         </div>
                         <div id="button2" class="button">
-                            <div id="button2_content" class="button1_content" data-bind="html: buttonNewAccountCaption"></div>
+                            <div id="button2_content" class="button1_content" data-bind="html: buttonNewAccountCaption, click: buttonNewAccountClicked"></div>
                         </div>
                         <div id="acc_hols_container">
                             <div class="acc_hol">
@@ -523,9 +528,28 @@
                                     </tbody>
                                 </table>
                             </div>
-                            <div id="psu_acc_hols">
-                                %%psu_acc_hols%%
-   
+                            <div id="psu_acc_hols" data-bind="foreach: pseudonymousAccountHolders">
+                                <div class="acc_hol">
+                                    <div class="acc_hol_title" data-bind="text: name"></div>
+                                    <div>
+                                        <table>
+                                            <thead>
+                                                <tr class="acc_header">
+                                                    <th data-bind="text: $parent.accountHoldersColumnName"></th>
+                                                    <th data-bind="text: $parent.accountHoldersColumnDescription"></th>
+                                                    <th data-bind="text: $parent.accountHoldersColumnAddress"></th>
+                                                </tr>
+                                            </thead>
+                                            <tbody data-bind="foreach: accounts">
+                                                <tr class="acc">
+                                                    <td class="acc_name" data-bind="text: name"></td>
+                                                    <td class="acc_desc" data-bind="text: description"></td>
+                                                    <td class="acc_addr" data-bind="text: address"></td>
+                                                </tr>
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
                             </div>
                         </div>
                     </div>
