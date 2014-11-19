@@ -98,6 +98,14 @@
     <Reference Include="System.Xaml">
       <RequiredTargetFramework>4.0</RequiredTargetFramework>
     </Reference>
+    <Reference Include="vtortola.WebSockets, Version=2.1.2.0, Culture=neutral, processorArchitecture=MSIL">
+      <SpecificVersion>False</SpecificVersion>
+      <HintPath>Component\vtortola.WebSockets.dll</HintPath>
+    </Reference>
+    <Reference Include="vtortola.WebSockets.Rfc6455, Version=2.1.2.0, Culture=neutral, processorArchitecture=MSIL">
+      <SpecificVersion>False</SpecificVersion>
+      <HintPath>Component\vtortola.WebSockets.Rfc6455.dll</HintPath>
+    </Reference>
     <Reference Include="WindowsBase" />
     <Reference Include="PresentationCore" />
     <Reference Include="PresentationFramework" />
@@ -286,6 +294,10 @@
   </ItemGroup>
   <ItemGroup>
     <EmbeddedResource Include="WebResources\jquery-2.1.1.js" />
+  </ItemGroup>
+  <ItemGroup>
+    <EmbeddedResource Include="Component\vtortola.WebSockets.dll" />
+    <EmbeddedResource Include="Component\vtortola.WebSockets.Rfc6455.dll" />
   </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
   <!-- To modify your build process, add your task inside one of the targets below and uncomment it. 

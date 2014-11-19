@@ -8,7 +8,6 @@ using System.IO;
 using System.IO.Compression;
 using System.Linq;
 using System.Net;
-using System.Net.NetworkInformation;
 using System.Net.Sockets;
 using System.Security.Cryptography;
 using System.Text;
@@ -2777,7 +2776,7 @@ namespace CREA2014
                     if (nnc.Id != chat.Id)
                         throw new InvalidOperationException();
 
-                    if (!processedChats.AddAccount(chat))
+                    if (!processedChats.AddChat(chat))
                         return;
 
                     ReceivedNewChat(this, chat);
@@ -3423,25 +3422,25 @@ namespace CREA2014
             {
                 NotifyNewChat nnc = SHAREDDATA.FromBinary<NotifyNewChat>(sc.ReadBytes());
 
-                _ConsoleWriteLine("read_nnc");
+                //_ConsoleWriteLine("read_nnc");
 
                 bool isNew = !processedChats.Contains(nnc.Id);
                 sc.WriteBytes(BitConverter.GetBytes(isNew));
 
-                _ConsoleWriteLine("write_isnew");
+                //_ConsoleWriteLine("write_isnew");
 
                 if (isNew)
                 {
                     Chat chat = SHAREDDATA.FromBinary<Chat>(sc.ReadBytes());
 
-                    _ConsoleWriteLine("read_chat");
+                    //_ConsoleWriteLine("read_chat");
 
                     if (chat == null)
                         throw new InvalidOperationException();
                     if (nnc.Id != chat.Id)
                         throw new InvalidOperationException();
 
-                    if (!processedChats.AddAccount(chat))
+                    if (!processedChats.AddChat(chat))
                         return;
 
                     ReceivedNewChat(this, chat);
@@ -3501,15 +3500,15 @@ namespace CREA2014
 
                 sc.WriteBytes(nnc.ToBinary());
 
-                _ConsoleWriteLine("write_nnc");
+                //_ConsoleWriteLine("write_nnc");
 
                 if (BitConverter.ToBoolean(sc.ReadBytes(), 0))
                 {
-                    _ConsoleWriteLine("read_isnew");
+                    //_ConsoleWriteLine("read_isnew");
 
                     sc.WriteBytes(chat.ToBinary());
 
-                    _ConsoleWriteLine("write_chat");
+                    //_ConsoleWriteLine("write_chat");
                 }
 
                 return new SHAREDDATA[] { };
@@ -3523,6 +3522,8 @@ namespace CREA2014
             if (processedTransactions.Contains(transaction.Id).RaiseNotification(this.GetType(), "alredy_processed_tx", 3))
                 return;
 
+            processedTransactions.AddTransaction(transaction);
+
             DiffuseNewTransaction(null, new NotifyNewTransaction(transaction.Id), new ResTransaction(transaction));
         }
 
@@ -3532,6 +3533,8 @@ namespace CREA2014
         {
             if (processedChats.Contains(chat.Id).RaiseNotification(this.GetType(), "alredy_processed_chat", 3))
                 return;
+
+            processedChats.AddChat(chat);
 
             DiffuseNewChat(null, new NotifyNewChat(chat.Id), chat);
         }

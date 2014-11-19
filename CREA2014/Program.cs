@@ -11,7 +11,6 @@ using System.IO;
 using System.Linq;
 using System.Management;
 using System.Net;
-using System.Net.NetworkInformation;
 using System.Net.Sockets;
 using System.Numerics;
 using System.Reflection;
@@ -854,6 +853,11 @@ namespace CREA2014
         public static byte[] BytesRandomCache(this byte[] bytes)
         {
             return bytes.BytesRandom(bytes.Length.RandomNumsCache());
+        }
+
+        public static string ComputeTrip(this byte[] bytes)
+        {
+            return "◆" + Convert.ToBase64String(bytes).Pipe((s) => s.Substring(s.Length - 12, 12));
         }
 
         private static HashAlgorithm haSha1 = null;
@@ -3545,6 +3549,8 @@ namespace CREA2014
                         "SuperSocket.SocketBase.dll", 
                         "SuperSocket.SocketEngine.dll", 
                         "SuperWebSocket.dll", 
+                        "vtortola.WebSockets.dll", 
+                        "vtortola.WebSockets.Rfc6455.dll", 
                     };
 
                     foreach (var filename in filenames)

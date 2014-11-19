@@ -4,8 +4,6 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
-using System.Net;
-using System.Net.NetworkInformation;
 using System.Reflection;
 using System.Text;
 using System.Threading;
@@ -42,6 +40,7 @@ namespace CREA2014
 
         //試験用
         private CreaNodeLocalTestContinueDHT creaNodeTest;
+        public CreaNodeLocalTestContinueDHT iCreaNodeTest { get { return creaNodeTest; } }
 
         private CreaNode creaNode;
 

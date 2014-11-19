@@ -12,12 +12,91 @@ using System.Net.Mime;
 using System.Reflection;
 using System.Text;
 using System.Threading;
+using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Input;
 using System.Windows.Threading;
+using vtortola.WebSockets;
+using vtortola.WebSockets.Rfc6455;
 
 namespace CREA2014
 {
+    public delegate void WebSocketEventListenerOnConnect(WebSocket webSocket);
+    public delegate void WebSocketEventListenerOnDisconnect(WebSocket webSocket);
+    public delegate void WebSocketEventListenerOnMessage(WebSocket webSocket, String message);
+    public delegate void WebSocketEventListenerOnError(WebSocket webSocket, Exception error);
+
+    public class WebSocketEventListener : IDisposable
+    {
+        public event WebSocketEventListenerOnConnect OnConnect;
+        public event WebSocketEventListenerOnDisconnect OnDisconnect;
+        public event WebSocketEventListenerOnMessage OnMessage;
+        public event WebSocketEventListenerOnError OnError;
+
+        readonly WebSocketListener _listener;
+
+        public WebSocketEventListener(IPEndPoint endpoint)
+            : this(endpoint, new WebSocketListenerOptions())
+        {
+        }
+        public WebSocketEventListener(IPEndPoint endpoint, WebSocketListenerOptions options)
+        {
+            _listener = new WebSocketListener(endpoint, options);
+            _listener.Standards.RegisterStandard(new WebSocketFactoryRfc6455(_listener));
+        }
+        public void Start()
+        {
+            _listener.Start();
+            Task.Run((Func<Task>)ListenAsync);
+        }
+        public void Stop()
+        {
+            _listener.Stop();
+        }
+        private async Task ListenAsync()
+        {
+            while (_listener.IsStarted)
+            {
+                var websocket = await _listener.AcceptWebSocketAsync(CancellationToken.None)
+                                               .ConfigureAwait(false);
+                if (websocket != null)
+                    Task.Run(() => HandleWebSocketAsync(websocket));
+            }
+        }
+        private async Task HandleWebSocketAsync(WebSocket websocket)
+        {
+            try
+            {
+                if (OnConnect != null)
+                    OnConnect.Invoke(websocket);
+
+                while (websocket.IsConnected)
+                {
+                    var message = await websocket.ReadStringAsync(CancellationToken.None)
+                                                 .ConfigureAwait(false);
+                    if (message != null && OnMessage != null)
+                        OnMessage.Invoke(websocket, message);
+                }
+
+                if (OnDisconnect != null)
+                    OnDisconnect.Invoke(websocket);
+            }
+            catch (Exception ex)
+            {
+                if (OnError != null)
+                    OnError.Invoke(websocket, ex);
+            }
+            finally
+            {
+                websocket.Dispose();
+            }
+        }
+        public void Dispose()
+        {
+            _listener.Dispose();
+        }
+    }
+
     public partial class MainWindow : Window
     {
         public class MainWindowSettings : SAVEABLESETTINGSDATA
@@ -56,6 +135,24 @@ namespace CREA2014
                     {
                         portWebServer = value;
                         isPortWebServerAltered = true;
+                    }
+                }
+            }
+
+            public bool isIsWebServerAcceptExternalAltered { get; private set; }
+            private bool isWebServerAcceptExternal = false;
+            public bool IsWebServerAcceptExternal
+            {
+                get { return isWebServerAcceptExternal; }
+                set
+                {
+                    if (!canSet)
+                        throw new InvalidOperationException("cant_set");
+
+                    if (value != isWebServerAcceptExternal)
+                    {
+                        isWebServerAcceptExternal = value;
+                        isIsWebServerAcceptExternalAltered = true;
                     }
                 }
             }
@@ -212,6 +309,7 @@ namespace CREA2014
                     return new MainDataInfomation[]{
                         new MainDataInfomation(typeof(int), "PortWebSocket", () => portWebSocket, (o) => portWebSocket = (int)o), 
                         new MainDataInfomation(typeof(int), "PortWebServer", () => portWebServer, (o) => portWebServer = (int)o), 
+                        new MainDataInfomation(typeof(bool), "IsWebServerAcceptExternal", () => isWebServerAcceptExternal, (o) => isWebServerAcceptExternal = (bool)o), 
                         new MainDataInfomation(typeof(bool), "IsWallpaper", () => isWallpaper, (o) => isWallpaper = (bool)o), 
                         new MainDataInfomation(typeof(string), "Wallpaper", () => wallpaper, (o) => wallpaper = (string)o), 
                         new MainDataInfomation(typeof(float), "WallpaperOpecity", () => wallpaperOpacity, (o) => wallpaperOpacity = (float)o), 
@@ -230,6 +328,7 @@ namespace CREA2014
 
                 isPortWebSocketAltered = false;
                 isPortWebServerAltered = false;
+                isIsWebServerAcceptExternalAltered = false;
                 isIsWallpaperAltered = false;
                 isWallpaperAltered = false;
                 isWallpaperOpacityAltered = false;
@@ -549,6 +648,11 @@ namespace CREA2014
                         using (HttpListenerResponse hlres = hlc.Response)
                             if (resources.Keys.Contains(hlc.Request.RawUrl))
                             {
+                                bool isLocalhost = hlc.Request.RemoteEndPoint.Address.Equals(IPAddress.Loopback) || hlc.Request.RemoteEndPoint.Address.Equals(IPAddress.IPv6Loopback);
+
+                                if (!mws.IsWebServerAcceptExternal && !isLocalhost)
+                                    continue;
+
                                 byte[] data = null;
                                 if (hlc.Request.RawUrl == "/")
                                 {
@@ -557,11 +661,7 @@ namespace CREA2014
                                     hlres.ContentEncoding = Encoding.UTF8;
 
                                     WebResourceHome wrh = resources[hlc.Request.RawUrl] as WebResourceHome;
-
-                                    if (!hlc.Request.RemoteEndPoint.Address.Equals(IPAddress.Loopback) && !hlc.Request.RemoteEndPoint.Address.Equals(IPAddress.IPv6Loopback))
-                                        wrh.host = defaultNetworkInterface.MachineIpAddress.ToString();
-                                    else
-                                        wrh.host = "localhost";
+                                    wrh.host = isLocalhost ? "localhost" : defaultNetworkInterface.MachineIpAddress.ToString();
 
                                     data = wrh.GetData();
                                 }
@@ -578,7 +678,8 @@ namespace CREA2014
             };
             _StartWebServer();
 
-            //<未改良>.NET Framework 4.5 のWenSocketを使用する
+            //<未改良>WebSocketListenerを使用する
+            //<未改良>localhost以外からの接続をはじく
             SessionHandler<WebSocketSession, string> newMessageReceived = (session, message) =>
             {
                 //2014/08/26
@@ -595,6 +696,28 @@ namespace CREA2014
                             NewAccountHolder(this);
                         else if (message == "new_account")
                             NewAccount(this, null, null);
+                        else if (message.StartsWith("new_chat"))
+                        {
+                            Dictionary<string, object> obj = JSONParser.Parse(message.Substring(9)) as Dictionary<string, object>;
+
+                            foreach (var pah in core.iAccountHolders.iPseudonymousAccountHolders)
+                                if (pah.iSign == obj["pah"] as string)
+                                {
+                                    Secp256k1PrivKey<Sha256Hash> privKey = pah.iPrivKey as Secp256k1PrivKey<Sha256Hash>;
+                                    if (privKey == null)
+                                        throw new InvalidOperationException("new_chat_pah_version");
+
+                                    Chat chat = new Chat();
+                                    chat.LoadVersion0(pah.iName, obj["message"] as string);
+                                    chat.Sign(privKey);
+
+                                    core.iCreaNodeTest.DiffuseNewChat(chat);
+
+                                    return;
+                                }
+
+                            throw new InvalidOperationException("new_chat_pah_not_found");
+                        }
                         else
                             throw new NotSupportedException("wss_command");
                     });
@@ -664,6 +787,13 @@ namespace CREA2014
                 string[] logType = json.CreateJSONPair("type", log.Kind.ToString());
                 string[] logMessage = json.CreateJSONPair("message", log.ToString());
                 return json.CreateJSONObject(logType, logMessage);
+            };
+
+            Func<Chat, string[]> _CreateChatJSON = (chat) =>
+            {
+                string[] chatName = json.CreateJSONPair("name", chat.Name);
+                string[] chatMessage = json.CreateJSONPair("message", chat.Message);
+                return json.CreateJSONObject(chatName, chatMessage);
             };
 
             core.BalanceUpdated += (sender2, e2) =>
@@ -736,6 +866,29 @@ namespace CREA2014
                     wssession.Send("logAdded " + string.Join(Environment.NewLine, log));
             };
 
+            core.iCreaNodeTest.ReceivedNewChat += (sender2, e2) =>
+            {
+                string[] chat = _CreateChatJSON(e2);
+
+                foreach (var wssession in wss.GetAllSessions())
+                    wssession.Send("chatAdded " + string.Join(Environment.NewLine, chat));
+            };
+
+            using (var server = new WebSocketEventListener(new IPEndPoint(IPAddress.Any, 8009), new WebSocketListenerOptions() { SubProtocols = new String[] { "text" } }))
+            {
+                server.OnConnect += (ws) => Console.WriteLine("Connection from " + ws.RemoteEndpoint.ToString());
+                server.OnDisconnect += (ws) => Console.WriteLine("Disconnection from " + ws.RemoteEndpoint.ToString());
+                server.OnError += (ws, ex) => Console.WriteLine("Error: " + ex.Message);
+                server.OnMessage += (ws, msg) =>
+                {
+                    Console.WriteLine("Message from [" + ws.RemoteEndpoint + "]: " + msg);
+                    ws.WriteStringAsync(new String(msg.Reverse().ToArray()), CancellationToken.None).Wait();
+                };
+
+                server.Start();
+                Console.ReadKey(true);
+            }
+
             WebSocketServer oldWss;
             wss = new WebSocketServer();
             wss.NewSessionConnected += (wssession) =>
@@ -764,18 +917,8 @@ namespace CREA2014
                     logsList.Add(_CreateLogJSON(log));
 
                 List<string[]> chatsList = new List<string[]>();
-
-                Chat chat1 = new Chat();
-                chat1.LoadVersion0("ゆみにゃん", "ぬるぽ");
-                Chat chat2 = new Chat();
-                chat2.LoadVersion0("ゆいにゃん", "ガッ");
-
-                foreach (var chat in new Chat[] { chat1, chat2 })
-                {
-                    string[] chatName = json.CreateJSONPair("name", chat.Name);
-                    string[] chatMessage = json.CreateJSONPair("message", chat.Message);
-                    chatsList.Add(json.CreateJSONObject(chatName, chatMessage));
-                }
+                //foreach (var chat in core.iCreaNodeTest.re)
+                //    chatsList.Add(_CreateChatJSON(chat));
 
                 string[] partAccountName = json.CreateJSONPair("name", "受け取り口座".Multilanguage(208));
                 string[] partAccountButtons = json.CreateJSONPair("accountButtons", json.CreateJSONObject(buttonNewAccountHolder, buttonNewAccount));
@@ -788,9 +931,11 @@ namespace CREA2014
                 string[] partLogItems = json.CreateJSONPair("logs", json.CreateJSONArray(logsList.ToArray()));
                 string[] partLog = json.CreateJSONObject(partLogName, partLogItems);
 
-                string[] partChatName = json.CreateJSONPair("name", "チャット");
+                string[] partChatName = json.CreateJSONPair("name", "チャット".Multilanguage(211));
+                string[] partChatPahSelect = json.CreateJSONPair("pahSelectDescription", "（選択してください）".Multilanguage(212));
+                string[] partChatSendButton = json.CreateJSONPair("sendButtonName", "発言".Multilanguage(213));
                 string[] partChatItems = json.CreateJSONPair("chats", json.CreateJSONArray(chatsList.ToArray()));
-                string[] partChat = json.CreateJSONObject(partChatName, partChatItems);
+                string[] partChat = json.CreateJSONObject(partChatName, partChatPahSelect, partChatSendButton, partChatItems);
 
                 string[] universeTitle = json.CreateJSONPair("title", appnameWithVersion);
                 string[] universePartBalance = json.CreateJSONPair("partBalance", partBalance);
@@ -892,6 +1037,7 @@ namespace CREA2014
             {
                 sw2.tbPortWebSocket.Text = mws.PortWebSocket.ToString();
                 sw2.tbPortWebServer.Text = mws.PortWebServer.ToString();
+                sw2.cbIsWebServerAcceptExternal.IsChecked = mws.IsWebServerAcceptExternal;
                 sw2.cbIsWallpaper.IsChecked = mws.IsWallpaper;
                 sw2.tbWallpaper.Text = mws.Wallpaper;
                 sw2.tbWallpaperOpacity.Text = mws.WallpaperOpacity.ToString();
@@ -908,12 +1054,13 @@ namespace CREA2014
 
                 mws.PortWebSocket = int.Parse(sw.tbPortWebSocket.Text);
                 mws.PortWebServer = int.Parse(sw.tbPortWebServer.Text);
-                mws.IsWallpaper = (bool)sw.cbIsWallpaper.IsChecked;
+                mws.IsWebServerAcceptExternal = sw.cbIsWebServerAcceptExternal.IsChecked ?? false;
+                mws.IsWallpaper = sw.cbIsWallpaper.IsChecked ?? false;
                 mws.Wallpaper = sw.tbWallpaper.Text;
                 mws.WallpaperOpacity = float.Parse(sw.tbWallpaperOpacity.Text);
                 mws.IsDefaultUi = sw.rbDefault.IsChecked.Value;
                 mws.UiFilesDirectory = sw.tbUiFilesDirectory.Text;
-                mws.IsConfirmAtExit = (bool)sw.cbConfirmAtExit.IsChecked;
+                mws.IsConfirmAtExit = sw.cbConfirmAtExit.IsChecked ?? false;
 
                 mws.EndSetting();
             }

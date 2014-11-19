@@ -6,6 +6,7 @@ using System.Collections;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
+using System.Linq;
 using System.Net;
 using System.Net.NetworkInformation;
 using System.Net.Sockets;
@@ -14,7 +15,7 @@ using System.Runtime.InteropServices;
 using System.Security;
 using System.Security.Cryptography;
 using System.Text;
-using System.Linq;
+using System.Text.RegularExpressions;
 
 namespace CREA2014
 {
@@ -91,6 +92,166 @@ namespace CREA2014
             obj[obj.Length - 1] = "]";
 
             return obj;
+        }
+    }
+
+    public static class JSONParser
+    {
+        static string data;
+        static int pos, len;
+        static Regex reg = new Regex(@"(\\u){1}[0-9a-fA-F]{4}");
+
+        /// <summary>
+        /// JSON文字列をパースしてobjectを返します。
+        /// </summary>
+        /// <param name="json"></param>
+        /// <returns></returns>
+        public static object Parse(string json)
+        {
+            data = json;
+            len = json.Length;
+
+            for (pos = 0; pos < len; pos++)
+            {
+                if (data[pos] == '[')
+                    return parseArray();
+                else if (data[pos] == '{')
+                    return parseObject();
+            }
+
+            return null;
+        }
+
+        /// <summary>
+        /// 配列のパース
+        /// </summary>
+        /// <returns></returns>
+        static object parseArray()
+        {
+            List<object> array = new List<object>();
+
+            for (pos++; pos < len; pos++)
+            {
+                if (data[pos] == ' ' || data[pos] == '\t' || data[pos] == '\r' || data[pos] == '\n' || data[pos] == ',')
+                    continue;
+                else if (data[pos] == ']')
+                    break;
+                else if (data[pos] == '[')
+                    array.Add(parseArray());
+                else if (data[pos] == '{')
+                    array.Add(parseObject());
+                else
+                    array.Add(parseValue());
+            }
+
+            return array.ToArray();
+        }
+
+        /// <summary>
+        /// オブジェクトのパース
+        /// </summary>
+        /// <returns></returns>
+        static object parseObject()
+        {
+            Dictionary<string, object> obj = new Dictionary<string, object>();
+            string key = null;
+
+            for (pos++; pos < len; pos++)
+            {
+                if (data[pos] == ' ' || data[pos] == '\t' || data[pos] == '\r' || data[pos] == '\n' || data[pos] == ',' || data[pos] == ':')
+                    continue;
+                else if (data[pos] == '}')
+                    break;
+                else if (data[pos] == '[')
+                {
+                    obj[key] = parseArray();
+                    key = null;
+                }
+                else if (data[pos] == '{')
+                {
+                    obj[key] = parseObject();
+                    key = null;
+                }
+                else
+                {
+                    if (key == null)
+                        key = parseString();
+                    else
+                    {
+                        obj[key] = parseValue();
+                        key = null;
+                    }
+                }
+            }
+
+            return obj;
+        }
+
+        /// <summary>
+        /// 配列、オブジェクト以外の値のパース
+        /// </summary>
+        /// <returns></returns>
+        static object parseValue()
+        {
+            if (data[pos] == '"')
+            {
+                return parseString();
+            }
+            if (data[pos] == 't')
+            {
+                pos += 3;
+                return true;
+            }
+            if (data[pos] == 'f')
+            {
+                pos += 4;
+                return false;
+            }
+            if (data[pos] == 'n')
+            {
+                pos += 3;
+                return null;
+            }
+
+            string str = "";
+            for (; pos < len; pos++)
+            {
+                if (data[pos] == ',' || data[pos] == ':' || data[pos] == '}' || data[pos] == ']')
+                    break;
+                str += data[pos];
+            }
+            pos--;
+
+            long a;
+            if (long.TryParse(str, out a))
+                return a;
+
+            return double.Parse(str);
+
+        }
+
+        /// <summary>
+        /// 文字列のパース
+        /// </summary>
+        /// <returns></returns>
+        static string parseString()
+        {
+            string str = "";
+
+            for (pos++; pos < len; pos++)
+            {
+                if (data[pos] == '\\' && data[pos + 1] != 'u')
+                {
+                    str += data[pos + 1];
+                    pos++;
+                }
+                else if (data[pos] == '"')
+                    break;
+                else
+                    str += data[pos];
+            }
+
+            return reg.Replace(str, (s) => Convert.ToChar(Convert.ToInt32(s.Value.Substring(2), 16)).ToString());
         }
     }
 

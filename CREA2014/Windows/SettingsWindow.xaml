@@ -15,6 +15,7 @@
                             <RowDefinition Height="*"></RowDefinition>
                             <RowDefinition Height="*"></RowDefinition>
                             <RowDefinition Height="*"></RowDefinition>
+                            <RowDefinition Height="*"></RowDefinition>
                             <RowDefinition Height="10"></RowDefinition>
                             <RowDefinition Height="*"></RowDefinition>
                             <RowDefinition Height="*"></RowDefinition>
@@ -40,32 +41,33 @@
                             <TextBlock x:Name="tbPortWebServerChk" Foreground="Pink"></TextBlock>
                         </StackPanel>
                         <TextBox x:Name="tbPortWebServer" Grid.Column="0" Grid.Row="3" TextChanged="tbPortWebServer_TextChanged"></TextBox>
+                        <CheckBox x:Name="cbIsWebServerAcceptExternal" Grid.Column="0" Grid.Row="4" Margin="10,0,0,0">外部からの接続を許可する(_E)</CheckBox>
 
-                        <CheckBox x:Name="cbIsWallpaper" Grid.Column="0" Grid.Row="5" Margin="10,0,0,0" Checked="cbIsWallpaper_Checked" Unchecked="cbIsWallpaper_Unchecked">背景画像を表示する(_V)</CheckBox>
-                        <StackPanel Grid.Column="0" Grid.Row="6" Orientation="Horizontal" Margin="30,0,0,0">
+                        <CheckBox x:Name="cbIsWallpaper" Grid.Column="0" Grid.Row="6" Margin="10,0,0,0" Checked="cbIsWallpaper_Checked" Unchecked="cbIsWallpaper_Unchecked">背景画像を表示する(_V)</CheckBox>
+                        <StackPanel Grid.Column="0" Grid.Row="7" Orientation="Horizontal" Margin="30,0,0,0">
                             <TextBlock><AccessText x:Name="atWallpaper">背景画像（_W）：</AccessText></TextBlock>
                             <TextBlock x:Name="tbWallpaperChk" Foreground="Pink"></TextBlock>
                         </StackPanel>
-                        <TextBox x:Name="tbWallpaper" Grid.Column="0" Grid.Row="7" Margin="30,0,0,0" TextChanged="tbWallpaper_TextChanged"></TextBox>
-                        <DockPanel Grid.Column="0" Grid.Row="8" Margin="30,0,0,0">
+                        <TextBox x:Name="tbWallpaper" Grid.Column="0" Grid.Row="8" Margin="30,0,0,0" TextChanged="tbWallpaper_TextChanged"></TextBox>
+                        <DockPanel Grid.Column="0" Grid.Row="9" Margin="30,0,0,0">
                             <Button x:Name="bWallpaperOpen" Width="200" DockPanel.Dock="Right" Click="bWallpaperOpen_Click">ファイルの場所を開く(_Q)...</Button>
                             <Button x:Name="bWallpaperBrowse" Width="100" DockPanel.Dock="Right" Click="bWallpaperBrowse_Click">参照(_B)...</Button>
                             <Grid></Grid>
                         </DockPanel>
-                        <StackPanel Grid.Column="0" Grid.Row="9" Orientation="Horizontal" Margin="30,0,0,0">
+                        <StackPanel Grid.Column="0" Grid.Row="10" Orientation="Horizontal" Margin="30,0,0,0">
                             <TextBlock><AccessText x:Name="atWallpaperOpacity">不透明度(_A)：</AccessText></TextBlock>
                             <TextBlock x:Name="tbWallpaperOpacityChk" Foreground="Pink"></TextBlock>
                         </StackPanel>
-                        <TextBox x:Name="tbWallpaperOpacity" Grid.Column="0" Grid.Row="10" Margin="30,0,0,0" TextChanged="tbWallpaperOpacity_TextChanged"></TextBox>
+                        <TextBox x:Name="tbWallpaperOpacity" Grid.Column="0" Grid.Row="11" Margin="30,0,0,0" TextChanged="tbWallpaperOpacity_TextChanged"></TextBox>
 
-                        <RadioButton x:Name="rbDefault" Grid.Column="0" Grid.Row="12" Margin="10,0,0,0" Checked="rbDefault_Checked">既定のUIを使用する(_D)</RadioButton>
-                        <RadioButton x:Name="rbNotDefault" Grid.Column="0" Grid.Row="13" Margin="10,0,0,0" Checked="rbNotDefault_Checked">独自のUIを使用する(_M)</RadioButton>
-                        <StackPanel Grid.Column="0" Grid.Row="14" Orientation="Horizontal" Margin="30,0,0,0">
+                        <RadioButton x:Name="rbDefault" Grid.Column="0" Grid.Row="13" Margin="10,0,0,0" Checked="rbDefault_Checked">既定のUIを使用する(_D)</RadioButton>
+                        <RadioButton x:Name="rbNotDefault" Grid.Column="0" Grid.Row="14" Margin="10,0,0,0" Checked="rbNotDefault_Checked">独自のUIを使用する(_M)</RadioButton>
+                        <StackPanel Grid.Column="0" Grid.Row="15" Orientation="Horizontal" Margin="30,0,0,0">
                             <TextBlock><AccessText x:Name="atUiFilesDirectory">独自UIファイルの保存場所（_F）：</AccessText></TextBlock>
                             <TextBlock x:Name="tbUiFilesDirectoryChk" Foreground="Pink"></TextBlock>
                         </StackPanel>
-                        <TextBox x:Name="tbUiFilesDirectory" Grid.Column="0" Grid.Row="15" Margin="30,0,0,0" TextChanged="tbUiFilesDirectory_TextChanged"></TextBox>
-                        <DockPanel Grid.Column="0" Grid.Row="16" Margin="30,0,0,0">
+                        <TextBox x:Name="tbUiFilesDirectory" Grid.Column="0" Grid.Row="16" Margin="30,0,0,0" TextChanged="tbUiFilesDirectory_TextChanged"></TextBox>
+                        <DockPanel Grid.Column="0" Grid.Row="17" Margin="30,0,0,0">
                             <Button x:Name="bUiFilesOpen" Width="150" DockPanel.Dock="Right" Click="bUiFilesOpen_Click">フォルダを開く(_T)...</Button>
                             <Button x:Name="bUiFilesCreate" Width="150" DockPanel.Dock="Right">独自UIファイルを生成(_R)</Button>
                             <Button x:Name="bUiFilesDirectoryBrowse" Width="100" DockPanel.Dock="Right" Click="bUiFilesDirectoryBrowse_Click">選択(_S)...</Button>

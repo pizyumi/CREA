@@ -21,6 +21,7 @@ namespace CREA2014.Windows
             gbUi.Header = "UI".Multilanguage(37);
             atPortWebSocket.Text = "内部ウェブソケットサーバのポート番号".Multilanguage(38) + "(_P)：";
             atPortWebServer.Text = "内部ウェブサーバのポート番号".Multilanguage(39) + "(_Q)：";
+            cbIsWebServerAcceptExternal.Content = "外部からの接続を許可する".Multilanguage(210) + "(_E)";
             cbIsWallpaper.Content = "背景画像を表示する".Multilanguage(40) + "(_V)";
             atWallpaper.Text = "背景画像".Multilanguage(41) + "（_W）：";
             bWallpaperOpen.Content = "ファイルの場所を開く".Multilanguage(154) + "(_Q)...";

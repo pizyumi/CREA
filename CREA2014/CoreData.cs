@@ -4,22 +4,13 @@
 using System;
 using System.Collections;
 using System.Collections.Generic;
-using System.Diagnostics;
 using System.IO;
-using System.IO.Compression;
 using System.Linq;
-using System.Net;
-using System.Net.Sockets;
 using System.Numerics;
-using System.Reflection;
 using System.Runtime.InteropServices;
-using System.Security;
 using System.Security.Cryptography;
 using System.Text;
 using System.Threading;
-using System.Windows;
-using System.Windows.Controls;
-using System.Windows.Media;
 
 namespace CREA2014
 {
@@ -62,6 +53,17 @@ namespace CREA2014
 
         public override bool IsVersioned { get { return true; } }
         public override bool IsCorruptionChecked { get { return true; } }
+
+        public string Trip
+        {
+            get
+            {
+                if (Version != 0)
+                    throw new NotSupportedException();
+
+                return Secp256k1Utility.Recover<Sha256Hash>(ToBinary(StreamInfoToSign), this.signature.signature).pubKey.ComputeTrip();
+            }
+        }
 
         public Func<ReaderWriter, IEnumerable<MainDataInfomation>> StreamInfoToSign
         {
@@ -117,7 +119,7 @@ namespace CREA2014
                 return chats.FirstOrDefault((elem) => elem.Id.Equals(id)) != null;
         }
 
-        public bool AddAccount(Chat chat)
+        public bool AddChat(Chat chat)
         {
             lock (chatsLock)
             {
@@ -134,7 +136,7 @@ namespace CREA2014
             }
         }
 
-        public bool RemoveAccount(Chat chat)
+        public bool RemoveChat(Chat chat)
         {
             lock (chatsLock)
             {
@@ -687,6 +689,8 @@ namespace CREA2014
 
     public interface IPseudonymousAccountHolder : IAccountHolder
     {
+        DSAPRIVKEYBASE iPrivKey { get; }
+
         string iName { get; }
         string iSign { get; }
     }
@@ -1228,7 +1232,7 @@ namespace CREA2014
             {
                 if (Version != 0 && Version != 1)
                     throw new NotSupportedException();
-                return "◆" + Convert.ToBase64String(pubKey.pubKey).Pipe((s) => s.Substring(s.Length - 12, 12));
+                return pubKey.pubKey.ComputeTrip();
             }
         }
         public string Sign { get { return name + Trip; } }
@@ -1253,6 +1257,8 @@ namespace CREA2014
         }
 
         public override string ToString() { return Sign; }
+
+        public DSAPRIVKEYBASE iPrivKey { get { return privKey; } }
 
         public string iName { get { return Name; } }
         public string iSign { get { return Sign; } }

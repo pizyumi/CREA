@@ -7,99 +7,111 @@
     <script type="text/javascript" src="jquery-ui-1.10.4.custom.js"></script>
     <script type="text/javascript" src="knockout-3.2.0.js"></script>
     <script type="text/javascript">
+        function AccountHolder() {
+            var self = this;
+
+            self.name = ko.observable("");
+            self.accounts = ko.observableArray();
+        }
+
+        function AppViewModel() {
+            var self = this;
+
+            self.partBalance = ko.observable("");
+            self.partAccount = ko.observable("");
+            self.partLog = ko.observable("");
+            self.partChat = ko.observable("");
+
+            self.activatedPart = ko.observable(0);
+
+            self.balanceName = ko.observable("");
+            self.balanceValue = ko.observable(0);
+            self.balanceUnit = ko.observable("");
+            self.balance = ko.computed(function () {
+                return self.balanceValue() + self.balanceUnit();
+            });
+
+            self.usableName = ko.observable("");
+            self.usableValue = ko.observable(0);
+            self.usableUnit = ko.observable("");
+            self.usableBalance = ko.computed(function () {
+                return self.usableValue() + self.usableUnit();
+            });
+
+            self.unusableName = ko.observable("");
+            self.unusableValue = ko.observable(0);
+            self.unusableUnit = ko.observable("");
+            self.unusableBalance = ko.computed(function () {
+                return self.unusableValue() + self.unusableUnit();
+            });
+
+            self.buttonNewAccountHolderName = ko.observable("");
+            self.buttonNewAccountHolderKeyName = ko.observable("");
+            self.buttonNewAccountHolderKey = ko.observable();
+            self.buttonNewAccountHolderCaption = ko.computed(function () {
+                return $("<div>").text(self.buttonNewAccountHolderName()).html() + "(<U>" + $("<div>").text(self.buttonNewAccountHolderKeyName()).html() + "</U>)...";
+            });
+            self.buttonNewAccountHolderClicked = function () {
+                ws.send("new_account_holder");
+            }
+
+            self.buttonNewAccountName = ko.observable("");
+            self.buttonNewAccountKeyName = ko.observable("");
+            self.buttonNewAccountKey = ko.observable();
+            self.buttonNewAccountCaption = ko.computed(function () {
+                return $("<div>").text(self.buttonNewAccountName()).html() + "(<U>" + $("<div>").text(self.buttonNewAccountKeyName()).html() + "</U>)...";
+            });
+            self.buttonNewAccountClicked = function () {
+                ws.send("new_account");
+            }
+
+            self.accountHoldersColumnName = ko.observable("");
+            self.accountHoldersColumnDescription = ko.observable("");
+            self.accountHoldersColumnAddress = ko.observable("");
+            self.anonymousAccountHolder = new AccountHolder();
+            self.pseudonymousAccountHolders = ko.observableArray();
+
+            self.logs = ko.observableArray();
+
+            self.chatPah = ko.observable();
+            self.chatMessage = ko.observable("");
+            self.chatPahDescription = ko.observable("");
+            self.chatSend = ko.observable("");
+            self.chats = ko.observableArray();
+            self.SendChat = function () {
+                var obj = {
+                    pah: vm.chatPah().name(),
+                    message: vm.chatMessage()
+                };
+
+                ws.send("new_chat " + JSON.stringify(obj));
+            }
+
+            self.activatePartBalance = function () {
+                self.activatedPart(0);
+            }
+
+            self.activatePartAccount = function () {
+                self.activatedPart(1);
+            }
+
+            self.activatePartLog = function () {
+                self.activatedPart(2);
+            }
+
+            self.activatePartChat = function () {
+                self.activatedPart(3);
+            }
+        }
+
+        var vm = new AppViewModel();
+
         var host = "%%host%%";
         var port = "%%port%%";
 
         var ws = null;
 
         $(function () {
-            function AccountHolder() {
-                var self = this;
-
-                self.name = ko.observable("");
-                self.accounts = ko.observableArray();
-            }
-
-            function AppViewModel() {
-                var self = this;
-
-                self.partBalance = ko.observable("");
-                self.partAccount = ko.observable("");
-                self.partLog = ko.observable("");
-                self.partChat = ko.observable("");
-
-                self.activatedPart = ko.observable(0);
-
-                self.balanceName = ko.observable("");
-                self.balanceValue = ko.observable(0);
-                self.balanceUnit = ko.observable("");
-                self.balance = ko.computed(function () {
-                    return self.balanceValue() + self.balanceUnit();
-                });
-
-                self.usableName = ko.observable("");
-                self.usableValue = ko.observable(0);
-                self.usableUnit = ko.observable("");
-                self.usableBalance = ko.computed(function () {
-                    return self.usableValue() + self.usableUnit();
-                });
-
-                self.unusableName = ko.observable("");
-                self.unusableValue = ko.observable(0);
-                self.unusableUnit = ko.observable("");
-                self.unusableBalance = ko.computed(function () {
-                    return self.unusableValue() + self.unusableUnit();
-                });
-
-                self.buttonNewAccountHolderName = ko.observable("");
-                self.buttonNewAccountHolderKeyName = ko.observable("");
-                self.buttonNewAccountHolderKey = ko.observable();
-                self.buttonNewAccountHolderCaption = ko.computed(function () {
-                    return $("<div>").text(self.buttonNewAccountHolderName()).html() + "(<U>" + $("<div>").text(self.buttonNewAccountHolderKeyName()).html() + "</U>)...";
-                });
-                self.buttonNewAccountHolderClicked = function () {
-                    ws.send("new_account_holder");
-                }
-
-                self.buttonNewAccountName = ko.observable("");
-                self.buttonNewAccountKeyName = ko.observable("");
-                self.buttonNewAccountKey = ko.observable();
-                self.buttonNewAccountCaption = ko.computed(function () {
-                    return $("<div>").text(self.buttonNewAccountName()).html() + "(<U>" + $("<div>").text(self.buttonNewAccountKeyName()).html() + "</U>)...";
-                });
-                self.buttonNewAccountClicked = function () {
-                    ws.send("new_account");
-                }
-
-                self.accountHoldersColumnName = ko.observable("");
-                self.accountHoldersColumnDescription = ko.observable("");
-                self.accountHoldersColumnAddress = ko.observable("");
-                self.anonymousAccountHolder = new AccountHolder();
-                self.pseudonymousAccountHolders = ko.observableArray();
-
-                self.logs = ko.observableArray();
-
-                self.chats = ko.observableArray();
-
-                self.activatePartBalance = function () {
-                    self.activatedPart(0);
-                }
-
-                self.activatePartAccount = function () {
-                    self.activatedPart(1);
-                }
-
-                self.activatePartLog = function () {
-                    self.activatedPart(2);
-                }
-
-                self.activatePartChat = function () {
-                    self.activatedPart(3);
-                }
-            }
-
-            var vm = new AppViewModel();
-
             ko.applyBindings(vm);
 
             om = function (e) {
@@ -142,6 +154,8 @@
                         temp.push(obj.accounts[i]);
                     }
                     vm.anonymousAccountHolder.accounts.valueHasMutated();
+
+                    AccUI();
                 }
                 else if (e.data.indexOf("pahsUpdated", 0) == 0) {
                     var array = JSON.parse(e.data.substring(12));
@@ -159,9 +173,14 @@
                         temp.push(pah);
                     }
                     vm.pseudonymousAccountHolders.valueHasMutated();
+
+                    AccUI();
                 }
                 else if (e.data.indexOf("logAdded", 0) == 0) {
                     vm.logs.splice(0, 0, JSON.parse(e.data.substring(9)));
+                }
+                else if (e.data.indexOf("chatAdded", 0) == 0) {
+                    vm.chats.splice(0, 0, JSON.parse(e.data.substring(10)));
                 }
                 else if (e.data.indexOf("initial_data", 0) == 0) {
                     var obj = JSON.parse(e.data.substring(13));
@@ -221,11 +240,15 @@
                         vm.logs.splice(0, 0, obj.partLog.logs[i]);
                     }
 
+                    vm.chatPahDescription(obj.partChat.pahSelectDescription);
+                    vm.chatSend(obj.partChat.sendButtonName);
+
                     for (var i = 0; i < obj.partChat.chats.length; i++) {
                         vm.chats.splice(0, 0, obj.partChat.chats[i]);
                     }
 
                     AccUI();
+                    ChatUI();
 
                     document.body.style.display = "block";
                 }
@@ -252,17 +275,33 @@
             function AccUI() {
                 var accounts = $(".acc");
 
-                accounts.hover(function () {
-                    if (!$(this).hasClass("acc_selected"))
-                        $(this).switchClass("acc", "acc_hover", 200);
-                }, function () {
-                    if (!$(this).hasClass("acc_selected"))
-                        $(this).switchClass("acc_hover", "acc", 200);
-                });
+                accounts.each(function () {
+                    var e = $(this).get(0);
 
-                accounts.click(function () {
-                    $(".acc_selected").switchClass("acc_selected", "acc", 200);
-                    $(this).switchClass("acc_hover", "acc_selected", 200);
+                    if (!$.data(e, "processed")) {
+                        $.data(e, "processed", true);
+
+                        $(this).hover(function () {
+                            if (!$(this).hasClass("acc_selected"))
+                                $(this).switchClass("acc", "acc_hover", 200);
+                        }, function () {
+                            if (!$(this).hasClass("acc_selected"))
+                                $(this).switchClass("acc_hover", "acc", 200);
+                        });
+
+                        $(this).click(function () {
+                            $(".acc_selected").switchClass("acc_selected", "acc", 200);
+                            $(this).switchClass("acc_hover", "acc_selected", 200);
+                        });
+                    }
+                });
+            }
+
+            function ChatUI() {
+                $("#chatMessageInput").keydown(function (e) {
+                    if (e.keyCode == 13) {
+                        vm.SendChat();
+                    }
                 });
             }
         });
@@ -383,14 +422,6 @@
                     #logs_container {
                         height: 100%;
                         overflow-y: scroll;
-                    }
-
-                    #chats_above_footer {
-                        min-height: calc(100vh - 40px);
-                    }
-
-                    #chats_footer {
-                        height: 40px;
                     }
 
                     #zandaka_label {
@@ -639,15 +670,24 @@
                     </div>
                     <div id="tab1_tabcontent4" class="tab1_tabcontent" data-bind="visible: activatedPart() == 3">
                         <div id="chats_container">
-                            <div id="chats_above_footer">
+                            <div id="chats_above_footer" style="min-height: calc(100vh - 20px);">
                                 <div data-bind="foreach: chats">
                                     <span data-bind="text: name + '> ' + message"></span>
                                     <br />
                                 </div>
                             </div>
-                            <div id="chats_footer">
-                                <select data-bind="options: pseudonymousAccountHolders, optionsText: name"></select>
-                                <input />
+                            <div id="chats_footer" style="height: 20px;">
+                                <div style="float: left; width: 150px;">
+                                    <select style="width: 150px;" data-bind="options: pseudonymousAccountHolders, optionsText: 'name', optionsCaption: chatPahDescription, value: chatPah"></select>
+                                </div>
+                                <div style="float: right; width: 75px;">
+                                    <button style="width: 75px;" data-bind="text: chatSend, enable: chatPah() && chatMessage(), click: SendChat"></button>
+                                </div>
+                                <div>
+                                    <div>
+                                        <input id="chatMessageInput" style="width: calc(80vw - 230px);" data-bind="textInput: chatMessage" />
+                                    </div>
+                                </div>
                             </div>
                         </div>
                     </div>
