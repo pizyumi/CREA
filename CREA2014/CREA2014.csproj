@@ -5,7 +5,7 @@
     <Configuration Condition=" '$(Configuration)' == '' ">Debug</Configuration>
     <Platform Condition=" '$(Platform)' == '' ">AnyCPU</Platform>
     <ProjectGuid>{F5E34F75-EA21-4FBB-AB14-7A7E13273CDE}</ProjectGuid>
-    <OutputType>WinExe</OutputType>
+    <OutputType>Exe</OutputType>
     <AppDesignerFolder>Properties</AppDesignerFolder>
     <RootNamespace>CREA2014</RootNamespace>
     <AssemblyName>CREA2014</AssemblyName>
@@ -49,9 +49,7 @@
     <ErrorReport>prompt</ErrorReport>
     <WarningLevel>4</WarningLevel>
   </PropertyGroup>
-  <PropertyGroup>
-    <ApplicationManifest>app.manifest</ApplicationManifest>
-  </PropertyGroup>
+  <PropertyGroup />
   <PropertyGroup>
     <ApplicationIcon>up0669.ico</ApplicationIcon>
   </PropertyGroup>
@@ -66,6 +64,9 @@
   </PropertyGroup>
   <PropertyGroup>
     <StartupObject />
+  </PropertyGroup>
+  <PropertyGroup>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
   </PropertyGroup>
   <ItemGroup>
     <Reference Include="HashLib, Version=2.1.0.0, Culture=neutral, processorArchitecture=x86">
@@ -98,11 +99,11 @@
     <Reference Include="System.Xaml">
       <RequiredTargetFramework>4.0</RequiredTargetFramework>
     </Reference>
-    <Reference Include="vtortola.WebSockets, Version=2.1.2.0, Culture=neutral, processorArchitecture=MSIL">
+    <Reference Include="vtortola.WebSockets, Version=2.1.2.0, Culture=neutral, PublicKeyToken=81d473dc006f9631, processorArchitecture=MSIL">
       <SpecificVersion>False</SpecificVersion>
       <HintPath>Component\vtortola.WebSockets.dll</HintPath>
     </Reference>
-    <Reference Include="vtortola.WebSockets.Rfc6455, Version=2.1.2.0, Culture=neutral, processorArchitecture=MSIL">
+    <Reference Include="vtortola.WebSockets.Rfc6455, Version=2.1.2.0, Culture=neutral, PublicKeyToken=59ff114ce73f53a3, processorArchitecture=MSIL">
       <SpecificVersion>False</SpecificVersion>
       <HintPath>Component\vtortola.WebSockets.Rfc6455.dll</HintPath>
     </Reference>

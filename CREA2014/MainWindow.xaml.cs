@@ -874,7 +874,7 @@ namespace CREA2014
                     wssession.Send("chatAdded " + string.Join(Environment.NewLine, chat));
             };
 
-            using (var server = new WebSocketEventListener(new IPEndPoint(IPAddress.Any, 8009), new WebSocketListenerOptions() { SubProtocols = new String[] { "text" } }))
+            using (var server = new WebSocketEventListener(new IPEndPoint(IPAddress.Any, mws.PortWebSocket)))
             {
                 server.OnConnect += (ws) => Console.WriteLine("Connection from " + ws.RemoteEndpoint.ToString());
                 server.OnDisconnect += (ws) => Console.WriteLine("Disconnection from " + ws.RemoteEndpoint.ToString());
@@ -886,7 +886,6 @@ namespace CREA2014
                 };
 
                 server.Start();
-                Console.ReadKey(true);
             }
 
             WebSocketServer oldWss;
@@ -950,7 +949,7 @@ namespace CREA2014
             };
             wss.NewMessageReceived += newMessageReceived;
             wss.Setup(mws.PortWebSocket);
-            wss.Start();
+            //wss.Start();
 
             //wb.Navigated += (sender2, e2) => ((mshtml.HTMLDocument)wb.Document).focus();
             wb.Navigate("http://localhost:" + mws.PortWebServer.ToString() + "/");

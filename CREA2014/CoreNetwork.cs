@@ -2544,7 +2544,7 @@ namespace CREA2014
         private readonly FirstNodeInfosDatabase fnisDatabase;
         private readonly List<FirstNodeInformation> fnis;
 
-        private static readonly string fnisRegistryURL = "http://www.pizyumi.com/nodes.aspx?add=";
+        private static readonly string fnisRegistryURL = "http://www.pizyumi.com/nodes.aspx";
 
         private NodeInformation dhtNodeInfo;
 
@@ -2665,7 +2665,7 @@ namespace CREA2014
 
         protected override void NotifyFirstNodeInfo()
         {
-            HttpWebRequest hwreq = WebRequest.Create(fnisRegistryURL + myFirstNodeInfo.Hex) as HttpWebRequest;
+            HttpWebRequest hwreq = WebRequest.Create(fnisRegistryURL + "?add=" + myFirstNodeInfo.Hex) as HttpWebRequest;
             using (HttpWebResponse hwres = hwreq.GetResponse() as HttpWebResponse)
             using (Stream stream = hwres.GetResponseStream())
             using (StreamReader sr = new StreamReader(stream, Encoding.UTF8))
@@ -2677,6 +2677,15 @@ namespace CREA2014
 
         protected override FirstNodeInformation[] GetFirstNodeInfos()
         {
+            if (myFirstNodeInfo == null)
+            {
+                HttpWebRequest hwreq = WebRequest.Create(fnisRegistryURL) as HttpWebRequest;
+                using (HttpWebResponse hwres = hwreq.GetResponse() as HttpWebResponse)
+                using (Stream stream = hwres.GetResponseStream())
+                using (StreamReader sr = new StreamReader(stream, Encoding.UTF8))
+                    AddFirstNodeInfos(sr.ReadToEnd().Split(new string[] { Environment.NewLine }, StringSplitOptions.RemoveEmptyEntries).Select((elem) => elem.Trim()));
+            }
+
             AddFirstNodeInfos(fnisDatabase.GetFirstNodeInfosData());
 
             return fnis.ToArray();
