@@ -3895,8 +3895,8 @@ namespace CREA2014
 
             TestApplication testApplication;
 #if TEST
-            testApplication = null;
-            //testApplication = new CreaNetworkLocalTestApplication(logger);
+            //testApplication = null;
+            testApplication = new CreaNetworkLocalTestApplication(logger);
 #else
                 testApplication = null;
 #endif

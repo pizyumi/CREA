@@ -167,6 +167,12 @@ namespace CREA2014
                             if (isOutputRead)
                                 this.ConsoleWriteLine(string.Join(":", ChannelAddressText, id == endId ? "read_end" : "read", id.ToString()));
 
+                            if (id == endId)
+                            {
+                                isReadEnding = true;
+                                continue;
+                            }
+
                             if (id != Guid.Empty)
                             {
                                 bool isExisted = false;
@@ -181,12 +187,6 @@ namespace CREA2014
 
                                     this.StartTask(string.Join(":", "session", ChannelAddressText), "session", () => Sessioned(this, sc));
                                 }
-                            }
-
-                            if (id == endId)
-                            {
-                                isReadEnding = true;
-                                continue;
                             }
 
                             lock (readsLock)
@@ -1237,6 +1237,8 @@ namespace CREA2014
             });
         }
 
+        public enum ServerStatus { NotRunning, RunningButHaventAccepting, HaveAccepting }
+
         public IPAddress myIpAddress { get; private set; }
         public ushort myPortNumber { get; private set; }
         public FirstNodeInformation myFirstNodeInfo { get; private set; }
@@ -1244,6 +1246,7 @@ namespace CREA2014
         private readonly object isStartedLock = new object();
         public bool isStarted { get; private set; }
         public bool isStartCompleted { get; private set; }
+        public ServerStatus serverStatus { get; private set; }
 
         protected string myPrivateRsaParameters { get; private set; }
         protected FirstNodeInformation[] firstNodeInfos { get; private set; }
@@ -1259,6 +1262,7 @@ namespace CREA2014
         public ConnectionHistory[] ConnectionHistories { get { return connectionHistoriesCache.Data; } }
 
         public event EventHandler StartCompleted = delegate { };
+        public event EventHandler ServerStatusChanged = delegate { };
         public event EventHandler ConnectionAdded = delegate { };
         public event EventHandler ConnectionRemoved = delegate { };
 
@@ -1870,6 +1874,7 @@ namespace CREA2014
         public NodeInformation nodeInfo { get; private set; }
         public bool isSameNetwork { get; private set; }
         public bool isAlreadyConnected { get; private set; }
+        //相手ノード情報のIPアドレスが間違っていない場合は相手ノード情報はnull
         public NodeInformation correctNodeInfo { get; private set; }
         public bool isOldCreaVersion { get; private set; }
         public int protocolVersion { get; private set; }
@@ -2308,16 +2313,18 @@ namespace CREA2014
         //このメソッドのどこかで（例外を除く全ての場合において）SocketChannelのCloseが呼び出されるようにしなければならない
         protected override void OnAccepted(SocketChannel sc)
         {
+            //サーバが起動していない場合（ポート0又はIPアドレスが取得できなかったような場合）にはノード情報はnull
             Header header = SHAREDDATA.FromBinary<Header>(sc.ReadBytes());
 
             NodeInformation aiteNodeInfo = null;
-            if (!header.nodeInfo.ipAddress.Equals(sc.aiteIpAddress))
+            if (header.nodeInfo != null && !header.nodeInfo.ipAddress.Equals(sc.aiteIpAddress))
             {
                 this.RaiseNotification("aite_wrong_node_info", 5, sc.aiteIpAddress.ToString(), header.nodeInfo.portNumber.ToString());
 
                 aiteNodeInfo = new NodeInformation(sc.aiteIpAddress, header.nodeInfo.portNumber, header.nodeInfo.network, header.nodeInfo.publicRSAParameters);
             }
 
+            //相手ノード情報のIPアドレスが間違っていない場合は相手ノード情報はnull
             HeaderResponse headerResponse = new HeaderResponse(myNodeInfo, header.nodeInfo.network == Network, IsAlreadyConnected(header.nodeInfo), aiteNodeInfo, header.creaVersion < creaVersion, protocolVersion, appnameWithVersion);
 
             sc.WriteBytes(headerResponse.ToBinary());
@@ -2626,9 +2633,14 @@ namespace CREA2014
 
                     if (gpe.NewInternalPort == myPortNumber && gpe.NewExternalPort == myPortNumber)
                     {
-                        this.RaiseNotification("already_port_opened", 5);
+                        if (gpe.NewInternalClient.Equals(defaultNetworkInterface.MachineIpAddress))
+                        {
+                            this.RaiseNotification("already_port_opened", 5);
 
-                        isNeededOpenPort = false;
+                            isNeededOpenPort = false;
+                        }
+                        else
+                            upnp.DeletePortMapping(myPortNumber, "TCP");
 
                         break;
                     }
