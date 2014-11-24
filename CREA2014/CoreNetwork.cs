@@ -957,6 +957,7 @@ namespace CREA2014
         public bool isAcceptanceEnded { get; private set; }
 
         public event EventHandler Failed = delegate { };
+        public event EventHandler Listened = delegate { };
         public event EventHandler<SocketChannel> Accepted = delegate { };
         public event EventHandler<IPAddress> AcceptanceFailed = delegate { };
 
@@ -980,6 +981,8 @@ namespace CREA2014
                     isocket = CreateISocket(AddressFamily.InterNetwork);
                     isocket.Bind(new IPEndPoint(IPAddress.Any, portNumber));
                     isocket.Listen(backlog);
+
+                    Listened(this, EventArgs.Empty);
 
                     while (true)
                     {
@@ -1222,6 +1225,8 @@ namespace CREA2014
         {
             myPortNumber = _portNumber;
 
+            serverStatus = ServerStatus.NotRunning;
+
             connections = new List<ConnectionData>();
             connectionsCache = new CachedData<ConnectionData[]>(() =>
             {
@@ -1249,7 +1254,7 @@ namespace CREA2014
         public ServerStatus serverStatus { get; private set; }
 
         protected string myPrivateRsaParameters { get; private set; }
-        protected FirstNodeInformation[] firstNodeInfos { get; private set; }
+        protected FirstNodeInformation[] firstNodeInfos { get; set; }
 
         private readonly object connectionsLock = new object();
         private readonly List<ConnectionData> connections;
@@ -1270,9 +1275,8 @@ namespace CREA2014
 
         protected abstract string GetPrivateRsaParameters();
         protected abstract IPAddress GetIpAddressAndOpenPort();
-        protected abstract void NotifyFirstNodeInfo();
+        protected abstract FirstNodeInformation[] NotifyAndGetFirstNodeInfos(bool isNotified);
         protected abstract void CreateNodeInfo();
-        protected abstract FirstNodeInformation[] GetFirstNodeInfos();
         protected abstract void KeepConnections();
         protected abstract void OnAccepted(SocketChannel sc);
 
@@ -1307,9 +1311,10 @@ namespace CREA2014
                     {
                         myFirstNodeInfo = new FirstNodeInformation(myIpAddress, myPortNumber, Network);
 
-                        NotifyFirstNodeInfo();
-
                         CreateNodeInfo();
+
+                        AutoResetEvent are = new AutoResetEvent(false);
+                        bool? isListened = null;
 
                         RealInboundChennel ric = new RealInboundChennel(myPortNumber, RsaKeySize.rsa2048, 100);
                         ric.Accepted += (sender, e) =>
@@ -1330,6 +1335,13 @@ namespace CREA2014
                                     RegisterResult(e.aiteIpAddress, false);
                                 };
 
+                                if (serverStatus != ServerStatus.HaveAccepting)
+                                {
+                                    serverStatus = ServerStatus.HaveAccepting;
+
+                                    ServerStatusChanged(this, EventArgs.Empty);
+                                }
+
                                 //2014/09/15
                                 //SocketChannelは使用後Closeを呼び出さなければならない
                                 //このイベントの処理スレッドで例外が発生した場合には例外が捕捉され、Closeが呼び出される
@@ -1348,17 +1360,37 @@ namespace CREA2014
                             }
                         };
                         ric.AcceptanceFailed += (sender, e) => RegisterResult(e, false);
-                        ric.Failed += (sender, e) => { };
+                        ric.Listened += (sender, e) =>
+                        {
+                            isListened = true;
+
+                            are.Set();
+                        };
+                        ric.Failed += (sender, e) =>
+                        {
+                            isListened = false;
+
+                            are.Set();
+                        };
                         ric.RequestAcceptanceStart();
 
-                        this.RaiseNotification("server_started", 5, myIpAddress.ToString(), myPortNumber.ToString());
+                        are.WaitOne(30000);
+
+                        if (isListened.HasValue && isListened.Value)
+                        {
+                            this.RaiseNotification("server_started", 5, myIpAddress.ToString(), myPortNumber.ToString());
+
+                            serverStatus = ServerStatus.RunningButHaventAccepting;
+
+                            ServerStatusChanged(this, EventArgs.Empty);
+                        }
                     }
                 }
 
                 if (myFirstNodeInfo == null)
-                    firstNodeInfos = GetFirstNodeInfos();
+                    firstNodeInfos = NotifyAndGetFirstNodeInfos(false);
                 else
-                    firstNodeInfos = GetFirstNodeInfos().Where((a) => !a.Equals(myFirstNodeInfo)).ToArray();
+                    firstNodeInfos = NotifyAndGetFirstNodeInfos(true).Where((a) => !a.Equals(myFirstNodeInfo)).ToArray();
 
                 KeepConnections();
 
@@ -2269,9 +2301,9 @@ namespace CREA2014
         }
     }
 
-    public abstract class CREANODEBASE : P2PNODE
+    public abstract class CREANODEBASEBASE : P2PNODE
     {
-        public CREANODEBASE(ushort _portNumber, int _creaVersion, string _appnameWithVersion)
+        public CREANODEBASEBASE(ushort _portNumber, int _creaVersion, string _appnameWithVersion)
             : base(_portNumber)
         {
             creaVersion = _creaVersion;
@@ -2284,6 +2316,10 @@ namespace CREA2014
         protected readonly string appnameWithVersion;
 
         public NodeInformation myNodeInfo { get; private set; }
+
+        public bool isNewVersionDetected { get; private set; }
+
+        public event EventHandler NewVersionDetected = delegate { };
 
         protected abstract bool IsContinue { get; }
         protected abstract bool IsTemporaryContinue { get; }
@@ -2348,6 +2384,10 @@ namespace CREA2014
 
             if (header.creaVersion > creaVersion)
             {
+                isNewVersionDetected = true;
+
+                NewVersionDetected(this, EventArgs.Empty);
+
                 //相手のクライアントバージョンの方が大きい場合の処理
                 //<未実装>使用者への通知
                 //<未実装>自動ダウンロード、バージョンアップなど
@@ -2464,6 +2504,10 @@ namespace CREA2014
 
                 if (headerResponse.isOldCreaVersion)
                 {
+                    isNewVersionDetected = true;
+
+                    NewVersionDetected(this, EventArgs.Empty);
+
                     //相手のクライアントバージョンの方が大きい場合の処理
                     //<未実装>使用者への通知
                     //<未実装>自動ダウンロード、バージョンアップなど
@@ -2535,23 +2579,14 @@ namespace CREA2014
         }
     }
 
-    public class CreaNode : CREANODEBASE
+    public abstract class CREANODEBASE : CREANODEBASEBASE
     {
-        public CreaNode(ushort _portNumber, int _creaVersion, string _appnameWithVersion, FirstNodeInfosDatabase _fnisDatabase)
+        public CREANODEBASE(ushort _portNumber, int _creaVersion, string _appnameWithVersion)
             : base(_portNumber, _creaVersion, _appnameWithVersion)
         {
-            fnisDatabase = _fnisDatabase;
-
-            fnis = new List<FirstNodeInformation>();
-
             processedTransactions = new TransactionCollection();
             processedChats = new ChatCollection();
         }
-
-        private readonly FirstNodeInfosDatabase fnisDatabase;
-        private readonly List<FirstNodeInformation> fnis;
-
-        private static readonly string fnisRegistryURL = "http://www.pizyumi.com/nodes.aspx";
 
         private NodeInformation dhtNodeInfo;
 
@@ -2565,168 +2600,32 @@ namespace CREA2014
 
         private bool isInitialized = false;
 
-        private static readonly int keepConnectionNodeInfosMin = 4;
+        private static readonly int keepConnectionNodeInfosMin = 20;
         private static readonly int outboundConnectionsMax = 2;
         private static readonly int inboundConnectionsMax = 4;
+        private static readonly int keepConnectionInterval = 300000;
+        private static readonly int keepConnectionCollectMax = 5;
+
+        private static readonly bool isOutputNumOfConnectingNodes = true;
+        private static readonly bool isOutputNumOfNodes = true;
 
         public int NodeIdSizeByte { get { return dhtNodeInfo.Id.SizeByte; } }
         public int NodeIdSizeBit { get { return dhtNodeInfo.Id.SizeBit; } }
 
+        public bool isKeepConnection { get; private set; }
+        public int NumOfConnectingNodes { get; private set; }
+        public int NumOfNodes { get; private set; }
+
         private readonly TransactionCollection processedTransactions;
         private readonly ChatCollection processedChats;
 
+        public event EventHandler ConnectionKeeped = delegate { };
+        public event EventHandler NumOfConnectingNodesChanged = delegate { };
+        public event EventHandler NumOfNodesChanged = delegate { };
         public event EventHandler<Transaction> ReceivedNewTransaction = delegate { };
         public event EventHandler<Chat> ReceivedNewChat = delegate { };
 
-        protected override Network Network
-        {
-            get
-            {
-#if TEST
-                return Network.globaltest;
-#else
-                return Network.global;
-#endif
-            }
-        }
-
-        protected override string GetPrivateRsaParameters()
-        {
-            using (RSACryptoServiceProvider rsacsp = new RSACryptoServiceProvider(2048))
-                return rsacsp.ToXmlString(true);
-        }
-
-        protected override IPAddress GetIpAddressAndOpenPort()
-        {
-            DefaltNetworkInterface defaultNetworkInterface = new DefaltNetworkInterface();
-            defaultNetworkInterface.Get();
-
-            if ((!defaultNetworkInterface.IsExisted).RaiseWarning(this.GetType(), "fail_network_interface", 5))
-                return null;
-
-            this.RaiseNotification("succeed_network_interface", 5, defaultNetworkInterface.Name);
-
-            UPnP3 upnp = null;
-            try
-            {
-                upnp = new UPnP3(defaultNetworkInterface.MachineIpAddress, defaultNetworkInterface.GatewayIpAddress);
-            }
-            catch (UPnP3.DeviceDescriptionException)
-            {
-                this.RaiseError("fail_upnp", 5);
-
-                return null;
-            }
-
-            this.RaiseNotification("start_open_port_search", 5);
-
-            bool isNeededOpenPort = true;
-            try
-            {
-                for (int i = 0; ; i++)
-                {
-                    GenericPortMappingEntry gpe = upnp.GetGenericPortMappingEntry(i);
-                    if (gpe == null)
-                        break;
-
-                    this.RaiseNotification("generic_port_mapping_entry", 5, gpe.ToString());
-
-                    if (gpe.NewInternalPort == myPortNumber && gpe.NewExternalPort == myPortNumber)
-                    {
-                        if (gpe.NewInternalClient.Equals(defaultNetworkInterface.MachineIpAddress))
-                        {
-                            this.RaiseNotification("already_port_opened", 5);
-
-                            isNeededOpenPort = false;
-                        }
-                        else
-                            upnp.DeletePortMapping(myPortNumber, "TCP");
-
-                        break;
-                    }
-                }
-            }
-            catch (Exception) { }
-
-            if (isNeededOpenPort)
-                try
-                {
-                    upnp.AddPortMapping(myPortNumber, myPortNumber, "TCP", appnameWithVersion).Pipe((isSucceed) => isSucceed.RaiseNotification(this.GetType(), "succeed_open_port", 5).NotRaiseNotification(this.GetType(), "fail_open_port", 5));
-                }
-                catch (Exception ex)
-                {
-                    this.RaiseError("fail_open_port", 5, ex);
-                }
-
-            try
-            {
-                IPAddress externalIpAddress = upnp.GetExternalIPAddress();
-
-                if (externalIpAddress != null)
-                    return externalIpAddress.Pipe((ipaddress) => this.RaiseNotification("succeed_get_global_ip", 5, ipaddress.ToString()));
-
-                this.RaiseError("fail_get_global_ip", 5);
-            }
-            catch (Exception ex)
-            {
-                this.RaiseError("fail_get_global_ip", 5, ex);
-            }
-
-            return null;
-        }
-
-        protected override void NotifyFirstNodeInfo()
-        {
-            HttpWebRequest hwreq = WebRequest.Create(fnisRegistryURL + "?add=" + myFirstNodeInfo.Hex) as HttpWebRequest;
-            using (HttpWebResponse hwres = hwreq.GetResponse() as HttpWebResponse)
-            using (Stream stream = hwres.GetResponseStream())
-            using (StreamReader sr = new StreamReader(stream, Encoding.UTF8))
-                AddFirstNodeInfos(sr.ReadToEnd().Split(new string[] { Environment.NewLine }, StringSplitOptions.RemoveEmptyEntries).Select((elem) => elem.Trim()));
-
-            this.RaiseNotification("register_fni", 5);
-            this.RaiseNotification("get_fnis", 5);
-        }
-
-        protected override FirstNodeInformation[] GetFirstNodeInfos()
-        {
-            if (myFirstNodeInfo == null)
-            {
-                HttpWebRequest hwreq = WebRequest.Create(fnisRegistryURL) as HttpWebRequest;
-                using (HttpWebResponse hwres = hwreq.GetResponse() as HttpWebResponse)
-                using (Stream stream = hwres.GetResponseStream())
-                using (StreamReader sr = new StreamReader(stream, Encoding.UTF8))
-                    AddFirstNodeInfos(sr.ReadToEnd().Split(new string[] { Environment.NewLine }, StringSplitOptions.RemoveEmptyEntries).Select((elem) => elem.Trim()));
-            }
-
-            AddFirstNodeInfos(fnisDatabase.GetFirstNodeInfosData());
-
-            return fnis.ToArray();
-        }
-
-        private void AddFirstNodeInfos(IEnumerable<string> nodes)
-        {
-            foreach (string node in nodes)
-            {
-                FirstNodeInformation fni = null;
-                try
-                {
-                    fni = new FirstNodeInformation(node);
-                }
-                catch
-                {
-                    this.RaiseError("cant_decode_fni", 5);
-                }
-
-                if (fni != null && !fnis.Contains(fni))
-                {
-                    fnis.Add(fni);
-
-                    this.RaiseNotification("add_fni", 5, fni.ToString());
-                }
-            }
-        }
-
-        protected NodeInformation[] GetNodeInfos()
+        private NodeInformation[] GetNodeInfos()
         {
             List<NodeInformation> nodeInfos = new List<NodeInformation>();
 
@@ -2876,8 +2775,10 @@ namespace CREA2014
 
         public void DiffuseNewTransaction(Transaction transaction)
         {
-            if (processedTransactions.Contains(transaction.Id).RaiseNotification(this.GetType(), "alredy_processed_tx", 3))
+            if ((!processedTransactions.AddTransaction(transaction)).RaiseNotification(this.GetType(), "alredy_processed_tx", 3))
                 return;
+
+            ReceivedNewTransaction(this, transaction);
 
             DiffuseNewTransaction(null, new NotifyNewTransaction(transaction.Id), new ResTransaction(transaction));
         }
@@ -2886,8 +2787,10 @@ namespace CREA2014
 
         public void DiffuseNewChat(Chat chat)
         {
-            if (processedChats.Contains(chat.Id).RaiseNotification(this.GetType(), "alredy_processed_chat", 3))
+            if ((!processedChats.AddChat(chat)).RaiseNotification(this.GetType(), "alredy_processed_chat", 3))
                 return;
+
+            ReceivedNewChat(this, chat);
 
             DiffuseNewChat(null, new NotifyNewChat(chat.Id), chat);
         }
@@ -2924,16 +2827,45 @@ namespace CREA2014
             {
                 int distanceLevel = GetDistanceLevel(nodeInfo);
 
+                if (distanceLevel == -1)
+                    return;
+
                 if (isSucceeded)
                 {
+                    bool flag = false;
+
                     lock (kbucketsLocks[distanceLevel])
-                        if (!kbuckets[distanceLevel].Contains(nodeInfo))
+                        if (flag = !kbuckets[distanceLevel].Contains(nodeInfo))
                             kbuckets[distanceLevel].Add(nodeInfo);
+
+                    if (flag)
+                    {
+                        NumOfNodes++;
+
+                        if (isOutputNumOfNodes)
+                            this.ConsoleWriteLine(string.Format("nodes:{0}", NumOfNodes.ToString()));
+
+                        NumOfNodesChanged(this, EventArgs.Empty);
+                    }
                 }
                 else if (kbuckets[distanceLevel].Count > 0)
+                {
+                    bool flag = false;
+
                     lock (kbucketsLocks[distanceLevel])
-                        if (kbuckets[distanceLevel].Contains(nodeInfo))
+                        if (flag = kbuckets[distanceLevel].Contains(nodeInfo))
                             kbuckets[distanceLevel].Remove(nodeInfo);
+
+                    if (flag)
+                    {
+                        NumOfNodes--;
+
+                        if (isOutputNumOfNodes)
+                            this.ConsoleWriteLine(string.Format("nodes:{0}", NumOfNodes.ToString()));
+
+                        NumOfNodesChanged(this, EventArgs.Empty);
+                    }
+                }
             }
         }
 
@@ -2962,8 +2894,15 @@ namespace CREA2014
             lock (inboundConnectionsLock[distanceLevel])
                 inboundConnections[distanceLevel].Add(connection);
 
-            sc.Closed += (sender, e) => RemoveAndRefillConnections(distanceLevel, connection, inboundConnectionsLock, inboundConnections, inboundConnectionsMax);
-            sc.Failed += (sender, e) => RemoveAndRefillConnections(distanceLevel, connection, inboundConnectionsLock, inboundConnections, inboundConnectionsMax);
+            NumOfConnectingNodes++;
+
+            if (isOutputNumOfConnectingNodes)
+                this.ConsoleWriteLine(string.Format("connecting_nodes:{0}", NumOfConnectingNodes.ToString()));
+
+            NumOfConnectingNodesChanged(this, EventArgs.Empty);
+
+            sc.Closed += (sender, e) => RemoveConnection(distanceLevel, connection, inboundConnectionsLock, inboundConnections);
+            sc.Failed += (sender, e) => RemoveConnection(distanceLevel, connection, inboundConnectionsLock, inboundConnections);
 
             Continue(nodeInfo, sc, _ConsoleWriteLine);
         }
@@ -2976,17 +2915,42 @@ namespace CREA2014
             lock (outboundConnectionsLock[distanceLevel])
                 outboundConnections[distanceLevel].Add(connection);
 
-            sc.Closed += (sender, e) => RemoveAndRefillConnections(distanceLevel, connection, outboundConnectionsLock, outboundConnections, outboundConnectionsMax);
-            sc.Failed += (sender, e) => RemoveAndRefillConnections(distanceLevel, connection, outboundConnectionsLock, outboundConnections, outboundConnectionsMax);
+            NumOfConnectingNodes++;
+
+            if (isOutputNumOfConnectingNodes)
+                this.ConsoleWriteLine(string.Format("connecting_nodes:{0}", NumOfConnectingNodes.ToString()));
+
+            NumOfConnectingNodesChanged(this, EventArgs.Empty);
+
+            sc.Closed += (sender, e) =>
+            {
+                RemoveConnection(distanceLevel, connection, outboundConnectionsLock, outboundConnections);
+                FillOutboundConnections(distanceLevel);
+            };
+            sc.Failed += (sender, e) =>
+            {
+                RemoveConnection(distanceLevel, connection, outboundConnectionsLock, outboundConnections);
+                FillOutboundConnections(distanceLevel);
+            };
 
             Continue(nodeInfo, sc, _ConsoleWriteLine);
         }
 
-        private void RemoveAndRefillConnections(int distanceLevel, Connection connection, object[] locks, List<Connection>[] connections, int max)
+        private void RemoveConnection(int distanceLevel, Connection connection, object[] locks, List<Connection>[] connections)
         {
             lock (locks[distanceLevel])
                 connections[distanceLevel].Remove(connection);
 
+            NumOfConnectingNodes--;
+
+            if (isOutputNumOfConnectingNodes)
+                this.ConsoleWriteLine(string.Format("connecting_nodes:{0}", NumOfConnectingNodes.ToString()));
+
+            NumOfConnectingNodesChanged(this, EventArgs.Empty);
+        }
+
+        private void FillOutboundConnections(int distanceLevel)
+        {
             List<NodeInformation> nodeInfos;
             List<NodeInformation> nodeInfosConnected;
             lock (kbucketsLocks[distanceLevel])
@@ -2997,7 +2961,7 @@ namespace CREA2014
                 nodeInfosConnected.AddRange(inboundConnections[distanceLevel].Select((elem) => elem.nodeInfo));
 
             foreach (var nodeInfo in nodeInfos)
-                if (connections[distanceLevel].Count < max)
+                if (outboundConnections[distanceLevel].Count < outboundConnectionsMax)
                 {
                     if (!nodeInfosConnected.Contains(nodeInfo))
                         Connect(nodeInfo, false, () => { }, null);
@@ -3050,7 +3014,12 @@ namespace CREA2014
 
             if (connection == null)
                 return Connect(nodeInfo, true, () => { }, message, datas);
+            else
+                return NewSession(connection, nodeInfo, message, datas);
+        }
 
+        private SHAREDDATA[] NewSession(Connection connection, NodeInformation nodeInfo, Message message, params SHAREDDATA[] datas)
+        {
             SessionChannel sc2 = null;
             try
             {
@@ -3077,11 +3046,8 @@ namespace CREA2014
             return null;
         }
 
-        protected override void Diffuse(NodeInformation source, Message message, params SHAREDDATA[] datas)
+        private IEnumerable<Connection> GetAllConnections()
         {
-            if (!isInitialized)
-                throw new InvalidOperationException("not_yet_connections_keeped");
-
             List<Connection> connections = new List<Connection>();
             for (int i = 0; i < NodeIdSizeBit; i++)
             {
@@ -3092,35 +3058,17 @@ namespace CREA2014
                     lock (inboundConnectionsLock[i])
                         connections.AddRange(inboundConnections[i]);
             }
+            return connections;
+        }
 
-            foreach (Connection connection in connections)
-            {
-                if (source != null && connection.nodeInfo.Equals(source))
-                    continue;
+        protected override void Diffuse(NodeInformation source, Message message, params SHAREDDATA[] datas)
+        {
+            if (!isInitialized)
+                throw new InvalidOperationException("not_yet_connections_keeped");
 
-                SessionChannel sc2 = null;
-                try
-                {
-                    sc2 = connection.sc.NewSession();
-
-                    connection._ConsoleWriteLine("新しいセッション");
-
-                    OutboundProtocol(connection.nodeInfo, message, datas, sc2, connection._ConsoleWriteLine);
-                }
-                catch (Exception ex)
-                {
-                    this.RaiseError("diffuse", 5, ex);
-                }
-                finally
-                {
-                    if (sc2 != null)
-                    {
-                        sc2.Close();
-
-                        connection._ConsoleWriteLine("セッション終わり");
-                    }
-                }
-            }
+            foreach (Connection connection in GetAllConnections())
+                if (source == null || !connection.nodeInfo.Equals(source))
+                    NewSession(connection, connection.nodeInfo, message, datas);
         }
 
         private void Initialize()
@@ -3150,6 +3098,106 @@ namespace CREA2014
         //<未実装>別スレッドで常時動かすべき？
         protected override void KeepConnections()
         {
+            Action _KeepConnectionsFirst = () =>
+            {
+                if (firstNodeInfos.Length == 0)
+                {
+                    //<未実装>初期ノード情報がない場合の処理
+                    //選択肢1 -> 10分くらい待って再度初期ノード情報取得
+                    //選択肢2 -> 使用者に任せる（使用者によって手動で初期ノード情報が追加された時に常時接続再実行）
+
+                    this.RaiseNotification("keep_connection_fnis_zero", 5);
+
+                    return;
+                }
+
+                List<NodeInformation> nodeInfos = new List<NodeInformation>();
+                for (int i = 0; i < firstNodeInfos.Length && nodeInfos.Count < keepConnectionNodeInfosMin; i++)
+                {
+                    SHAREDDATA[] resDatas = Connect(firstNodeInfos[i].ipAddress, firstNodeInfos[i].portNumber, true, () => { }, new Message(MessageName.reqNodeInfos, 0));
+                    ResNodeInfos resNodeInfos;
+                    if (resDatas != null && resDatas.Length > 0 && (resNodeInfos = resDatas[0] as ResNodeInfos) != null)
+                        //<要検討>更新時間順に並び替えるべき？
+                        nodeInfos.AddRange(resNodeInfos.nodeInfos);
+                }
+                if (nodeInfos.Count == 0)
+                {
+                    //<未実装>初期ノードからノード情報を取得できなかった場合の処理
+                    //選択肢1 -> 10分くらい待って再度ノード情報取得
+                    //選択肢2 -> 使用者に任せる（使用者によって手動で初期ノード情報が追加された時に常時接続再実行）
+
+                    this.RaiseNotification("keep_connection_nis_zero", 5);
+
+                    return;
+                }
+
+                if (myNodeInfo == null)
+                {
+                    dhtNodeInfo = nodeInfos[0];
+
+                    Initialize();
+                }
+
+                foreach (var nodeInfo in nodeInfos)
+                    UpdateNodeState(nodeInfo, true);
+
+                for (int i = 0; i < NodeIdSizeBit; i++)
+                    if (kbuckets[i].Count != 0 || outboundConnections[i].Count < outboundConnectionsMax)
+                        FillOutboundConnections(i);
+
+                this.RaiseNotification("keep_conn_completed", 5);
+
+                isKeepConnection = true;
+
+                ConnectionKeeped(this, EventArgs.Empty);
+            };
+
+            Action _KeepConnections = () =>
+            {
+                while (true)
+                {
+                    Thread.Sleep(keepConnectionInterval);
+
+                    IEnumerable<Connection> allConnections = GetAllConnections();
+
+                    if (!isKeepConnection && allConnections.Count() == 0)
+                    {
+                        if (myFirstNodeInfo == null)
+                            firstNodeInfos = NotifyAndGetFirstNodeInfos(false);
+                        else
+                            firstNodeInfos = NotifyAndGetFirstNodeInfos(false).Where((a) => !a.Equals(myFirstNodeInfo)).ToArray();
+
+                        _KeepConnectionsFirst();
+
+                        continue;
+                    }
+
+                    this.RaiseNotification("update_keep_conn", 5);
+
+                    foreach (Connection connection in allConnections.ToArray().ArrayRandom().Take(keepConnectionCollectMax))
+                    {
+                        SHAREDDATA[] resDatas = NewSession(connection, connection.nodeInfo, new Message(MessageName.reqNodeInfos, 0));
+                        ResNodeInfos resNodeInfos;
+                        if (resDatas != null && resDatas.Length > 0 && (resNodeInfos = resDatas[0] as ResNodeInfos) != null)
+                            foreach (var nodeInfo in resNodeInfos.nodeInfos)
+                                UpdateNodeState(nodeInfo, true);
+                    }
+
+                    for (int i = 0; i < NodeIdSizeBit; i++)
+                        if (kbuckets[i].Count != 0 || outboundConnections[i].Count < outboundConnectionsMax)
+                            FillOutboundConnections(i);
+
+                    if (!isKeepConnection)
+                    {
+                        this.RaiseNotification("keep_conn_completed", 5);
+
+                        isKeepConnection = true;
+
+                        ConnectionKeeped(this, EventArgs.Empty);
+                    }
+                }
+            };
+
             if (myNodeInfo != null)
             {
                 dhtNodeInfo = myNodeInfo;
@@ -3157,71 +3205,9 @@ namespace CREA2014
                 Initialize();
             }
 
-            if (firstNodeInfos.Length == 0)
-            {
-                //<未実装>初期ノード情報がない場合の処理
-                //選択肢1 -> 10分くらい待って再度初期ノード情報取得
-                //選択肢2 -> 使用者に任せる（使用者によって手動で初期ノード情報が追加された時に常時接続再実行）
+            _KeepConnectionsFirst();
 
-                this.RaiseNotification("keep_connection_fnis_zero", 5);
-
-                return;
-            }
-
-            List<NodeInformation> nodeInfos = new List<NodeInformation>();
-            for (int i = 0; i < firstNodeInfos.Length && nodeInfos.Count < keepConnectionNodeInfosMin; i++)
-            {
-                SHAREDDATA[] resDatas = Connect(firstNodeInfos[i].ipAddress, firstNodeInfos[i].portNumber, true, () => { }, new Message(MessageName.reqNodeInfos, 0));
-                ResNodeInfos resNodeInfos;
-                if (resDatas != null && resDatas.Length == 1 && (resNodeInfos = resDatas[0] as ResNodeInfos) != null)
-                    //<要検討>更新時間順に並び替えるべき？
-                    nodeInfos.AddRange(resNodeInfos.nodeInfos);
-            }
-            if (nodeInfos.Count == 0)
-            {
-                //<未実装>初期ノードからノード情報を取得できなかった場合の処理
-                //選択肢1 -> 10分くらい待って再度ノード情報取得
-                //選択肢2 -> 使用者に任せる（使用者によって手動で初期ノード情報が追加された時に常時接続再実行）
-
-                this.RaiseNotification("keep_connection_nis_zero", 5);
-
-                return;
-            }
-
-            if (myNodeInfo == null)
-            {
-                dhtNodeInfo = nodeInfos[0];
-
-                Initialize();
-            }
-
-            foreach (var nodeInfo in nodeInfos)
-            {
-                int distanceLevel = GetDistanceLevel(nodeInfo);
-                if (distanceLevel != -1)
-                    lock (kbucketsLocks[distanceLevel])
-                        kbuckets[distanceLevel].Add(nodeInfo);
-            }
-
-            for (int i = 0; i < NodeIdSizeBit; i++)
-            {
-                if (kbuckets[i].Count == 0 || outboundConnections[i].Count >= outboundConnectionsMax)
-                    continue;
-
-                lock (kbucketsLocks[i])
-                    nodeInfos = new List<NodeInformation>(kbuckets[i]);
-
-                foreach (var nodeInfo in nodeInfos)
-                    if (outboundConnections[i].Count < outboundConnectionsMax)
-                    {
-                        if (!IsAlreadyConnected(nodeInfo))
-                            Connect(nodeInfo, false, () => { }, null);
-                    }
-                    else
-                        break;
-            }
-
-            this.RaiseNotification("keep_conn_completed", 5);
+            this.StartTask("keep_connections", "keep_connections", _KeepConnections);
         }
 
         private int GetDistanceLevel(NodeInformation nodeInfo2)
@@ -3280,16 +3266,165 @@ namespace CREA2014
         }
     }
 
-    #region 試験用
-
-    public abstract class CreaNodeLocalTest : CREANODEBASE
+    public class CreaNode : CREANODEBASE
     {
-        public CreaNodeLocalTest(ushort _portNumber, int _creaVersion, string _appnameWithVersion)
+        public CreaNode(ushort _portNumber, int _creaVersion, string _appnameWithVersion, FirstNodeInfosDatabase _fnisDatabase)
             : base(_portNumber, _creaVersion, _appnameWithVersion)
         {
-            processedTransactions = new TransactionCollection();
-            processedChats = new ChatCollection();
+            fnisDatabase = _fnisDatabase;
+
+            fnis = new List<FirstNodeInformation>();
         }
+
+        private static readonly string fnisRegistryURL = "http://www.pizyumi.com/nodes.aspx";
+
+        private readonly FirstNodeInfosDatabase fnisDatabase;
+        private readonly List<FirstNodeInformation> fnis;
+
+        protected override Network Network
+        {
+            get
+            {
+#if TEST
+                return Network.globaltest;
+#else
+                return Network.global;
+#endif
+            }
+        }
+
+        protected override string GetPrivateRsaParameters()
+        {
+            using (RSACryptoServiceProvider rsacsp = new RSACryptoServiceProvider(2048))
+                return rsacsp.ToXmlString(true);
+        }
+
+        protected override IPAddress GetIpAddressAndOpenPort()
+        {
+            DefaltNetworkInterface defaultNetworkInterface = new DefaltNetworkInterface();
+            defaultNetworkInterface.Get();
+
+            if ((!defaultNetworkInterface.IsExisted).RaiseWarning(this.GetType(), "fail_network_interface", 5))
+                return null;
+
+            this.RaiseNotification("succeed_network_interface", 5, defaultNetworkInterface.Name);
+
+            UPnP3 upnp = null;
+            try
+            {
+                upnp = new UPnP3(defaultNetworkInterface.MachineIpAddress, defaultNetworkInterface.GatewayIpAddress);
+            }
+            catch (UPnP3.DeviceDescriptionException)
+            {
+                this.RaiseError("fail_upnp", 5);
+
+                return null;
+            }
+
+            this.RaiseNotification("start_open_port_search", 5);
+
+            bool isNeededOpenPort = true;
+            try
+            {
+                for (int i = 0; ; i++)
+                {
+                    GenericPortMappingEntry gpe = upnp.GetGenericPortMappingEntry(i);
+                    if (gpe == null)
+                        break;
+
+                    this.RaiseNotification("generic_port_mapping_entry", 5, gpe.ToString());
+
+                    if (gpe.NewInternalPort == myPortNumber && gpe.NewExternalPort == myPortNumber)
+                    {
+                        if (gpe.NewInternalClient.Equals(defaultNetworkInterface.MachineIpAddress))
+                        {
+                            this.RaiseNotification("already_port_opened", 5);
+
+                            isNeededOpenPort = false;
+                        }
+                        else
+                            upnp.DeletePortMapping(myPortNumber, "TCP");
+
+                        break;
+                    }
+                }
+            }
+            catch (Exception) { }
+
+            if (isNeededOpenPort)
+                try
+                {
+                    upnp.AddPortMapping(myPortNumber, myPortNumber, "TCP", appnameWithVersion).Pipe((isSucceed) => isSucceed.RaiseNotification(this.GetType(), "succeed_open_port", 5).NotRaiseNotification(this.GetType(), "fail_open_port", 5));
+                }
+                catch (Exception ex)
+                {
+                    this.RaiseError("fail_open_port", 5, ex);
+                }
+
+            try
+            {
+                IPAddress externalIpAddress = upnp.GetExternalIPAddress();
+
+                if (externalIpAddress != null)
+                    return externalIpAddress.Pipe((ipaddress) => this.RaiseNotification("succeed_get_global_ip", 5, ipaddress.ToString()));
+
+                this.RaiseError("fail_get_global_ip", 5);
+            }
+            catch (Exception ex)
+            {
+                this.RaiseError("fail_get_global_ip", 5, ex);
+            }
+
+            return null;
+        }
+
+        private void AddFirstNodeInfos(IEnumerable<string> nodes)
+        {
+            foreach (string node in nodes)
+            {
+                FirstNodeInformation fni = null;
+                try
+                {
+                    fni = new FirstNodeInformation(node);
+                }
+                catch
+                {
+                    this.RaiseError("cant_decode_fni", 5);
+                }
+
+                if (fni != null && !fnis.Contains(fni))
+                {
+                    fnis.Add(fni);
+
+                    this.RaiseNotification("add_fni", 5, fni.ToString());
+                }
+            }
+        }
+
+        protected override FirstNodeInformation[] NotifyAndGetFirstNodeInfos(bool isNotified)
+        {
+            if (isNotified && myFirstNodeInfo == null)
+                throw new InvalidOperationException();
+
+            HttpWebRequest hwreq = WebRequest.Create(fnisRegistryURL + (isNotified ? "?add=" + myFirstNodeInfo.Hex : string.Empty)) as HttpWebRequest;
+            using (HttpWebResponse hwres = hwreq.GetResponse() as HttpWebResponse)
+            using (Stream stream = hwres.GetResponseStream())
+            using (StreamReader sr = new StreamReader(stream, Encoding.UTF8))
+                AddFirstNodeInfos(sr.ReadToEnd().Split(new string[] { Environment.NewLine }, StringSplitOptions.RemoveEmptyEntries).Select((elem) => elem.Trim()));
+
+            if (myFirstNodeInfo == null)
+                this.RaiseNotification("register_fni", 5);
+            this.RaiseNotification("get_fnis", 5);
+
+            AddFirstNodeInfos(fnisDatabase.GetFirstNodeInfosData());
+
+            return fnis.ToArray();
+        }
+    }
+
+    public class CreaNodeTest : CREANODEBASE
+    {
+        public CreaNodeTest(ushort _portNumber, int _creaVersion, string _appnameWithVersion) : base(_portNumber, _creaVersion, _appnameWithVersion) { }
 
         private readonly List<FirstNodeInformation> fnis = new List<FirstNodeInformation>();
 
@@ -3300,9 +3435,7 @@ namespace CREA2014
         private static readonly string fnisRegistryFileName = "nodes.txt";
         private static readonly int fnisRegistryMaxNodes = 128;
 
-        protected abstract NodeInformation[] GetNodeInfos();
-
-        static CreaNodeLocalTest()
+        static CreaNodeTest()
         {
             using (RSACryptoServiceProvider rsacsp = new RSACryptoServiceProvider(2048))
                 testPrivateRsaParameters = rsacsp.ToXmlString(true);
@@ -3375,9 +3508,9 @@ namespace CREA2014
 
         protected override IPAddress GetIpAddressAndOpenPort() { return IPAddress.Loopback; }
 
-        protected override void NotifyFirstNodeInfo()
+        protected override FirstNodeInformation[] NotifyAndGetFirstNodeInfos(bool isNotified)
         {
-            HttpWebRequest hwreq = WebRequest.Create(fnisRegistryURL + myFirstNodeInfo.Hex) as HttpWebRequest;
+            HttpWebRequest hwreq = WebRequest.Create(fnisRegistryURL + (isNotified ? myFirstNodeInfo.Hex : string.Empty)) as HttpWebRequest;
             using (HttpWebResponse hwres = hwreq.GetResponse() as HttpWebResponse)
             using (Stream stream = hwres.GetResponseStream())
             using (StreamReader sr = new StreamReader(stream, Encoding.UTF8))
@@ -3395,865 +3528,10 @@ namespace CREA2014
                         fnis.Add(fni);
                 }
             }
-        }
 
-        protected override FirstNodeInformation[] GetFirstNodeInfos() { return fnis.ToArray(); }
-
-        private readonly TransactionCollection processedTransactions;
-        private readonly ChatCollection processedChats;
-
-        public event EventHandler<Transaction> ReceivedNewTransaction = delegate { };
-        public event EventHandler<Chat> ReceivedNewChat = delegate { };
-
-        protected override void InboundProtocol(NodeInformation nodeInfo, IChannel sc, Action<string> _ConsoleWriteLine)
-        {
-            Message message = SHAREDDATA.FromBinary<Message>(sc.ReadBytes());
-
-            _ConsoleWriteLine(message.name.ToString());
-
-            if (message.version != 0)
-                throw new NotSupportedException();
-
-            if (message.name == MessageName.reqNodeInfos)
-                sc.WriteBytes(new ResNodeInfos(GetNodeInfos()).ToBinary());
-            else if (message.name == MessageName.notifyNewTransaction)
-            {
-                NotifyNewTransaction nnt = SHAREDDATA.FromBinary<NotifyNewTransaction>(sc.ReadBytes());
-                bool isNew = !processedTransactions.Contains(nnt.hash);
-                sc.WriteBytes(BitConverter.GetBytes(isNew));
-                if (isNew)
-                {
-                    ResTransaction rt = SHAREDDATA.FromBinary<ResTransaction>(sc.ReadBytes());
-                    TransferTransaction tt = rt.transaction as TransferTransaction;
-
-                    if (tt == null)
-                        throw new InvalidOperationException();
-                    if (!nnt.hash.Equals(tt.Id))
-                        throw new InvalidOperationException();
-
-                    if (!processedTransactions.AddTransaction(tt))
-                        return;
-
-                    ReceivedNewTransaction(this, tt);
-
-                    this.StartTask("diffuseNewTransactions", "diffuseNewTransactions", () => DiffuseNewTransaction(nodeInfo, nnt, rt));
-                }
-            }
-            else if (message.name == MessageName.NotifyNewChat)
-            {
-                NotifyNewChat nnc = SHAREDDATA.FromBinary<NotifyNewChat>(sc.ReadBytes());
-
-                //_ConsoleWriteLine("read_nnc");
-
-                bool isNew = !processedChats.Contains(nnc.Id);
-                sc.WriteBytes(BitConverter.GetBytes(isNew));
-
-                //_ConsoleWriteLine("write_isnew");
-
-                if (isNew)
-                {
-                    Chat chat = SHAREDDATA.FromBinary<Chat>(sc.ReadBytes());
-
-                    //_ConsoleWriteLine("read_chat");
-
-                    if (chat == null)
-                        throw new InvalidOperationException();
-                    if (nnc.Id != chat.Id)
-                        throw new InvalidOperationException();
-
-                    if (!processedChats.AddChat(chat))
-                        return;
-
-                    ReceivedNewChat(this, chat);
-
-                    this.StartTask("diffuseNewChat", "diffuseNewChat", () => DiffuseNewChat(nodeInfo, nnc, chat));
-                }
-            }
-            else
-                throw new NotSupportedException("protocol_not_supported");
-        }
-
-        protected override SHAREDDATA[] OutboundProtocol(NodeInformation nodeInfo, Message message, SHAREDDATA[] datas, IChannel sc, Action<string> _ConsoleWriteLine)
-        {
-            if (message.version != 0)
-                throw new NotSupportedException();
-
-            sc.WriteBytes(message.ToBinary());
-
-            _ConsoleWriteLine(message.name.ToString());
-
-            if (message.name == MessageName.reqNodeInfos)
-                return new SHAREDDATA[] { SHAREDDATA.FromBinary<ResNodeInfos>(sc.ReadBytes()) };
-            else if (message.name == MessageName.notifyNewTransaction)
-            {
-                if (datas.Length != 2)
-                    throw new InvalidOperationException();
-
-                NotifyNewTransaction nnt = datas[0] as NotifyNewTransaction;
-                ResTransaction rt = datas[1] as ResTransaction;
-                TransferTransaction tt = rt.transaction as TransferTransaction;
-
-                if (nnt == null || rt == null)
-                    throw new InvalidOperationException();
-                if (tt == null)
-                    throw new InvalidOperationException();
-                if (!nnt.hash.Equals(tt.Id))
-                    throw new InvalidOperationException();
-
-                sc.WriteBytes(nnt.ToBinary());
-                if (BitConverter.ToBoolean(sc.ReadBytes(), 0))
-                    sc.WriteBytes(rt.ToBinary());
-
-                return new SHAREDDATA[] { };
-            }
-            else if (message.name == MessageName.NotifyNewChat)
-            {
-                if (datas.Length != 2)
-                    throw new InvalidOperationException();
-
-                NotifyNewChat nnc = datas[0] as NotifyNewChat;
-                Chat chat = datas[1] as Chat;
-
-                if (nnc == null || chat == null)
-                    throw new InvalidOperationException();
-                if (nnc.Id != chat.Id)
-                    throw new InvalidOperationException();
-
-                sc.WriteBytes(nnc.ToBinary());
-
-                //_ConsoleWriteLine("write_nnc");
-
-                if (BitConverter.ToBoolean(sc.ReadBytes(), 0))
-                {
-                    //_ConsoleWriteLine("read_isnew");
-
-                    sc.WriteBytes(chat.ToBinary());
-
-                    //_ConsoleWriteLine("write_chat");
-                }
-
-                return new SHAREDDATA[] { };
-            }
-            else
-                throw new NotSupportedException("protocol_not_supported");
-        }
-
-        public void DiffuseNewTransaction(Transaction transaction)
-        {
-            if (processedTransactions.Contains(transaction.Id).RaiseNotification(this.GetType(), "alredy_processed_tx", 3))
-                return;
-
-            processedTransactions.AddTransaction(transaction);
-
-            DiffuseNewTransaction(null, new NotifyNewTransaction(transaction.Id), new ResTransaction(transaction));
-        }
-
-        private void DiffuseNewTransaction(NodeInformation source, NotifyNewTransaction nnt, ResTransaction rt) { Diffuse(source, new Message(MessageName.notifyNewTransaction, 0), nnt, rt); }
-
-        public void DiffuseNewChat(Chat chat)
-        {
-            if (processedChats.Contains(chat.Id).RaiseNotification(this.GetType(), "alredy_processed_chat", 3))
-                return;
-
-            processedChats.AddChat(chat);
-
-            DiffuseNewChat(null, new NotifyNewChat(chat.Id), chat);
-        }
-
-        private void DiffuseNewChat(NodeInformation source, NotifyNewChat nnc, Chat chat) { Diffuse(source, new Message(MessageName.NotifyNewChat, 0), nnc, chat); }
-    }
-
-    public class CreaNodeLocalTestNotContinue : CreaNodeLocalTest
-    {
-        public CreaNodeLocalTestNotContinue(ushort _portNumber, int _creaVersion, string _appnameWithVersion) : base(_portNumber, _creaVersion, _appnameWithVersion) { }
-
-        protected override bool IsContinue { get { return false; } }
-        protected override bool IsTemporaryContinue { get { return false; } }
-
-        protected override bool IsAlreadyConnected(NodeInformation nodeInfo) { return false; }
-
-        protected override void UpdateNodeState(NodeInformation nodeInfo, bool isSucceeded) { }
-
-        protected override void UpdateNodeState(IPAddress ipAddress, ushort portNumber, bool isSucceeded) { }
-
-        protected override bool IsListenerCanContinue(NodeInformation nodeInfo) { return false; }
-
-        protected override bool IsWantToContinue(NodeInformation nodeInfo) { return false; }
-
-        protected override bool IsClientCanContinue(NodeInformation nodeInfo) { return false; }
-
-        //このメソッドのどこかで（例外を除く全ての場合において）SocketChannelのCloseが呼び出されるようにしなければならない
-        protected override void InboundContinue(NodeInformation nodeInfo, SocketChannel sc, Action<string> _ConsoleWriteLine) { sc.Close(); }
-
-        //このメソッドのどこかで（例外を除く全ての場合において）SocketChannelのCloseが呼び出されるようにしなければならない
-        protected override void OutboundContinue(NodeInformation nodeInfo, SocketChannel sc, Action<string> _ConsoleWriteLine) { sc.Close(); }
-
-        protected override SHAREDDATA[] Request(NodeInformation nodeinfo, Message message, params SHAREDDATA[] datas)
-        {
-            return Connect(nodeinfo, true, () => { }, message, datas);
-        }
-
-        protected override void Diffuse(NodeInformation source, Message message, params SHAREDDATA[] datas)
-        {
-            for (int i = 0; i < 16 && i < firstNodeInfos.Length; i++)
-                Connect(firstNodeInfos[i].ipAddress, firstNodeInfos[i].portNumber, true, () => { }, message, datas);
-        }
-
-        protected override void KeepConnections() { }
-
-        protected override NodeInformation[] GetNodeInfos() { return new NodeInformation[] { }; }
-    }
-
-    public class CreaNodeLocalTestContinue : CreaNodeLocalTest
-    {
-        public CreaNodeLocalTestContinue(ushort _portNumber, int _creaVersion, string _appnameWithVersion) : base(_portNumber, _creaVersion, _appnameWithVersion) { }
-
-        private static readonly int maxInboundConnection = 16;
-        private static readonly int maxOutboundConnection = 8;
-
-        private readonly object clientNodesLock = new object();
-        private readonly Dictionary<NodeInformation, Connection> clientNodes = new Dictionary<NodeInformation, Connection>();
-        private readonly object listenerNodesLock = new object();
-        private readonly Dictionary<NodeInformation, Connection> listenerNodes = new Dictionary<NodeInformation, Connection>();
-
-        public class Connection
-        {
-            public Connection(NodeInformation _nodeInfo, SocketChannel _sc, Action<string> __ConsoleWriteLine)
-            {
-                nodeInfo = _nodeInfo;
-                sc = _sc;
-                _ConsoleWriteLine = __ConsoleWriteLine;
-            }
-
-            public readonly NodeInformation nodeInfo;
-            public readonly SocketChannel sc;
-            public readonly Action<string> _ConsoleWriteLine;
-        }
-
-        protected override bool IsContinue { get { return true; } }
-        protected override bool IsTemporaryContinue { get { return true; } }
-
-        protected override bool IsAlreadyConnected(NodeInformation nodeInfo)
-        {
-            lock (clientNodesLock)
-                if (clientNodes.Keys.Contains(nodeInfo))
-                    return true;
-            lock (listenerNodesLock)
-                if (listenerNodes.Keys.Contains(nodeInfo))
-                    return true;
-            return false;
-        }
-
-        protected override void UpdateNodeState(NodeInformation nodeInfo, bool isSucceeded) { }
-
-        protected override void UpdateNodeState(IPAddress ipAddress, ushort portNumber, bool isSucceeded) { }
-
-        protected override bool IsListenerCanContinue(NodeInformation nodeInfo)
-        {
-            lock (listenerNodesLock)
-                return listenerNodes.Count < maxInboundConnection;
-        }
-
-        protected override bool IsWantToContinue(NodeInformation nodeInfo)
-        {
-            lock (listenerNodesLock)
-                return listenerNodes.Count < maxInboundConnection;
-        }
-
-        protected override bool IsClientCanContinue(NodeInformation nodeInfo)
-        {
-            lock (clientNodesLock)
-                return clientNodes.Count < maxOutboundConnection;
-        }
-
-        //このメソッドのどこかで（例外を除く全ての場合において）SocketChannelのCloseが呼び出されるようにしなければならない
-        protected override void InboundContinue(NodeInformation nodeInfo, SocketChannel sc, Action<string> _ConsoleWriteLine)
-        {
-            lock (listenerNodesLock)
-                listenerNodes.Add(nodeInfo, new Connection(nodeInfo, sc, _ConsoleWriteLine));
-
-            sc.Closed += (sender, e) =>
-            {
-                lock (listenerNodesLock)
-                    listenerNodes.Remove(nodeInfo);
-            };
-            sc.Failed += (sender, e) =>
-            {
-                lock (listenerNodesLock)
-                    listenerNodes.Remove(nodeInfo);
-            };
-
-            Continue(nodeInfo, sc, _ConsoleWriteLine);
-        }
-
-        //このメソッドのどこかで（例外を除く全ての場合において）SocketChannelのCloseが呼び出されるようにしなければならない
-        protected override void OutboundContinue(NodeInformation nodeInfo, SocketChannel sc, Action<string> _ConsoleWriteLine)
-        {
-            lock (clientNodesLock)
-                clientNodes.Add(nodeInfo, new Connection(nodeInfo, sc, _ConsoleWriteLine));
-
-            sc.Closed += (sender, e) =>
-            {
-                lock (clientNodesLock)
-                    clientNodes.Remove(nodeInfo);
-            };
-            sc.Failed += (sender, e) =>
-            {
-                lock (clientNodesLock)
-                    clientNodes.Remove(nodeInfo);
-            };
-
-            Continue(nodeInfo, sc, _ConsoleWriteLine);
-        }
-
-        private void Continue(NodeInformation nodeInfo, SocketChannel sc, Action<string> _ConsoleWriteLine)
-        {
-            _ConsoleWriteLine("常時接続" + string.Join(",", clientNodes.Count.ToString(), listenerNodes.Count.ToString()));
-
-            sc.Sessioned += (sender, e) =>
-            {
-                try
-                {
-                    _ConsoleWriteLine("新しいセッション");
-
-                    InboundProtocol(nodeInfo, e, _ConsoleWriteLine);
-                }
-                catch (Exception ex)
-                {
-                    this.RaiseError("inbound_session", 5, ex);
-                }
-                finally
-                {
-                    e.Close();
-
-                    _ConsoleWriteLine("セッション終わり");
-                }
-            };
-        }
-
-        protected override SHAREDDATA[] Request(NodeInformation nodeinfo, Message message, params SHAREDDATA[] datas)
-        {
-            Connection connection = null;
-
-            lock (clientNodesLock)
-                if (clientNodes.Keys.Contains(nodeinfo))
-                    connection = clientNodes[nodeinfo];
-            lock (listenerNodesLock)
-                if (listenerNodes.Keys.Contains(nodeinfo))
-                    connection = listenerNodes[nodeinfo];
-
-            if (connection != null)
-            {
-                SessionChannel sc2 = null;
-                try
-                {
-                    sc2 = connection.sc.NewSession();
-
-                    connection._ConsoleWriteLine("新しいセッション");
-
-                    return OutboundProtocol(nodeinfo, message, datas, sc2, connection._ConsoleWriteLine);
-                }
-                catch (Exception ex)
-                {
-                    this.RaiseError("outbound_session", 5, ex);
-
-                    return null;
-                }
-                finally
-                {
-                    if (sc2 != null)
-                    {
-                        sc2.Close();
-
-                        connection._ConsoleWriteLine("セッション終わり");
-                    }
-                }
-            }
-            else
-                return Connect(nodeinfo, true, () => { }, message, datas);
-        }
-
-        protected override void Diffuse(NodeInformation source, Message message, params SHAREDDATA[] datas)
-        {
-            List<Connection> connections = new List<Connection>();
-            lock (clientNodesLock)
-                foreach (Connection cq in clientNodes.Values)
-                    connections.Add(cq);
-            lock (listenerNodesLock)
-                foreach (Connection cq in listenerNodes.Values)
-                    connections.Add(cq);
-
-            foreach (Connection connection in connections)
-            {
-                SessionChannel sc2 = null;
-                try
-                {
-                    sc2 = connection.sc.NewSession();
-
-                    connection._ConsoleWriteLine("新しいセッション");
-
-                    OutboundProtocol(connection.nodeInfo, message, datas, sc2, connection._ConsoleWriteLine);
-                }
-                catch (Exception ex)
-                {
-                    this.RaiseError("diffuse", 5, ex);
-                }
-                finally
-                {
-                    sc2.Close();
-
-                    connection._ConsoleWriteLine("セッション終わり");
-                }
-            }
-        }
-
-        //<未実装>別スレッドで常時動かすべき？
-        protected override void KeepConnections()
-        {
-            if (firstNodeInfos.Length == 0)
-            {
-                //<未実装>初期ノード情報がない場合の処理
-            }
-            else
-            {
-                for (int i = 0; i < firstNodeInfos.Length; i++)
-                {
-                    int count;
-                    lock (clientNodesLock)
-                        count = clientNodes.Count;
-
-                    if (count < maxOutboundConnection)
-                        Connect(firstNodeInfos[i].ipAddress, firstNodeInfos[i].portNumber, false, () => { }, null);
-                }
-
-                this.RaiseNotification("keep_conn_completed", 5);
-            }
-        }
-
-        protected override NodeInformation[] GetNodeInfos() { return new NodeInformation[] { }; }
-    }
-
-    public class CreaNodeLocalTestContinueDHT : CreaNodeLocalTest
-    {
-        public CreaNodeLocalTestContinueDHT(ushort _portNumber, int _creaVersion, string _appnameWithVersion) : base(_portNumber, _creaVersion, _appnameWithVersion) { }
-
-        private NodeInformation dhtNodeInfo;
-
-        private object[] kbucketsLocks;
-        private List<NodeInformation>[] kbuckets;
-
-        private object[] outboundConnectionsLock;
-        private List<Connection>[] outboundConnections;
-        private object[] inboundConnectionsLock;
-        private List<Connection>[] inboundConnections;
-
-        private bool isInitialized = false;
-
-        private static readonly int keepConnectionNodeInfosMin = 4;
-        private static readonly int outboundConnectionsMax = 2;
-        private static readonly int inboundConnectionsMax = 4;
-
-        public int NodeIdSizeByte { get { return dhtNodeInfo.Id.SizeByte; } }
-        public int NodeIdSizeBit { get { return dhtNodeInfo.Id.SizeBit; } }
-
-        public class Connection
-        {
-            public Connection(NodeInformation _nodeInfo, SocketChannel _sc, Action<string> __ConsoleWriteLine)
-            {
-                nodeInfo = _nodeInfo;
-                sc = _sc;
-                _ConsoleWriteLine = __ConsoleWriteLine;
-            }
-
-            public readonly NodeInformation nodeInfo;
-            public readonly SocketChannel sc;
-            public readonly Action<string> _ConsoleWriteLine;
-        }
-
-        protected override NodeInformation[] GetNodeInfos()
-        {
-            List<NodeInformation> nodeInfos = new List<NodeInformation>();
-
-            if (myNodeInfo != null)
-                nodeInfos.Add(myNodeInfo);
-
-            if (isInitialized)
-                for (int i = 0; i < NodeIdSizeBit; i++)
-                    lock (kbucketsLocks[i])
-                        nodeInfos.AddRange(kbuckets[i]);
-
-            return nodeInfos.ToArray();
-        }
-
-        protected override bool IsContinue { get { return true; } }
-        protected override bool IsTemporaryContinue { get { return true; } }
-
-        protected override bool IsAlreadyConnected(NodeInformation nodeInfo)
-        {
-            if (isInitialized)
-            {
-                int distanceLevel = GetDistanceLevel(nodeInfo);
-
-                if (outboundConnections[distanceLevel].Count > 0)
-                    lock (outboundConnectionsLock[distanceLevel])
-                        if (outboundConnections[distanceLevel].Where((elem) => elem.nodeInfo.Equals(nodeInfo)).FirstOrDefault() != null)
-                            return true;
-
-                if (inboundConnections[distanceLevel].Count > 0)
-                    lock (inboundConnectionsLock[distanceLevel])
-                        if (inboundConnections[distanceLevel].Where((elem) => elem.nodeInfo.Equals(nodeInfo)).FirstOrDefault() != null)
-                            return true;
-            }
-
-            return false;
-        }
-
-        protected override void UpdateNodeState(NodeInformation nodeInfo, bool isSucceeded)
-        {
-            //<未改良>単純な追加と削除ではなく優先順位をつけるべき？
-            if (isInitialized)
-            {
-                int distanceLevel = GetDistanceLevel(nodeInfo);
-
-                if (isSucceeded)
-                {
-                    lock (kbucketsLocks[distanceLevel])
-                        if (!kbuckets[distanceLevel].Contains(nodeInfo))
-                            kbuckets[distanceLevel].Add(nodeInfo);
-                }
-                else if (kbuckets[distanceLevel].Count > 0)
-                    lock (kbucketsLocks[distanceLevel])
-                        if (kbuckets[distanceLevel].Contains(nodeInfo))
-                            kbuckets[distanceLevel].Remove(nodeInfo);
-            }
-        }
-
-        protected override void UpdateNodeState(IPAddress ipAddress, ushort portNumber, bool isSucceeded) { }
-
-        protected override bool IsListenerCanContinue(NodeInformation nodeInfo)
-        {
-            return isInitialized && GetDistanceLevel(nodeInfo).Pipe((distanceLevel) => distanceLevel != -1 && inboundConnections[distanceLevel].Count < inboundConnectionsMax);
-        }
-
-        protected override bool IsWantToContinue(NodeInformation nodeInfo)
-        {
-            return isInitialized && GetDistanceLevel(nodeInfo).Pipe((distanceLevel) => distanceLevel != -1 && inboundConnections[distanceLevel].Count < inboundConnectionsMax);
-        }
-
-        protected override bool IsClientCanContinue(NodeInformation nodeInfo)
-        {
-            return isInitialized && GetDistanceLevel(nodeInfo).Pipe((distanceLevel) => distanceLevel != -1 && outboundConnections[distanceLevel].Count < outboundConnectionsMax);
-        }
-
-        protected override void InboundContinue(NodeInformation nodeInfo, SocketChannel sc, Action<string> _ConsoleWriteLine)
-        {
-            Connection connection = new Connection(nodeInfo, sc, _ConsoleWriteLine);
-            int distanceLevel = GetDistanceLevel(nodeInfo);
-
-            lock (inboundConnectionsLock[distanceLevel])
-                inboundConnections[distanceLevel].Add(connection);
-
-            sc.Closed += (sender, e) => RemoveAndRefillConnections(distanceLevel, connection, inboundConnectionsLock, inboundConnections, inboundConnectionsMax);
-            sc.Failed += (sender, e) => RemoveAndRefillConnections(distanceLevel, connection, inboundConnectionsLock, inboundConnections, inboundConnectionsMax);
-
-            Continue(nodeInfo, sc, _ConsoleWriteLine);
-        }
-
-        protected override void OutboundContinue(NodeInformation nodeInfo, SocketChannel sc, Action<string> _ConsoleWriteLine)
-        {
-            Connection connection = new Connection(nodeInfo, sc, _ConsoleWriteLine);
-            int distanceLevel = GetDistanceLevel(nodeInfo);
-
-            lock (outboundConnectionsLock[distanceLevel])
-                outboundConnections[distanceLevel].Add(connection);
-
-            sc.Closed += (sender, e) => RemoveAndRefillConnections(distanceLevel, connection, outboundConnectionsLock, outboundConnections, outboundConnectionsMax);
-            sc.Failed += (sender, e) => RemoveAndRefillConnections(distanceLevel, connection, outboundConnectionsLock, outboundConnections, outboundConnectionsMax);
-
-            Continue(nodeInfo, sc, _ConsoleWriteLine);
-        }
-
-        private void RemoveAndRefillConnections(int distanceLevel, Connection connection, object[] locks, List<Connection>[] connections, int max)
-        {
-            lock (locks[distanceLevel])
-                connections[distanceLevel].Remove(connection);
-
-            List<NodeInformation> nodeInfos;
-            List<NodeInformation> nodeInfosConnected;
-            lock (kbucketsLocks[distanceLevel])
-                nodeInfos = new List<NodeInformation>(kbuckets[distanceLevel]);
-            lock (outboundConnectionsLock[distanceLevel])
-                nodeInfosConnected = new List<NodeInformation>(outboundConnections[distanceLevel].Select((elem) => elem.nodeInfo));
-            lock (inboundConnectionsLock[distanceLevel])
-                nodeInfosConnected.AddRange(inboundConnections[distanceLevel].Select((elem) => elem.nodeInfo));
-
-            foreach (var nodeInfo in nodeInfos)
-                if (connections[distanceLevel].Count < max)
-                {
-                    if (!nodeInfosConnected.Contains(nodeInfo))
-                        Connect(nodeInfo, false, () => { }, null);
-                }
-                else
-                    break;
-        }
-
-        private void Continue(NodeInformation nodeInfo, SocketChannel sc, Action<string> _ConsoleWriteLine)
-        {
-            _ConsoleWriteLine("常時接続");
-
-            sc.Sessioned += (sender, e) =>
-            {
-                try
-                {
-                    _ConsoleWriteLine("新しいセッション");
-
-                    InboundProtocol(nodeInfo, e, _ConsoleWriteLine);
-                }
-                catch (Exception ex)
-                {
-                    this.RaiseError("inbound_session", 5, ex);
-                }
-                finally
-                {
-                    e.Close();
-
-                    _ConsoleWriteLine("セッション終わり");
-                }
-            };
-        }
-
-        protected override SHAREDDATA[] Request(NodeInformation nodeInfo, Message message, params SHAREDDATA[] datas)
-        {
-            Connection connection = null;
-            if (isInitialized)
-            {
-                int distanceLevel = GetDistanceLevel(myNodeInfo);
-
-                if (outboundConnections[distanceLevel].Count > 0)
-                    lock (outboundConnectionsLock[distanceLevel])
-                        connection = outboundConnections[distanceLevel].Where((elem) => elem.nodeInfo.Equals(nodeInfo)).FirstOrDefault();
-
-                if (connection == null)
-                    if (inboundConnections[distanceLevel].Count > 0)
-                        lock (inboundConnectionsLock[distanceLevel])
-                            connection = inboundConnections[distanceLevel].Where((elem) => elem.nodeInfo.Equals(nodeInfo)).FirstOrDefault();
-            }
-
-            if (connection == null)
-                return Connect(nodeInfo, true, () => { }, message, datas);
-
-            SessionChannel sc2 = null;
-            try
-            {
-                sc2 = connection.sc.NewSession();
-
-                connection._ConsoleWriteLine("新しいセッション");
-
-                return OutboundProtocol(nodeInfo, message, datas, sc2, connection._ConsoleWriteLine);
-            }
-            catch (Exception ex)
-            {
-                this.RaiseError("outbound_session", 5, ex);
-            }
-            finally
-            {
-                if (sc2 != null)
-                {
-                    sc2.Close();
-
-                    connection._ConsoleWriteLine("セッション終わり");
-                }
-            }
-
-            return null;
-        }
-
-        protected override void Diffuse(NodeInformation source, Message message, params SHAREDDATA[] datas)
-        {
-            if (!isInitialized)
-                throw new InvalidOperationException("not_yet_connections_keeped");
-
-            List<Connection> connections = new List<Connection>();
-            for (int i = 0; i < NodeIdSizeBit; i++)
-            {
-                if (outboundConnections[i].Count > 0)
-                    lock (outboundConnectionsLock[i])
-                        connections.AddRange(outboundConnections[i]);
-                if (inboundConnections[i].Count > 0)
-                    lock (inboundConnectionsLock[i])
-                        connections.AddRange(inboundConnections[i]);
-            }
-
-            foreach (Connection connection in connections)
-            {
-                if (source != null && connection.nodeInfo.Equals(source))
-                    continue;
-
-                SessionChannel sc2 = null;
-                try
-                {
-                    sc2 = connection.sc.NewSession();
-
-                    connection._ConsoleWriteLine("新しいセッション");
-
-                    OutboundProtocol(connection.nodeInfo, message, datas, sc2, connection._ConsoleWriteLine);
-                }
-                catch (Exception ex)
-                {
-                    this.RaiseError("diffuse", 5, ex);
-                }
-                finally
-                {
-                    if (sc2 != null)
-                    {
-                        sc2.Close();
-
-                        connection._ConsoleWriteLine("セッション終わり");
-                    }
-                }
-            }
-        }
-
-        private void Initialize()
-        {
-            kbuckets = new List<NodeInformation>[NodeIdSizeBit];
-            kbucketsLocks = new object[NodeIdSizeBit];
-
-            outboundConnections = new List<Connection>[NodeIdSizeBit];
-            outboundConnectionsLock = new object[NodeIdSizeBit];
-            inboundConnections = new List<Connection>[NodeIdSizeBit];
-            inboundConnectionsLock = new object[NodeIdSizeBit];
-
-            for (int i = 0; i < NodeIdSizeBit; i++)
-            {
-                kbuckets[i] = new List<NodeInformation>();
-                kbucketsLocks[i] = new object();
-
-                outboundConnections[i] = new List<Connection>();
-                outboundConnectionsLock[i] = new object();
-                inboundConnections[i] = new List<Connection>();
-                inboundConnectionsLock[i] = new object();
-            }
-
-            isInitialized = true;
-        }
-
-        //<未実装>別スレッドで常時動かすべき？
-        protected override void KeepConnections()
-        {
-            if (myNodeInfo != null)
-            {
-                dhtNodeInfo = myNodeInfo;
-
-                Initialize();
-            }
-
-            if (firstNodeInfos.Length == 0)
-            {
-                //<未実装>初期ノード情報がない場合の処理
-                //選択肢1 -> 10分くらい待って再度初期ノード情報取得
-                //選択肢2 -> 使用者に任せる（使用者によって手動で初期ノード情報が追加された時に常時接続再実行）
-
-                return;
-            }
-
-            List<NodeInformation> nodeInfos = new List<NodeInformation>();
-            for (int i = 0; i < firstNodeInfos.Length && nodeInfos.Count < keepConnectionNodeInfosMin; i++)
-            {
-                SHAREDDATA[] resDatas = Connect(firstNodeInfos[i].ipAddress, firstNodeInfos[i].portNumber, true, () => { }, new Message(MessageName.reqNodeInfos, 0));
-                ResNodeInfos resNodeInfos;
-                if (resDatas != null && resDatas.Length == 1 && (resNodeInfos = resDatas[0] as ResNodeInfos) != null)
-                    //<要検討>更新時間順に並び替えるべき？
-                    nodeInfos.AddRange(resNodeInfos.nodeInfos);
-            }
-            if (nodeInfos.Count == 0)
-            {
-                //<未実装>初期ノードからノード情報を取得できなかった場合の処理
-                //選択肢1 -> 10分くらい待って再度ノード情報取得
-                //選択肢2 -> 使用者に任せる（使用者によって手動で初期ノード情報が追加された時に常時接続再実行）
-
-                return;
-            }
-
-            if (myNodeInfo == null)
-            {
-                dhtNodeInfo = nodeInfos[0];
-
-                Initialize();
-            }
-
-            foreach (var nodeInfo in nodeInfos)
-            {
-                int distanceLevel = GetDistanceLevel(nodeInfo);
-                if (distanceLevel != -1)
-                    lock (kbucketsLocks[distanceLevel])
-                        kbuckets[distanceLevel].Add(nodeInfo);
-            }
-
-            for (int i = 0; i < NodeIdSizeBit; i++)
-            {
-                if (kbuckets[i].Count == 0 || outboundConnections[i].Count >= outboundConnectionsMax)
-                    continue;
-
-                lock (kbucketsLocks[i])
-                    nodeInfos = new List<NodeInformation>(kbuckets[i]);
-
-                foreach (var nodeInfo in nodeInfos)
-                    if (outboundConnections[i].Count < outboundConnectionsMax)
-                    {
-                        if (!IsAlreadyConnected(nodeInfo))
-                            Connect(nodeInfo, false, () => { }, null);
-                    }
-                    else
-                        break;
-            }
-
-            this.RaiseNotification("keep_conn_completed", 5);
-        }
-
-        public class DistanceParameter
-        {
-            public DistanceParameter(int _hashByteMin, int _hashByteMax, int _minus)
-            {
-                hashByteMin = _hashByteMin;
-                hashByteMax = _hashByteMax;
-                minus = _minus;
-            }
-
-            public int hashByteMin { get; private set; }
-            public int hashByteMax { get; private set; }
-            public int minus { get; private set; }
-        }
-
-        private static readonly DistanceParameter[] distanceParameters = new DistanceParameter[]{
-            new DistanceParameter(0, 0, 8), 
-            new DistanceParameter(1, 1, 7), 
-            new DistanceParameter(2, 3, 6), 
-            new DistanceParameter(4, 7, 5), 
-            new DistanceParameter(8, 15, 4), 
-            new DistanceParameter(16, 31, 3), 
-            new DistanceParameter(32, 63, 2), 
-            new DistanceParameter(64, 127, 1), 
-            new DistanceParameter(128, 255, 0), 
-        };
-
-        private int GetDistanceLevel(NodeInformation nodeInfo2)
-        {
-            Sha256Hash xor = dhtNodeInfo.Id.XOR(nodeInfo2.Id);
-
-            int distanceLevel = NodeIdSizeBit - 1;
-
-            int? minus = null;
-            for (int i = 0, j = 0; i < NodeIdSizeByte && (!minus.HasValue || minus.Value == 8); i++)
-                for (j = 0, minus = null; j < distanceParameters.Length && minus == null; j++)
-                    if (xor.hash[i] >= distanceParameters[j].hashByteMin && xor.hash[i] <= distanceParameters[j].hashByteMax)
-                        distanceLevel -= (minus = distanceParameters[j].minus).Value;
-
-            return distanceLevel;
+            return fnis.ToArray();
         }
     }
-
-    #endregion
 
     public class FirstNodeInformation : SHAREDDATA, IEquatable<FirstNodeInformation>
     {

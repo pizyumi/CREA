@@ -3,6 +3,7 @@ using SuperSocket.SocketBase;
 using SuperWebSocket;
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Drawing;
 using System.Drawing.Imaging;
 using System.IO;
@@ -14,6 +15,7 @@ using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
+using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Threading;
 using vtortola.WebSockets;
@@ -344,6 +346,8 @@ namespace CREA2014
         private WebSocketServer wss;
         private MainWindowSettings mws;
 
+        private Timer timer;
+
         private bool isMining;
 
         private Core core;
@@ -354,7 +358,7 @@ namespace CREA2014
         private string version;
         private string appnameWithVersion;
         private string lisenceTextFilePath;
-        private Assembly assembly;
+        private Assembly entryAssembly;
 
         private Action<Exception, Program.ExceptionKind> _OnException;
         private Func<byte[], Version, bool> _UpVersion;
@@ -479,7 +483,7 @@ namespace CREA2014
             }
         }
 
-        public MainWindow(Core _core, Program.Logger _logger, Program.ProgramSettings _psettings, Program.ProgramStatus _pstatus, string _appname, string _version, string _appnameWithVersion, string _lisenceTextFilename, Assembly _assembly, string _basepath, Action<Exception, Program.ExceptionKind> __OnException, Func<byte[], Version, bool> __UpVersion, List<UnhandledExceptionEventHandler> _unhandledExceptionEventHandlers, List<DispatcherUnhandledExceptionEventHandler> _dispatcherUnhandledExceptionEventHandlers)
+        public MainWindow(Core _core, Program.Logger _logger, Program.ProgramSettings _psettings, Program.ProgramStatus _pstatus, string _appname, string _version, string _appnameWithVersion, string _lisenceTextFilename, Assembly _entryAssembly, AssemblyName _entryAssemblyName, string _basepath, Process _currentProcess, Action<Exception, Program.ExceptionKind> __OnException, Func<byte[], Version, bool> __UpVersion, List<UnhandledExceptionEventHandler> _unhandledExceptionEventHandlers, List<DispatcherUnhandledExceptionEventHandler> _dispatcherUnhandledExceptionEventHandlers)
         {
             core = _core;
             logger = _logger;
@@ -489,7 +493,7 @@ namespace CREA2014
             version = _version;
             appnameWithVersion = _appnameWithVersion;
             lisenceTextFilePath = Path.Combine(_basepath, _lisenceTextFilename);
-            assembly = _assembly;
+            entryAssembly = _entryAssembly;
 
             _OnException = __OnException;
             _UpVersion = __UpVersion;
@@ -504,9 +508,114 @@ namespace CREA2014
             miClose.Header = "終了".Multilanguage(20) + "(_X)";
             miTool.Header = "ツール".Multilanguage(48) + "(_T)";
             miSettings.Header = "設定".Multilanguage(49) + "(_S)...";
-            miMining.Header = "採掘開始".Multilanguage(135) + "(_M)";
+            miMining.Header = "採掘開始".Multilanguage(135) + "(_M)...";
+            miDebug.Header = "状況監視".Multilanguage(216) + "(_K)...";
             miHelp.Header = "ヘルプ".Multilanguage(21) + "(_H)";
             miAbout.Header = "CREAについて".Multilanguage(22) + "(_A)...";
+
+            core.iCreaNodeTest.ConnectionKeeped += (sender, e) =>
+            {
+                this.ExecuteInUIThread(() =>
+                {
+                    tbKeepConnection.Text = core.iCreaNodeTest.isKeepConnection ? "常時接続確立".Multilanguage(217) : "常時接続未確立".Multilanguage(218);
+                });
+            };
+            core.iCreaNodeTest.NewVersionDetected += (sender, e) =>
+            {
+
+            };
+            core.iCreaNodeTest.NumOfConnectingNodesChanged += (sender, e) =>
+            {
+                this.ExecuteInUIThread(() =>
+                {
+                    tbNumOfConnectingNodes.Text = "接続数：".Multilanguage(219) + core.iCreaNodeTest.NumOfConnectingNodes.ToString();
+                });
+            };
+            core.iCreaNodeTest.NumOfNodesChanged += (sender, e) =>
+            {
+                this.ExecuteInUIThread(() =>
+                {
+                    tbNumOfNodes.Text = "ノード数：".Multilanguage(220) + core.iCreaNodeTest.NumOfNodes.ToString();
+                });
+            };
+
+            tbKeepConnection.Text = core.iCreaNodeTest.isKeepConnection ? "常時接続確立".Multilanguage(217) : "常時接続未確立".Multilanguage(218);
+            tbNumOfConnectingNodes.Text = "接続数：".Multilanguage(219) + core.iCreaNodeTest.NumOfConnectingNodes.ToString();
+            tbNumOfNodes.Text = "ノード数：".Multilanguage(220) + core.iCreaNodeTest.NumOfNodes.ToString();
+
+            Action _UpdateserverStatus = () =>
+            {
+                this.ExecuteInUIThread(() =>
+                {
+                    if (core.iCreaNodeTest.serverStatus == P2PNODE.ServerStatus.NotRunning)
+                    {
+                        rServerStatus.Fill = System.Windows.Media.Brushes.Red;
+                        rServerStatus.ToolTip = "他ノードからの接続を受け入れることができません。".Multilanguage(221);
+                    }
+                    else if (core.iCreaNodeTest.serverStatus == P2PNODE.ServerStatus.RunningButHaventAccepting)
+                    {
+                        rServerStatus.Fill = System.Windows.Media.Brushes.YellowGreen;
+                        rServerStatus.ToolTip = "他ノードからの接続がありません。".Multilanguage(222);
+                    }
+                    else if (core.iCreaNodeTest.serverStatus == P2PNODE.ServerStatus.HaveAccepting)
+                    {
+                        rServerStatus.Fill = System.Windows.Media.Brushes.Blue;
+                        rServerStatus.ToolTip = "他ノードからの接続を確認しました。".Multilanguage(223);
+                    }
+                });
+            };
+
+            core.iCreaNodeTest.ServerStatusChanged += (sender, e) => _UpdateserverStatus();
+
+            _UpdateserverStatus();
+
+            string instanceName = null;
+            string pidString = _currentProcess.Id.ToString();
+            foreach (string instance in new PerformanceCounterCategory(".NET CLR Networking 4.0.0.0").GetInstanceNames())
+                if (instance.Contains(pidString))
+                {
+                    instanceName = instance;
+
+                    break;
+                }
+
+            PerformanceCounter bytesSentPC = new PerformanceCounter(".NET CLR Networking 4.0.0.0", "Bytes Sent", instanceName, true);
+            PerformanceCounter bytesReceivedPC = new PerformanceCounter(".NET CLR Networking 4.0.0.0", "Bytes Received", instanceName, true);
+
+            float bytesSent1 = 0.0F;
+            float bytesReceived1 = 0.0F;
+            int timeCounter = 0;
+            timer = new Timer((obj) =>
+            {
+                try
+                {
+                    timeCounter++;
+
+                    float bytesSent2 = bytesSentPC.NextValue();
+                    float up = bytesSent2 / 1000;
+                    float upSpeed = (bytesSent2 - bytesSent1) / 1000;
+                    float upSpeedAverage = (bytesSent2 / timeCounter) / 1000;
+
+                    bytesSent1 = bytesSent2;
+
+                    float bytesReceived2 = bytesReceivedPC.NextValue();
+                    float down = bytesReceived2 / 1000;
+                    float downSpeed = (bytesReceived2 - bytesReceived1) / 1000;
+                    float downSpeedAverage = (bytesReceived2 / timeCounter) / 1000;
+
+                    bytesReceived1 = bytesReceived2;
+
+                    this.ExecuteInUIThread(() =>
+                    {
+                        tbCommunication.Text = string.Format("送速：{0:0.000}KB/s, 送量：{1:0.000}KB, 受速：{2:0.000}KB/s, 受量：{3:0.000}KB".Multilanguage(224), upSpeed, up, downSpeed, down);
+                        tbCommunication.ToolTip = string.Format("送信速度：{0:0.000}KB/s, 平均送信速度：{1:0.000}KB/s, 送信量：{2:0.000}KB, 受信速度：{3:0.000}KB/s, 平均受信速度：{4:0.000}KB/s, 受信量：{5:0.000}KB".Multilanguage(225), upSpeed, upSpeedAverage, up, downSpeed, downSpeedAverage, down);
+                    });
+                }
+                catch (Exception)
+                {
+                    //<未実装>
+                }
+            }, null, 0, 1000);
         }
 
         private void NewAccountHolder(Window window)
@@ -583,15 +692,15 @@ namespace CREA2014
 
             string wallpaperFileName = "/back.png";
 
-            WebResourceHome webResourceHome = new WebResourceHome(mws.IsDefaultUi, "CREA2014.WebResources.home2.htm", Path.Combine(mws.UiFilesDirectory, "home2.htm"), assembly);
+            WebResourceHome webResourceHome = new WebResourceHome(mws.IsDefaultUi, "CREA2014.WebResources.home2.htm", Path.Combine(mws.UiFilesDirectory, "home2.htm"), entryAssembly);
             webResourceHome.port = (ushort)mws.PortWebSocket;
 
             Dictionary<string, WebResourceBase> resources = new Dictionary<string, WebResourceBase>();
             resources.Add(wallpaperFileName, new WebResourceWallpaper(mws.IsWallpaper ? mws.Wallpaper : null, mws.WallpaperOpacity));
-            resources.Add("/favicon.ico", new WebResourceEmbedded("CREA2014.up0669_2.ico", assembly));
-            resources.Add("/knockout-3.2.0.js", new WebResourceEmbedded("CREA2014.WebResources.knockout-3.2.0.js", assembly));
-            resources.Add("/jquery-2.1.1.js", new WebResourceEmbedded("CREA2014.WebResources.jquery-2.1.1.js", assembly));
-            resources.Add("/jquery-ui-1.10.4.custom.js", new WebResourceEmbedded("CREA2014.WebResources.jquery-ui-1.10.4.custom.js", assembly));
+            resources.Add("/favicon.ico", new WebResourceEmbedded("CREA2014.up0669_2.ico", entryAssembly));
+            resources.Add("/knockout-3.2.0.js", new WebResourceEmbedded("CREA2014.WebResources.knockout-3.2.0.js", entryAssembly));
+            resources.Add("/jquery-2.1.1.js", new WebResourceEmbedded("CREA2014.WebResources.jquery-2.1.1.js", entryAssembly));
+            resources.Add("/jquery-ui-1.10.4.custom.js", new WebResourceEmbedded("CREA2014.WebResources.jquery-ui-1.10.4.custom.js", entryAssembly));
             resources.Add("/", webResourceHome);
 
             _CreateUiFiles = (basePath) =>
@@ -601,7 +710,7 @@ namespace CREA2014
                     string fullPath = Path.Combine(basePath, path);
                     if (File.Exists(fullPath))
                         File.Move(fullPath, fullPath + DateTime.Now.Ticks.ToString());
-                    using (Stream stream = assembly.GetManifestResourceStream(path))
+                    using (Stream stream = entryAssembly.GetManifestResourceStream(path))
                     {
                         byte[] data = new byte[stream.Length];
                         stream.Read(data, 0, data.Length);
@@ -610,6 +719,7 @@ namespace CREA2014
                 }
             };
 
+            bool isStartedWebServer = false;
             Action _StartWebServer = () =>
             {
                 if (!HttpListener.IsSupported)
@@ -626,8 +736,19 @@ namespace CREA2014
                 }
                 catch (HttpListenerException ex)
                 {
-                    throw new HttpListenerException(ex.ErrorCode, "require_administrator");
+                    if (ex.ErrorCode == 183)
+                    {
+                        MessageBox.Show("既にポート番号が使用されているため内部Webサーバを起動できませんでした。".Multilanguage(214));
+
+                        return;
+                    }
+                    else if (ex.ErrorCode == 5)
+                        throw new HttpListenerException(ex.ErrorCode, "require_administrator");
+
+                    throw ex;
                 }
+
+                isStartedWebServer = true;
 
                 Thread thread = new Thread(() =>
                 {
@@ -679,7 +800,8 @@ namespace CREA2014
             _StartWebServer();
 
             //<未改良>WebSocketListenerを使用する
-            //<未改良>localhost以外からの接続をはじく
+            //<未実装>localhost以外からの接続をはじく
+            //<未実装>既にポートが使用されている場合
             SessionHandler<WebSocketSession, string> newMessageReceived = (session, message) =>
             {
                 //2014/08/26
@@ -785,13 +907,13 @@ namespace CREA2014
             Func<Program.LogData, string[]> _CreateLogJSON = (log) =>
             {
                 string[] logType = json.CreateJSONPair("type", log.Kind.ToString());
-                string[] logMessage = json.CreateJSONPair("message", log.ToString());
+                string[] logMessage = json.CreateJSONPair("message", log.ToString().Replace("\\", "\\\\").Replace("/", "\\/").Replace("\"", "\\\"").Replace(Environment.NewLine, "<br />").Replace("\n", "<br />").Replace("\r", "<br />"));
                 return json.CreateJSONObject(logType, logMessage);
             };
 
             Func<Chat, string[]> _CreateChatJSON = (chat) =>
             {
-                string[] chatName = json.CreateJSONPair("name", chat.Name);
+                string[] chatName = json.CreateJSONPair("name", chat.NameWithTrip);
                 string[] chatMessage = json.CreateJSONPair("message", chat.Message);
                 return json.CreateJSONObject(chatName, chatMessage);
             };
@@ -874,24 +996,26 @@ namespace CREA2014
                     wssession.Send("chatAdded " + string.Join(Environment.NewLine, chat));
             };
 
-            using (var server = new WebSocketEventListener(new IPEndPoint(IPAddress.Any, mws.PortWebSocket)))
-            {
-                server.OnConnect += (ws) => Console.WriteLine("Connection from " + ws.RemoteEndpoint.ToString());
-                server.OnDisconnect += (ws) => Console.WriteLine("Disconnection from " + ws.RemoteEndpoint.ToString());
-                server.OnError += (ws, ex) => Console.WriteLine("Error: " + ex.Message);
-                server.OnMessage += (ws, msg) =>
-                {
-                    Console.WriteLine("Message from [" + ws.RemoteEndpoint + "]: " + msg);
-                    ws.WriteStringAsync(new String(msg.Reverse().ToArray()), CancellationToken.None).Wait();
-                };
+            //using (var server = new WebSocketEventListener(new IPEndPoint(IPAddress.Any, mws.PortWebSocket)))
+            //{
+            //    server.OnConnect += (ws) => Console.WriteLine("Connection from " + ws.RemoteEndpoint.ToString());
+            //    server.OnDisconnect += (ws) => Console.WriteLine("Disconnection from " + ws.RemoteEndpoint.ToString());
+            //    server.OnError += (ws, ex) => Console.WriteLine("Error: " + ex.Message);
+            //    server.OnMessage += (ws, msg) =>
+            //    {
+            //        Console.WriteLine("Message from [" + ws.RemoteEndpoint + "]: " + msg);
+            //        ws.WriteStringAsync(new String(msg.Reverse().ToArray()), CancellationToken.None).Wait();
+            //    };
 
-                server.Start();
-            }
+            //    server.Start();
+            //}
 
             WebSocketServer oldWss;
             wss = new WebSocketServer();
             wss.NewSessionConnected += (wssession) =>
             {
+                //this.RaiseNotification("test", 5);
+
                 string[] partBalanceName = json.CreateJSONPair("name", "残高".Multilanguage(201));
                 string[] partBalanceDetail = json.CreateJSONPair("detail", _CreateBalanceJSON());
                 string[] partBalance = json.CreateJSONObject(partBalanceName, partBalanceDetail);
@@ -949,20 +1073,28 @@ namespace CREA2014
             };
             wss.NewMessageReceived += newMessageReceived;
             wss.Setup(mws.PortWebSocket);
-            //wss.Start();
+            wss.Start();
 
             //wb.Navigated += (sender2, e2) => ((mshtml.HTMLDocument)wb.Document).focus();
-            wb.Navigate("http://localhost:" + mws.PortWebServer.ToString() + "/");
+            if (isStartedWebServer)
+                wb.Navigate("http://localhost:" + mws.PortWebServer.ToString() + "/");
 
             mws.SettingsChanged += (sender2, e2) =>
             {
                 if (mws.isPortWebServerAltered)
                 {
-                    hl.Abort();
+                    if (hl != null)
+                    {
+                        hl.Abort();
+                        hl.Close();
+                    }
+
+                    isStartedWebServer = false;
 
                     _StartWebServer();
 
-                    wb.Navigate("http://localhost:" + mws.PortWebServer.ToString() + "/");
+                    if (isStartedWebServer)
+                        wb.Navigate("http://localhost:" + mws.PortWebServer.ToString() + "/");
                 }
                 else
                 {
@@ -1001,7 +1133,7 @@ namespace CREA2014
                     if (mws.isIsDefaultUiAltered || mws.isUiFilesDirectoryAltered)
                     {
                         resources.Remove("/");
-                        resources.Add("/", new WebResourceHome(mws.IsDefaultUi, "CREA2014.WebResources.home2.htm", Path.Combine(mws.UiFilesDirectory, "home2.htm"), assembly));
+                        resources.Add("/", new WebResourceHome(mws.IsDefaultUi, "CREA2014.WebResources.home2.htm", Path.Combine(mws.UiFilesDirectory, "home2.htm"), entryAssembly));
 
                         wb.Navigate("http://localhost:" + mws.PortWebServer.ToString() + "/");
                     }
@@ -1071,7 +1203,7 @@ namespace CREA2014
             {
                 core.EndMining();
 
-                miMining.Header = "採掘開始".Multilanguage(135) + "(_M)";
+                miMining.Header = "採掘開始".Multilanguage(135) + "(_M)...";
             }
             else
             {
@@ -1182,10 +1314,112 @@ namespace CREA2014
 
         private void miTest_Click(object sender, RoutedEventArgs e)
         {
-            if (_UpVersion(File.ReadAllBytes(assembly.Location), assembly.GetName().Version))
+            if (_UpVersion(File.ReadAllBytes(entryAssembly.Location), entryAssembly.GetName().Version))
                 Close();
             else
                 MessageBox.Show("失敗");
         }
+
+        private void miDebug_Click(object sender, RoutedEventArgs e)
+        {
+            TestWindow tw = new TestWindow(logger);
+            tw.Show();
+        }
+
+        public class TestWindow : Window
+        {
+            public TestWindow(Program.Logger _logger)
+            {
+                StackPanel sp1 = null;
+                StackPanel sp2 = null;
+
+                EventHandler<Program.LogData> _LoggerLogAdded = (sender, e) => ((Action)(() =>
+                {
+                    TextBlock tb = new TextBlock();
+                    tb.Text = e.Text;
+                    tb.Foreground = e.Kind == Program.LogData.LogKind.error ? System.Windows.Media.Brushes.Red : System.Windows.Media.Brushes.White;
+                    tb.Margin = new Thickness(0.0, 10.0, 0.0, 10.0);
+
+                    sp2.Children.Add(tb);
+                })).BeginExecuteInUIThread();
+
+                Loaded += (sender, e) =>
+                {
+                    Grid grid = new Grid();
+                    grid.RowDefinitions.Add(new RowDefinition());
+                    grid.RowDefinitions.Add(new RowDefinition());
+                    grid.RowDefinitions.Add(new RowDefinition() { Height = GridLength.Auto });
+                    grid.ColumnDefinitions.Add(new ColumnDefinition());
+
+                    ScrollViewer sv1 = new ScrollViewer();
+                    sv1.VerticalScrollBarVisibility = ScrollBarVisibility.Auto;
+                    sv1.HorizontalScrollBarVisibility = ScrollBarVisibility.Auto;
+                    sv1.SetValue(Grid.RowProperty, 0);
+                    sv1.SetValue(Grid.ColumnProperty, 0);
+
+                    sp1 = new StackPanel();
+                    sp1.Background = System.Windows.Media.Brushes.Black;
+
+                    ScrollViewer sv2 = new ScrollViewer();
+                    sv2.VerticalScrollBarVisibility = ScrollBarVisibility.Auto;
+                    sv2.HorizontalScrollBarVisibility = ScrollBarVisibility.Auto;
+                    sv2.SetValue(Grid.RowProperty, 1);
+                    sv2.SetValue(Grid.ColumnProperty, 0);
+
+                    sp2 = new StackPanel();
+                    sp2.Background = System.Windows.Media.Brushes.Black;
+
+                    sv1.Content = sp1;
+                    sv2.Content = sp2;
+
+                    grid.Children.Add(sv1);
+                    grid.Children.Add(sv2);
+
+                    Content = grid;
+
+                    Console.SetOut(new TextBlockStreamWriter(sp1));
+
+                    _logger.LogAdded += _LoggerLogAdded;
+                };
+
+                Closed += (sender, e) =>
+                {
+                    _logger.LogAdded -= _LoggerLogAdded;
+
+                    string fileText = string.Empty;
+                    foreach (var child in sp1.Children)
+                        fileText += (child as TextBlock).Text + Environment.NewLine;
+
+                    File.AppendAllText(Path.Combine(new FileInfo(Assembly.GetEntryAssembly().Location).DirectoryName, "LogTest.txt"), fileText);
+                };
+            }
+
+            public class TextBlockStreamWriter : TextWriter
+            {
+                StackPanel sp = null;
+
+                public TextBlockStreamWriter(StackPanel _sp)
+                {
+                    sp = _sp;
+                }
+
+                public override void WriteLine(string value)
+                {
+                    base.WriteLine(value);
+
+                    TextBlock tb = new TextBlock();
+                    tb.Text = string.Join(" ", DateTime.Now.ToString(), value);
+                    tb.Foreground = System.Windows.Media.Brushes.White;
+
+                    sp.Children.Add(tb);
+                }
+
+                public override Encoding Encoding
+                {
+                    get { return Encoding.UTF8; }
+                }
+            }
+        }
+
     }
 }

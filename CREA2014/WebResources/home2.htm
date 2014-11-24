@@ -419,7 +419,18 @@
                         height: 100%;
                     }
 
+                    #tab1_tabcontent4 {
+                        background-color: rgba(0,0,0,0.7);
+                        color: white;
+                        height: 100%;
+                    }
+
                     #logs_container {
+                        height: 100%;
+                        overflow-y: scroll;
+                    }
+
+                    #chats_container {
                         height: 100%;
                         overflow-y: scroll;
                     }
@@ -663,31 +674,28 @@
                     <div id="tab1_tabcontent3" class="tab1_tabcontent" data-bind="visible: activatedPart() == 2">
                         <div id="logs_container">
                             <div data-bind="foreach: logs">
-                                <span data-bind="text: message, css: { log_item_notification: type == 'notification', log_item_error: type == 'error', log_item_warning: type == 'warning' }"></span>
+                                <span data-bind="html: message, css: { log_item_notification: type == 'notification', log_item_error: type == 'error', log_item_warning: type == 'warning' }"></span>
+                                <br />
                                 <br />
                             </div>
                         </div>
                     </div>
                     <div id="tab1_tabcontent4" class="tab1_tabcontent" data-bind="visible: activatedPart() == 3">
                         <div id="chats_container">
-                            <div id="chats_above_footer" style="min-height: calc(100vh - 20px);">
-                                <div data-bind="foreach: chats">
-                                    <span data-bind="text: name + '> ' + message"></span>
-                                    <br />
+                            <div style="float: left; width: 150px;">
+                                <select style="width: 150px;" data-bind="options: pseudonymousAccountHolders, optionsText: 'name', optionsCaption: chatPahDescription, value: chatPah"></select>
+                            </div>
+                            <div style="float: right; width: 75px;">
+                                <button style="width: 75px;" data-bind="text: chatSend, enable: chatPah() && chatMessage(), click: SendChat"></button>
+                            </div>
+                            <div>
+                                <div>
+                                    <input id="chatMessageInput" style="width: calc(80vw - 250px);" data-bind="textInput: chatMessage" />
                                 </div>
                             </div>
-                            <div id="chats_footer" style="height: 20px;">
-                                <div style="float: left; width: 150px;">
-                                    <select style="width: 150px;" data-bind="options: pseudonymousAccountHolders, optionsText: 'name', optionsCaption: chatPahDescription, value: chatPah"></select>
-                                </div>
-                                <div style="float: right; width: 75px;">
-                                    <button style="width: 75px;" data-bind="text: chatSend, enable: chatPah() && chatMessage(), click: SendChat"></button>
-                                </div>
-                                <div>
-                                    <div>
-                                        <input id="chatMessageInput" style="width: calc(80vw - 230px);" data-bind="textInput: chatMessage" />
-                                    </div>
-                                </div>
+                            <div style="clear:both;" data-bind="foreach: chats">
+                                <span data-bind="text: name + '> ' + message"></span>
+                                <br />
                             </div>
                         </div>
                     </div>

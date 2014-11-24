@@ -16,7 +16,7 @@ namespace CREA2014
 {
     public class Core
     {
-        public Core(string _basePath, int _creaVersion, string _appnameWithVersion)
+        public Core(string _basePath, int _creaVersion, string _appnameWithVersion, Program.ProgramSettings _ps)
         {
             //Coreが2回以上実体化されないことを保証する
             //2回以上呼ばれた際には例外が発生する
@@ -26,6 +26,7 @@ namespace CREA2014
             databaseBasepath = Path.Combine(basepath, databaseDirectory);
             creaVersion = _creaVersion;
             appnameWithVersion = _appnameWithVersion;
+            ps = _ps;
         }
 
         private static readonly Action Instantiate = OneTime.GetOneTime();
@@ -37,12 +38,11 @@ namespace CREA2014
         private readonly string databaseBasepath;
         private readonly int creaVersion;
         private readonly string appnameWithVersion;
+        private readonly Program.ProgramSettings ps;
 
         //試験用
-        private CreaNodeLocalTestContinueDHT creaNodeTest;
-        public CreaNodeLocalTestContinueDHT iCreaNodeTest { get { return creaNodeTest; } }
-
-        private CreaNode creaNode;
+        private CREANODEBASE creaNodeTest;
+        public CREANODEBASE iCreaNodeTest { get { return creaNodeTest; } }
 
         private AccountHoldersDatabase ahDatabase;
         private BlockChainDatabase bcDatabase;
@@ -181,10 +181,12 @@ namespace CREA2014
             mining = new Mining();
 
             //試験用（ポート番号は暫定）
-            creaNodeTest = new CreaNodeLocalTestContinueDHT(7777, creaVersion, appnameWithVersion);
+            creaNodeTest = new CreaNode(ps.NodePort, creaVersion, appnameWithVersion, new FirstNodeInfosDatabase(p2pDirectory));
+            //creaNodeTest = new CreaNodeTest(ps.NodePort, creaVersion, appnameWithVersion);
             creaNodeTest.ReceivedNewTransaction += (sender, e) =>
             {
             };
+            creaNodeTest.Start();
 
             isSystemStarted = true;
         }
@@ -489,39 +491,39 @@ namespace CREA2014
 
                         //TestDHT();
 
-                        bool isFirst = true;
-                        int portNumber = 0;
-                        CreaNode cnlt = null;
-                        tb.KeyDown += (sender2, e2) =>
-                        {
-                            if (e2.Key != Key.Enter)
-                                return;
+                        //bool isFirst = true;
+                        //int portNumber = 0;
+                        //CreaNode cnlt = null;
+                        //tb.KeyDown += (sender2, e2) =>
+                        //{
+                        //    if (e2.Key != Key.Enter)
+                        //        return;
 
-                            if (isFirst)
-                            {
-                                portNumber = int.Parse(tb.Text);
+                        //    if (isFirst)
+                        //    {
+                        //        portNumber = int.Parse(tb.Text);
 
-                                FirstNodeInfosDatabase fnidb = new FirstNodeInfosDatabase(Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location));
+                        //        FirstNodeInfosDatabase fnidb = new FirstNodeInfosDatabase(Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location));
 
-                                cnlt = new CreaNode((ushort)portNumber, 0, "test", fnidb);
-                                cnlt.Start();
+                        //        cnlt = new CreaNode((ushort)portNumber, 0, "test", fnidb);
+                        //        cnlt.Start();
 
-                                cnlt.ReceivedNewChat += (sender3, e3) =>
-                                {
-                                    this.ConsoleWriteLine(e3.Message);
-                                };
+                        //        cnlt.ReceivedNewChat += (sender3, e3) =>
+                        //        {
+                        //            this.ConsoleWriteLine(e3.Message);
+                        //        };
 
-                                isFirst = false;
+                        //        isFirst = false;
 
-                                return;
-                            }
+                        //        return;
+                        //    }
 
-                            Chat chat = new Chat();
-                            chat.LoadVersion0(portNumber.ToString(), tb.Text);
-                            chat.Sign(secp256k1KeyPair.privKey);
+                        //    Chat chat = new Chat();
+                        //    chat.LoadVersion0(portNumber.ToString(), tb.Text);
+                        //    chat.Sign(secp256k1KeyPair.privKey);
 
-                            cnlt.DiffuseNewChat(chat);
-                        };
+                        //    cnlt.DiffuseNewChat(chat);
+                        //};
                     });
                 };
 
@@ -540,19 +542,6 @@ namespace CREA2014
             private void Test()
             {
 
-            }
-
-            private void TestDHT()
-            {
-                int numOfNodes = 5;
-                CreaNodeLocalTestContinueDHT[] cnlts = new CreaNodeLocalTestContinueDHT[numOfNodes];
-                for (int i = 0; i < numOfNodes; i++)
-                {
-                    cnlts[i] = new CreaNodeLocalTestContinueDHT((ushort)(7777 + i), 0, "test");
-                    cnlts[i].Start();
-                    while (!cnlts[i].isStartCompleted)
-                        Thread.Sleep(100);
-                }
             }
 
             public class TextBlockStreamWriter : TextWriter

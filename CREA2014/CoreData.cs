@@ -65,6 +65,8 @@ namespace CREA2014
             }
         }
 
+        public string NameWithTrip { get { return Name + Trip; } }
+
         public Func<ReaderWriter, IEnumerable<MainDataInfomation>> StreamInfoToSign
         {
             get
@@ -249,7 +251,7 @@ namespace CREA2014
             //この実装でも0の数は変わらないので値が偏るのかもしれない
             //先頭の0を取り除いたものから計算するべきなのかもしれない
             //2014/04/06 常に同一の並びでなければ値が毎回変わってしまう
-            byte[] randomBytes = hash.BytesRandomCache();
+            byte[] randomBytes = hash.ArrayRandomCache();
             byte[] intByte = new byte[4];
             CirculatedInteger c = new CirculatedInteger(0, intByte.Length);
             for (int i = 0; i < randomBytes.Length; i++, c.Next())

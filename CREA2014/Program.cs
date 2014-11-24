@@ -834,25 +834,25 @@ namespace CREA2014
             return RandomDoublesCache().Select((e) => (int)(e * i)).Distinct().Take(i).ToArray();
         }
 
-        //バイト配列の要素を指定された順番で並べ直した新たなバイト配列を作成する（拡張：バイト配列型）
-        public static byte[] BytesRandom(this byte[] bytes, int[] order)
+        //配列の要素を指定された順番で並べ直した新たな配列を作成する（拡張：配列型）
+        public static T[] ArrayRandom<T>(this T[] array, int[] order)
         {
-            byte[] newbytes = new byte[bytes.Length];
-            for (int i = 0; i < bytes.Length; i++)
-                newbytes[i] = bytes[order[i]];
-            return newbytes;
+            T[] newArray = new T[array.Length];
+            for (int i = 0; i < array.Length; i++)
+                newArray[i] = array[order[i]];
+            return newArray;
         }
 
-        //バイト配列の要素を無作為な順番で並べ直した新たなバイト配列を作成する（拡張：バイト配列型）
-        public static byte[] BytesRandom(this byte[] bytes)
+        //配列の要素を無作為な順番で並べ直した新たな配列を作成する（拡張：配列型）
+        public static T[] ArrayRandom<T>(this T[] array)
         {
-            return bytes.BytesRandom(bytes.Length.RandomNums());
+            return array.ArrayRandom(array.Length.RandomNums());
         }
 
-        //バイト配列の要素を常に同一の無作為な順番で並べ直した新たなバイト配列を作成する（拡張：バイト配列型）
-        public static byte[] BytesRandomCache(this byte[] bytes)
+        //配列の要素を常に同一の無作為な順番で並べ直した新たな配列を作成する（拡張：配列型）
+        public static T[] ArrayRandomCache<T>(this T[] array)
         {
-            return bytes.BytesRandom(bytes.Length.RandomNumsCache());
+            return array.ArrayRandom(array.Length.RandomNumsCache());
         }
 
         public static string ComputeTrip(this byte[] bytes)
@@ -2374,6 +2374,10 @@ namespace CREA2014
                 {
                     if (type == typeof(bool))
                         innerXElement.Add(new XElement(innerMdi.XmlName, ((bool)innerObj).ToString()));
+                    else if (type == typeof(short))
+                        innerXElement.Add(new XElement(innerMdi.XmlName, ((short)innerObj).ToString()));
+                    else if (type == typeof(ushort))
+                        innerXElement.Add(new XElement(innerMdi.XmlName, ((ushort)innerObj).ToString()));
                     else if (type == typeof(int))
                         innerXElement.Add(new XElement(innerMdi.XmlName, ((int)innerObj).ToString()));
                     else if (type == typeof(uint))
@@ -2429,6 +2433,10 @@ namespace CREA2014
 
                     if (type == typeof(bool))
                         return bool.Parse(iiXElement.Value);
+                    else if (type == typeof(short))
+                        return short.Parse(iiXElement.Value);
+                    else if (type == typeof(ushort))
+                        return ushort.Parse(iiXElement.Value);
                     else if (type == typeof(int))
                         return int.Parse(iiXElement.Value);
                     else if (type == typeof(uint))
@@ -2813,6 +2821,24 @@ namespace CREA2014
         {
             public ProgramSettings() : base("ProgramSettings.xml") { logSettings = new LogSettings(); }
 
+            public bool isNodePortAltered { get; private set; }
+            private ushort nodePort = 7777;
+            public ushort NodePort
+            {
+                get { return nodePort; }
+                set
+                {
+                    if (!canSet)
+                        throw new InvalidOperationException("cant_set");
+
+                    if (value != nodePort)
+                    {
+                        nodePort = value;
+                        isNodePortAltered = true;
+                    }
+                }
+            }
+
             public bool isCultureAltered { get; private set; }
             private string culture = "ja-JP";
             public string Culture
@@ -2909,6 +2935,7 @@ namespace CREA2014
                 get
                 {
                     return new MainDataInfomation[]{
+                        new MainDataInfomation(typeof(ushort), "NodePort", () => nodePort, (o) => nodePort = (ushort)o),
                         new MainDataInfomation(typeof(string), "Culture", () => culture, (o) => culture = (string)o),
                         new MainDataInfomation(typeof(string), "ErrorLog", () => errorLog, (o) => errorLog = (string)o),
                         new MainDataInfomation(typeof(string), "ErrorReport", () => errorReport, (o) => errorReport = (string)o),
@@ -2922,6 +2949,7 @@ namespace CREA2014
             {
                 base.StartSetting();
 
+                isNodePortAltered = false;
                 isCultureAltered = false;
                 isErrorLogAltered = false;
                 isErrorReportAltered = false;
@@ -3449,15 +3477,16 @@ namespace CREA2014
             return exceptionMessages.GetValue(rawMessage, () => rawMessage)();
         }
 
-        private static Assembly assembly = Assembly.GetEntryAssembly();
-        private static string basepath = Path.GetDirectoryName(assembly.Location);
-        private static string assemblyFileName = Path.GetFileName(assembly.Location);
-        private static Version assemblyVersion = assembly.GetName().Version;
+        private static Assembly entryAssembly = Assembly.GetEntryAssembly();
+        private static string basepath = Path.GetDirectoryName(entryAssembly.Location);
+        private static string entryAssemblyFileName = Path.GetFileName(entryAssembly.Location);
+        private static AssemblyName entryAssemblyName = entryAssembly.GetName();
+        private static Version entryAssemblyVersion = entryAssemblyName.Version;
 
         private static string appname = "CREA2014";
-        private static int verMaj = assemblyVersion.Major;
-        private static int verMin = assemblyVersion.Minor;
-        private static int verMMin = assemblyVersion.Build;
+        private static int verMaj = entryAssemblyVersion.Major;
+        private static int verMin = entryAssemblyVersion.Minor;
+        private static int verMMin = entryAssemblyVersion.Build;
         private static string verS = "α";
         private static int verR = 1; //リリース番号（リリース毎に増やす番号）
         private static int verC = 46; //コミット番号（コミット毎に増やす番号）
@@ -3473,7 +3502,7 @@ namespace CREA2014
             if (args.Length < 1)
             {
                 AppDomain appDomain = AppDomain.CreateDomain(argExtract);
-                appDomain.ExecuteAssembly(assembly.Location, new string[] { argExtract });
+                appDomain.ExecuteAssembly(entryAssembly.Location, new string[] { argExtract });
                 AppDomain.Unload(appDomain);
 
                 string exeDirectoryName = "exe";
@@ -3483,7 +3512,7 @@ namespace CREA2014
                 Main2(exeDirectoryName, (data, assemblyVersion) =>
                 {
                     string newAssemblyDiretory = Path.Combine(basepath, exeDirectoryName);
-                    string newAssemblyPath = Path.Combine(newAssemblyDiretory, assemblyFileName);
+                    string newAssemblyPath = Path.Combine(newAssemblyDiretory, entryAssemblyFileName);
 
                     if (!Directory.Exists(newAssemblyDiretory))
                         Directory.CreateDirectory(newAssemblyDiretory);
@@ -3495,7 +3524,7 @@ namespace CREA2014
                     bool pfWasVerified = false;
                     bool ret = API.StrongNameSignatureVerificationEx(newAssemblyPath, false, ref pfWasVerified);
 
-                    bool isValid = newAssemblyVersion.Major == assemblyVersion.Major && newAssemblyVersion.Minor == assemblyVersion.Minor && newAssemblyVersion.Build == assemblyVersion.Build && newAssemblyVersion.Revision == assemblyVersion.Revision && pfWasVerified && ret && newAssembly.GetName().GetPublicKeyToken().BytesEquals(assembly.GetName().GetPublicKeyToken());
+                    bool isValid = newAssemblyVersion.Major == assemblyVersion.Major && newAssemblyVersion.Minor == assemblyVersion.Minor && newAssemblyVersion.Build == assemblyVersion.Build && newAssemblyVersion.Revision == assemblyVersion.Revision && pfWasVerified && ret && newAssembly.GetName().GetPublicKeyToken().BytesEquals(entryAssembly.GetName().GetPublicKeyToken());
 
                     if (isValid)
                         Process.Start(newAssemblyPath, string.Join(" ", argCopy, Process.GetCurrentProcess().Id.ToString()));
@@ -3518,8 +3547,8 @@ namespace CREA2014
                         while (!process.HasExited)
                             Thread.Sleep(100);
 
-                    string fromLocation = assembly.Location;
-                    string toLocation = Path.Combine(Path.GetDirectoryName(basepath), assemblyFileName);
+                    string fromLocation = entryAssembly.Location;
+                    string toLocation = Path.Combine(Path.GetDirectoryName(basepath), entryAssemblyFileName);
                     File.Copy(fromLocation, toLocation, true);
 
                     Process.Start(toLocation);
@@ -3530,7 +3559,7 @@ namespace CREA2014
                 {
                     Action<string, string> _CopyComponent = (location, filename) =>
                     {
-                        using (Stream stream = assembly.GetManifestResourceStream(string.Join(".", location, filename)))
+                        using (Stream stream = entryAssembly.GetManifestResourceStream(string.Join(".", location, filename)))
                         {
                             byte[] bytes = new byte[stream.Length];
                             stream.Read(bytes, 0, bytes.Length);
@@ -3581,7 +3610,7 @@ namespace CREA2014
                 pstatus.FromBinary(File.ReadAllBytes(pstatusFilepath));
 
             if (psettings.Culture == "ja-JP")
-                using (Stream stream = assembly.GetManifestResourceStream(@"CREA2014.Resources.langResouece_ja-JP.txt"))
+                using (Stream stream = entryAssembly.GetManifestResourceStream(@"CREA2014.Resources.langResouece_ja-JP.txt"))
                 using (StreamReader sr = new StreamReader(stream))
                     langResource = sr.ReadToEnd().Split(new string[] { Environment.NewLine }, StringSplitOptions.None);
             else
@@ -3643,7 +3672,7 @@ namespace CREA2014
             };
 
             logMessages = new Dictionary<string, Func<string[], string>>() {
-                {"test", (args) => "テスト"},
+                {"test", (args) => "\'"},
                 {"exist_same_name_account_holder", (args) => "同名の口座名義人が存在します。".Multilanguage(93)},
                 {"outbound_chennel", (args) => "エラーが発生しました：outbound_chennel".Multilanguage(94)},
                 {"inbound_channel", (args) => "エラーが発生しました：inbound_channel".Multilanguage(95)},
@@ -3713,6 +3742,7 @@ namespace CREA2014
                 {"get_fnis", (args) => "初期ノード情報を取得しました。".Multilanguage(195)},
                 {"keep_connection_fnis_zero", (args) => "初期ノード情報を取得できなかったため、常時接続を開始できませんでした。".Multilanguage(196)},
                 {"keep_connection_nis_zero", (args) => "初期ノードからノード情報を取得できなかったため、常時接続を開始できませんでした。".Multilanguage(197)},
+                {"update_keep_conn", (args) => "常時接続更新".Multilanguage(215)},
             };
 
             exceptionMessages = new Dictionary<string, Func<string>>() {
@@ -3894,11 +3924,14 @@ namespace CREA2014
             Thread.CurrentThread.CurrentUICulture = new CultureInfo(psettings.Culture);
 
             TestApplication testApplication;
+            bool isCanRunMultiple;
 #if TEST
-            //testApplication = null;
-            testApplication = new CreaNetworkLocalTestApplication(logger);
+            testApplication = null;
+            isCanRunMultiple = true;
+            //testApplication = new CreaNetworkLocalTestApplication(logger);
 #else
                 testApplication = null;
+            isCanRunMultiple = false;
 #endif
 
             Action _Start = () =>
@@ -3919,8 +3952,8 @@ namespace CREA2014
                 if (ieVersion < 10)
                     throw new ApplicationException("ie_too_old");
 
-                Process process = Process.GetCurrentProcess();
-                string fileName = Path.GetFileName(process.MainModule.FileName);
+                Process currentProcess = Process.GetCurrentProcess();
+                string fileName = Path.GetFileName(currentProcess.MainModule.FileName);
                 if (String.Compare(fileName, "devenv.exe", true) != 0 && String.Compare(fileName, "XDesProc.exe", true) != 0)
                 {
                     string basepathFC = @"Software\Microsoft\Internet Explorer\Main\FeatureControl";
@@ -3967,7 +4000,7 @@ namespace CREA2014
 
                 if (testApplication == null || testApplication.IsUseCore)
                 {
-                    core = new Core(basepath, verC, appnameWithVersion);
+                    core = new Core(basepath, verC, appnameWithVersion, psettings);
                     core.StartSystem();
                 }
 
@@ -3985,7 +4018,7 @@ namespace CREA2014
                 {
                     if (testApplication == null)
                     {
-                        MainWindow mw = new MainWindow(core, logger, psettings, pstatus, appname, version, appnameWithVersion, lisenceTextFilename, assembly, basepath, _OnException, _UpVersion, unhandledExceptionEventHandlers, dispatcherUnhandledExceptionEventHandlers);
+                        MainWindow mw = new MainWindow(core, logger, psettings, pstatus, appname, version, appnameWithVersion, lisenceTextFilename, entryAssembly, entryAssemblyName, basepath, currentProcess, _OnException, _UpVersion, unhandledExceptionEventHandlers, dispatcherUnhandledExceptionEventHandlers);
                         mw.Show();
                     }
                     else
@@ -4002,7 +4035,7 @@ namespace CREA2014
                 File.WriteAllBytes(pstatusFilepath, pstatus.ToBinary());
             };
 
-            if (testApplication == null)
+            if (!isCanRunMultiple)
             {
                 // Windows 2000（NT 5.0）以降のみグローバル・ミューテックス利用可
                 string appNameMutex = appname + " by Piz Yumina";

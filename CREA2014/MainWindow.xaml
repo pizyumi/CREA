@@ -10,13 +10,37 @@
             </MenuItem>
             <MenuItem x:Name="miTool">
                 <MenuItem x:Name="miSettings" Click="miSettings_Click"></MenuItem>
+                <Separator></Separator>
                 <MenuItem x:Name="miMining" Click="miMining_Click"></MenuItem>
+                <Separator></Separator>
+                <MenuItem x:Name="miDebug" Click="miDebug_Click"></MenuItem>
             </MenuItem>
             <MenuItem x:Name="miHelp">
                 <MenuItem x:Name="miAbout" Click="miAbout_Click"></MenuItem>
             </MenuItem>
             <MenuItem x:Name="miTest" Click="miTest_Click"></MenuItem>
         </Menu>
+        <StatusBar x:Name="statusBar" DockPanel.Dock="Bottom">
+            <Grid HorizontalAlignment="Stretch" Width="{Binding ActualWidth, ElementName=statusBar, Mode=OneWay}">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="*"></RowDefinition>
+                </Grid.RowDefinitions>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="6*"></ColumnDefinition>
+                    <ColumnDefinition Width="*"></ColumnDefinition>
+                    <ColumnDefinition Width="*"></ColumnDefinition>
+                    <ColumnDefinition Width="*"></ColumnDefinition>
+                    <ColumnDefinition Width="1.5*"></ColumnDefinition>
+                    <ColumnDefinition Width="30"></ColumnDefinition>
+                </Grid.ColumnDefinitions>
+
+                <TextBlock x:Name="tbCommunication" Grid.Row="0" Grid.Column="0"></TextBlock>
+                <TextBlock x:Name="tbNumOfNodes" Grid.Row="0" Grid.Column="2"></TextBlock>
+                <TextBlock x:Name="tbNumOfConnectingNodes" Grid.Row="0" Grid.Column="3"></TextBlock>
+                <TextBlock x:Name="tbKeepConnection" Grid.Row="0" Grid.Column="4"></TextBlock>
+                <Rectangle x:Name="rServerStatus" Grid.Row="0" Grid.Column="5" Width="15" Height="15" Fill="Transparent"></Rectangle>
+            </Grid>
+        </StatusBar>
         <WebBrowser x:Name="wb"></WebBrowser>
     </DockPanel>
 </Window>

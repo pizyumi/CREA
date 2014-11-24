@@ -5,7 +5,7 @@
     <Configuration Condition=" '$(Configuration)' == '' ">Debug</Configuration>
     <Platform Condition=" '$(Platform)' == '' ">AnyCPU</Platform>
     <ProjectGuid>{F5E34F75-EA21-4FBB-AB14-7A7E13273CDE}</ProjectGuid>
-    <OutputType>Exe</OutputType>
+    <OutputType>WinExe</OutputType>
     <AppDesignerFolder>Properties</AppDesignerFolder>
     <RootNamespace>CREA2014</RootNamespace>
     <AssemblyName>CREA2014</AssemblyName>
@@ -217,9 +217,6 @@
   </ItemGroup>
   <ItemGroup>
     <EmbeddedResource Include="Resources\langResouece_ja-JP.txt" />
-    <EmbeddedResource Include="WebResources\home.htm">
-      <SubType>Designer</SubType>
-    </EmbeddedResource>
   </ItemGroup>
   <ItemGroup>
     <BootstrapperPackage Include=".NETFramework,Version=v4.5">
@@ -245,21 +242,7 @@
     <EmbeddedResource Include="WebResources\jquery-ui-1.10.4.custom.js" />
   </ItemGroup>
   <ItemGroup>
-    <EmbeddedResource Include="WebResources\button.htm" />
-  </ItemGroup>
-  <ItemGroup>
     <Resource Include="up0669.ico" />
-  </ItemGroup>
-  <ItemGroup>
-    <EmbeddedResource Include="WebResources\acc_hols.htm" />
-  </ItemGroup>
-  <ItemGroup>
-    <EmbeddedResource Include="WebResources\acc.htm" />
-    <EmbeddedResource Include="WebResources\acc_hol.htm" />
-  </ItemGroup>
-  <ItemGroup>
-    <EmbeddedResource Include="WebResources\error_log.htm" />
-    <EmbeddedResource Include="WebResources\log.htm" />
   </ItemGroup>
   <ItemGroup>
     <EmbeddedResource Include="Component\log4net.dll" />
@@ -285,7 +268,6 @@
   </ItemGroup>
   <ItemGroup>
     <EmbeddedResource Include="WebResources\knockout-3.2.0.js" />
-    <EmbeddedResource Include="WebResources\test.htm" />
   </ItemGroup>
   <ItemGroup>
     <EmbeddedResource Include="WebResources\home2.htm" />
