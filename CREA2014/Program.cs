@@ -3690,7 +3690,6 @@ namespace CREA2014
                 {"task_aborted", (args) => "作業が強制終了されました。".Multilanguage(97)},
                 {"all_tasks_aborted", (args) => "全ての作業が強制終了されました。".Multilanguage(98)},
                 {"upnp_not_found", (args) => "UPnPによるグローバルIPアドレスの取得に失敗しました。サーバは起動されませんでした。".Multilanguage(99)},
-                {"port0", (args) => "ポート0です。サーバは起動されませんでした。".Multilanguage(100)},
                 {"rsa_key_cant_create", (args) => "RSA鍵の生成に失敗しました。サーバは起動されませんでした。".Multilanguage(101)},
                 {"rsa_key_create", (args) => "RSA鍵の生成に成功しました。".Multilanguage(102)},
                 {"upnp_ipaddress", (args) => string.Format("グローバルIPアドレスを取得しました：{0}".Multilanguage(103), args[0])},
@@ -3737,7 +3736,6 @@ namespace CREA2014
                 {"generic_port_mapping_entry", (args) => string.Format("開放ポート：{0}".Multilanguage(189), args[0])},
                 {"add_fni", (args) => string.Format("初期ノード情報を追加しました：{0}".Multilanguage(190), args[0])},
                 {"fail_upnp", (args) => "UPnP機器が見付かりませんでした。".Multilanguage(192)},
-                {"not_server", (args) => "グローバルIPアドレスを取得できなかったため、サーバは起動されませんでした。".Multilanguage(193)},
                 {"register_fni", (args) => "初期ノード情報を登録しました。".Multilanguage(194)},
                 {"get_fnis", (args) => "初期ノード情報を取得しました。".Multilanguage(195)},
                 {"keep_connection_fnis_zero", (args) => "初期ノード情報を取得できなかったため、常時接続を開始できませんでした。".Multilanguage(196)},
@@ -3927,7 +3925,7 @@ namespace CREA2014
             bool isCanRunMultiple;
 #if TEST
             testApplication = null;
-            isCanRunMultiple = true;
+            isCanRunMultiple = false;
             //testApplication = new CreaNetworkLocalTestApplication(logger);
 #else
                 testApplication = null;
@@ -4019,10 +4017,16 @@ namespace CREA2014
                     if (testApplication == null)
                     {
                         MainWindow mw = new MainWindow(core, logger, psettings, pstatus, appname, version, appnameWithVersion, lisenceTextFilename, entryAssembly, entryAssemblyName, basepath, currentProcess, _OnException, _UpVersion, unhandledExceptionEventHandlers, dispatcherUnhandledExceptionEventHandlers);
+                        mw.LoadCompleted += (sender2, e2) => core.iCreaNodeTest.Start();
                         mw.Show();
                     }
                     else
+                    {
+                        if (testApplication.IsUseCore)
+                            core.StartSystem();
+
                         testApplication.Execute();
+                    }
                 };
                 app.InitializeComponent();
                 app.Run();

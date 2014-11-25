@@ -1280,9 +1280,6 @@ namespace CREA2014
         protected abstract void KeepConnections();
         protected abstract void OnAccepted(SocketChannel sc);
 
-        public bool IsPort0 { get { return myPortNumber == 0; } }
-        public bool IsServer { get { return !IsPort0 && myIpAddress != null; } }
-
         public void Start()
         {
             lock (isStartedLock)
@@ -1295,99 +1292,85 @@ namespace CREA2014
 
             this.StartTask("node_start", "node_start", () =>
             {
-                if ((myPrivateRsaParameters = GetPrivateRsaParameters()) == null)
-                    throw new CryptographicException("cant_create_key_pair");
+                myPrivateRsaParameters = GetPrivateRsaParameters();
+                myIpAddress = GetIpAddressAndOpenPort();
+                myFirstNodeInfo = new FirstNodeInformation(myIpAddress, myPortNumber, Network);
 
-                if (IsPort0)
-                    this.RaiseNotification("port0", 5);
-                else
+                CreateNodeInfo();
+
+                AutoResetEvent are = new AutoResetEvent(false);
+                bool? isListened = null;
+
+                RealInboundChennel ric = new RealInboundChennel(myPortNumber, RsaKeySize.rsa2048, 100);
+                ric.Accepted += (sender, e) =>
                 {
-                    //IPアドレスの取得やポートの開放には時間が掛かる可能性がある
-                    myIpAddress = GetIpAddressAndOpenPort();
-
-                    if (!IsServer)
-                        this.RaiseNotification("not_server", 5);
-                    else
+                    try
                     {
-                        myFirstNodeInfo = new FirstNodeInformation(myIpAddress, myPortNumber, Network);
+                        ConnectionData cd = new ConnectionData(e);
+                        AddConnection(cd);
 
-                        CreateNodeInfo();
-
-                        AutoResetEvent are = new AutoResetEvent(false);
-                        bool? isListened = null;
-
-                        RealInboundChennel ric = new RealInboundChennel(myPortNumber, RsaKeySize.rsa2048, 100);
-                        ric.Accepted += (sender, e) =>
+                        e.Closed += (sender2, e2) =>
                         {
-                            try
-                            {
-                                ConnectionData cd = new ConnectionData(e);
-                                AddConnection(cd);
-
-                                e.Closed += (sender2, e2) =>
-                                {
-                                    RemoveConnection(cd);
-                                    RegisterResult(e.aiteIpAddress, true);
-                                };
-                                e.Failed += (sender2, e2) =>
-                                {
-                                    RemoveConnection(cd);
-                                    RegisterResult(e.aiteIpAddress, false);
-                                };
-
-                                if (serverStatus != ServerStatus.HaveAccepting)
-                                {
-                                    serverStatus = ServerStatus.HaveAccepting;
-
-                                    ServerStatusChanged(this, EventArgs.Empty);
-                                }
-
-                                //2014/09/15
-                                //SocketChannelは使用後Closeを呼び出さなければならない
-                                //このイベントの処理スレッドで例外が発生した場合には例外が捕捉され、Closeが呼び出される
-                                //SocketChannelをこのイベントの処理スレッドでしか使用しない場合には、イベントハンドラのどこかでCloseを呼び出さなければならない
-                                //この場合はOnAcceptedのどこかで呼び出さなければならない
-                                //SocketChannelを別のスレッドで使用する場合には、例外が発生した場合も含めて、必ずCloseが呼び出されるようにしなければならない
-                                OnAccepted(e);
-                            }
-                            catch (Exception ex)
-                            {
-                                this.RaiseError("ric", 5, ex);
-
-                                //別スレッドでないので例外を再スローすればCloseが呼び出されるのだが、
-                                //ここで呼んでも良いだろう
-                                e.Close();
-                            }
+                            RemoveConnection(cd);
+                            RegisterResult(e.aiteIpAddress, true);
                         };
-                        ric.AcceptanceFailed += (sender, e) => RegisterResult(e, false);
-                        ric.Listened += (sender, e) =>
+                        e.Failed += (sender2, e2) =>
                         {
-                            isListened = true;
-
-                            are.Set();
+                            RemoveConnection(cd);
+                            RegisterResult(e.aiteIpAddress, false);
                         };
-                        ric.Failed += (sender, e) =>
+
+                        if (serverStatus != ServerStatus.HaveAccepting)
                         {
-                            isListened = false;
-
-                            are.Set();
-                        };
-                        ric.RequestAcceptanceStart();
-
-                        are.WaitOne(30000);
-
-                        if (isListened.HasValue && isListened.Value)
-                        {
-                            this.RaiseNotification("server_started", 5, myIpAddress.ToString(), myPortNumber.ToString());
-
-                            serverStatus = ServerStatus.RunningButHaventAccepting;
+                            serverStatus = ServerStatus.HaveAccepting;
 
                             ServerStatusChanged(this, EventArgs.Empty);
                         }
+
+                        //2014/09/15
+                        //SocketChannelは使用後Closeを呼び出さなければならない
+                        //このイベントの処理スレッドで例外が発生した場合には例外が捕捉され、Closeが呼び出される
+                        //SocketChannelをこのイベントの処理スレッドでしか使用しない場合には、イベントハンドラのどこかでCloseを呼び出さなければならない
+                        //この場合はOnAcceptedのどこかで呼び出さなければならない
+                        //SocketChannelを別のスレッドで使用する場合には、例外が発生した場合も含めて、必ずCloseが呼び出されるようにしなければならない
+                        OnAccepted(e);
                     }
+                    catch (Exception ex)
+                    {
+                        this.RaiseError("ric", 5, ex);
+
+                        //別スレッドでないので例外を再スローすればCloseが呼び出されるのだが、
+                        //ここで呼んでも良いだろう
+                        e.Close();
+                    }
+                };
+                ric.AcceptanceFailed += (sender, e) => RegisterResult(e, false);
+                ric.Listened += (sender, e) =>
+                {
+                    isListened = true;
+
+                    are.Set();
+                };
+                ric.Failed += (sender, e) =>
+                {
+                    isListened = false;
+
+                    are.Set();
+                };
+                ric.RequestAcceptanceStart();
+
+                are.WaitOne(30000);
+
+                if (isListened.HasValue && isListened.Value)
+                {
+                    this.RaiseNotification("server_started", 5, myIpAddress.ToString(), myPortNumber.ToString());
+
+                    serverStatus = ServerStatus.RunningButHaventAccepting;
+
+                    ServerStatusChanged(this, EventArgs.Empty);
                 }
 
-                if (myFirstNodeInfo == null)
+                if (myIpAddress == IPAddress.None)
                     firstNodeInfos = NotifyAndGetFirstNodeInfos(false);
                 else
                     firstNodeInfos = NotifyAndGetFirstNodeInfos(true).Where((a) => !a.Equals(myFirstNodeInfo)).ToArray();
@@ -1858,10 +1841,7 @@ namespace CREA2014
             {
                 if (Version == 0)
                 {
-                    bool isInBound = nodeInfo != null;
-                    yield return new MainDataInfomation(typeof(bool), () => isInBound, (o) => isInBound = (bool)o);
-                    if (isInBound)
-                        yield return new MainDataInfomation(typeof(NodeInformation), 0, () => nodeInfo, (o) => nodeInfo = (NodeInformation)o);
+                    yield return new MainDataInfomation(typeof(NodeInformation), 0, () => nodeInfo, (o) => nodeInfo = (NodeInformation)o);
                     yield return new MainDataInfomation(typeof(int), () => creaVersion, (o) => creaVersion = (int)o);
                     yield return new MainDataInfomation(typeof(int), () => protocolVersion, (o) => protocolVersion = (int)o);
                     yield return new MainDataInfomation(typeof(string), () => client, (o) => client = (string)o);
@@ -2339,21 +2319,23 @@ namespace CREA2014
 
         protected override void CreateNodeInfo()
         {
-            using (RSACryptoServiceProvider rsacsp = new RSACryptoServiceProvider(2048))
-            {
-                rsacsp.FromXmlString(myPrivateRsaParameters);
-                myNodeInfo = new NodeInformation(myIpAddress, myPortNumber, Network, rsacsp.ToXmlString(false));
-            }
+            if (myPrivateRsaParameters == string.Empty)
+                myNodeInfo = new NodeInformation(myIpAddress, myPortNumber, Network, string.Empty);
+            else
+                using (RSACryptoServiceProvider rsacsp = new RSACryptoServiceProvider(2048))
+                {
+                    rsacsp.FromXmlString(myPrivateRsaParameters);
+                    myNodeInfo = new NodeInformation(myIpAddress, myPortNumber, Network, rsacsp.ToXmlString(false));
+                }
         }
 
         //このメソッドのどこかで（例外を除く全ての場合において）SocketChannelのCloseが呼び出されるようにしなければならない
         protected override void OnAccepted(SocketChannel sc)
         {
-            //サーバが起動していない場合（ポート0又はIPアドレスが取得できなかったような場合）にはノード情報はnull
             Header header = SHAREDDATA.FromBinary<Header>(sc.ReadBytes());
 
             NodeInformation aiteNodeInfo = null;
-            if (header.nodeInfo != null && !header.nodeInfo.ipAddress.Equals(sc.aiteIpAddress))
+            if (!header.nodeInfo.ipAddress.Equals(sc.aiteIpAddress))
             {
                 this.RaiseNotification("aite_wrong_node_info", 5, sc.aiteIpAddress.ToString(), header.nodeInfo.portNumber.ToString());
 
@@ -2368,10 +2350,7 @@ namespace CREA2014
             if (aiteNodeInfo == null)
                 aiteNodeInfo = header.nodeInfo;
 
-            bool isWrongNetwork = (!headerResponse.isSameNetwork).RaiseNotification(GetType(), "aite_wrong_network", 5, aiteNodeInfo.ipAddress.ToString(), aiteNodeInfo.portNumber.ToString());
-            bool isAlreadyConnected = headerResponse.isAlreadyConnected.RaiseNotification(GetType(), "aite_already_connected", 5, aiteNodeInfo.ipAddress.ToString(), aiteNodeInfo.portNumber.ToString());
-            //<未実装>不良ノードは拒否する？
-            if (isWrongNetwork || isAlreadyConnected)
+            if ((!headerResponse.isSameNetwork).RaiseNotification(GetType(), "aite_wrong_network", 5, aiteNodeInfo.ipAddress.ToString(), aiteNodeInfo.portNumber.ToString()))
             {
                 sc.Close();
 
@@ -2379,6 +2358,13 @@ namespace CREA2014
 
                 return;
             }
+            if (headerResponse.isAlreadyConnected.RaiseNotification(GetType(), "aite_already_connected", 5, aiteNodeInfo.ipAddress.ToString(), aiteNodeInfo.portNumber.ToString()))
+            {
+                sc.Close();
+
+                return;
+            }
+            //<未実装>不良ノードは拒否する？
 
             UpdateNodeState(aiteNodeInfo, true);
 
@@ -2406,7 +2392,7 @@ namespace CREA2014
 
                     if (IsTemporaryContinue)
                     {
-                        bool isWantToContinue = IsWantToContinue(header.nodeInfo);
+                        bool isWantToContinue = IsWantToContinue(aiteNodeInfo);
                         sc.WriteBytes(BitConverter.GetBytes(isWantToContinue));
                         if (isWantToContinue)
                         {
@@ -2425,7 +2411,7 @@ namespace CREA2014
                 }
                 else if (IsContinue)
                 {
-                    bool isCanListenerContinue = IsListenerCanContinue(header.nodeInfo);
+                    bool isCanListenerContinue = IsListenerCanContinue(aiteNodeInfo);
                     sc.WriteBytes(BitConverter.GetBytes(isCanListenerContinue));
                     if (isCanListenerContinue)
                         //このメソッドのどこかで（例外を除く全ての場合において）SocketChannelのCloseが呼び出されるようにしなければならない
@@ -2479,17 +2465,20 @@ namespace CREA2014
 
             try
             {
-                //サーバが起動していない場合（ポート0又はIPアドレスが取得できなかったような場合）にはノード情報はnull
                 sc.WriteBytes(new Header(myNodeInfo, creaVersion, protocolVersion, appnameWithVersion, isTemporary).ToBinary());
                 HeaderResponse headerResponse = SHAREDDATA.FromBinary<HeaderResponse>(sc.ReadBytes());
 
-                bool isWrongNetwork = (!headerResponse.isSameNetwork).RaiseNotification(GetType(), "wrong_network", 5, aiteIpAddress.ToString(), aitePortNumber.ToString());
-                bool isAlreadyConnected = headerResponse.isAlreadyConnected.RaiseNotification(GetType(), "already_connected", 5, aiteIpAddress.ToString(), aitePortNumber.ToString());
-                if (isWrongNetwork || isAlreadyConnected)
+                if ((!headerResponse.isSameNetwork).RaiseNotification(GetType(), "wrong_network", 5, aiteIpAddress.ToString(), aitePortNumber.ToString()))
                 {
                     sc.Close();
 
                     UpdateNodeState(headerResponse.nodeInfo, false);
+
+                    return null;
+                }
+                if (headerResponse.isAlreadyConnected.RaiseNotification(GetType(), "already_connected", 5, aiteIpAddress.ToString(), aitePortNumber.ToString()))
+                {
+                    sc.Close();
 
                     return null;
                 }
@@ -3162,7 +3151,7 @@ namespace CREA2014
 
                     if (!isKeepConnection && allConnections.Count() == 0)
                     {
-                        if (myFirstNodeInfo == null)
+                        if (myIpAddress == IPAddress.None)
                             firstNodeInfos = NotifyAndGetFirstNodeInfos(false);
                         else
                             firstNodeInfos = NotifyAndGetFirstNodeInfos(false).Where((a) => !a.Equals(myFirstNodeInfo)).ToArray();
@@ -3277,6 +3266,7 @@ namespace CREA2014
         }
 
         private static readonly string fnisRegistryURL = "http://www.pizyumi.com/nodes.aspx";
+        private static readonly string gipURL = "http://www.pizyumi.com/gip.aspx";
 
         private readonly FirstNodeInfosDatabase fnisDatabase;
         private readonly List<FirstNodeInformation> fnis;
@@ -3295,87 +3285,100 @@ namespace CREA2014
 
         protected override string GetPrivateRsaParameters()
         {
-            using (RSACryptoServiceProvider rsacsp = new RSACryptoServiceProvider(2048))
-                return rsacsp.ToXmlString(true);
+            try
+            {
+                using (RSACryptoServiceProvider rsacsp = new RSACryptoServiceProvider(2048))
+                    return rsacsp.ToXmlString(true);
+            }
+            catch (Exception)
+            {
+                return string.Empty;
+            }
         }
 
         protected override IPAddress GetIpAddressAndOpenPort()
         {
-            DefaltNetworkInterface defaultNetworkInterface = new DefaltNetworkInterface();
-            defaultNetworkInterface.Get();
+            HttpWebRequest hwreq = WebRequest.Create(gipURL) as HttpWebRequest;
+            using (HttpWebResponse hwres = hwreq.GetResponse() as HttpWebResponse)
+            using (Stream stream = hwres.GetResponseStream())
+            using (StreamReader sr = new StreamReader(stream, Encoding.UTF8))
+                return IPAddress.Parse(sr.ReadToEnd());
 
-            if ((!defaultNetworkInterface.IsExisted).RaiseWarning(this.GetType(), "fail_network_interface", 5))
-                return null;
+            //DefaltNetworkInterface defaultNetworkInterface = new DefaltNetworkInterface();
+            //defaultNetworkInterface.Get();
 
-            this.RaiseNotification("succeed_network_interface", 5, defaultNetworkInterface.Name);
+            //if ((!defaultNetworkInterface.IsExisted).RaiseWarning(this.GetType(), "fail_network_interface", 5))
+            //    return null;
 
-            UPnP3 upnp = null;
-            try
-            {
-                upnp = new UPnP3(defaultNetworkInterface.MachineIpAddress, defaultNetworkInterface.GatewayIpAddress);
-            }
-            catch (UPnP3.DeviceDescriptionException)
-            {
-                this.RaiseError("fail_upnp", 5);
+            //this.RaiseNotification("succeed_network_interface", 5, defaultNetworkInterface.Name);
 
-                return null;
-            }
+            //UPnP3 upnp = null;
+            //try
+            //{
+            //    upnp = new UPnP3(defaultNetworkInterface.MachineIpAddress, defaultNetworkInterface.GatewayIpAddress);
+            //}
+            //catch (UPnP3.DeviceDescriptionException)
+            //{
+            //    this.RaiseError("fail_upnp", 5);
 
-            this.RaiseNotification("start_open_port_search", 5);
+            //    return null;
+            //}
 
-            bool isNeededOpenPort = true;
-            try
-            {
-                for (int i = 0; ; i++)
-                {
-                    GenericPortMappingEntry gpe = upnp.GetGenericPortMappingEntry(i);
-                    if (gpe == null)
-                        break;
+            //this.RaiseNotification("start_open_port_search", 5);
 
-                    this.RaiseNotification("generic_port_mapping_entry", 5, gpe.ToString());
+            //bool isNeededOpenPort = true;
+            //try
+            //{
+            //    for (int i = 0; ; i++)
+            //    {
+            //        GenericPortMappingEntry gpe = upnp.GetGenericPortMappingEntry(i);
+            //        if (gpe == null)
+            //            break;
 
-                    if (gpe.NewInternalPort == myPortNumber && gpe.NewExternalPort == myPortNumber)
-                    {
-                        if (gpe.NewInternalClient.Equals(defaultNetworkInterface.MachineIpAddress))
-                        {
-                            this.RaiseNotification("already_port_opened", 5);
+            //        this.RaiseNotification("generic_port_mapping_entry", 5, gpe.ToString());
 
-                            isNeededOpenPort = false;
-                        }
-                        else
-                            upnp.DeletePortMapping(myPortNumber, "TCP");
+            //        if (gpe.NewInternalPort == myPortNumber && gpe.NewExternalPort == myPortNumber)
+            //        {
+            //            if (gpe.NewInternalClient.Equals(defaultNetworkInterface.MachineIpAddress))
+            //            {
+            //                this.RaiseNotification("already_port_opened", 5);
 
-                        break;
-                    }
-                }
-            }
-            catch (Exception) { }
+            //                isNeededOpenPort = false;
+            //            }
+            //            else
+            //                upnp.DeletePortMapping(myPortNumber, "TCP");
 
-            if (isNeededOpenPort)
-                try
-                {
-                    upnp.AddPortMapping(myPortNumber, myPortNumber, "TCP", appnameWithVersion).Pipe((isSucceed) => isSucceed.RaiseNotification(this.GetType(), "succeed_open_port", 5).NotRaiseNotification(this.GetType(), "fail_open_port", 5));
-                }
-                catch (Exception ex)
-                {
-                    this.RaiseError("fail_open_port", 5, ex);
-                }
+            //            break;
+            //        }
+            //    }
+            //}
+            //catch (Exception) { }
 
-            try
-            {
-                IPAddress externalIpAddress = upnp.GetExternalIPAddress();
+            //if (isNeededOpenPort)
+            //    try
+            //    {
+            //        upnp.AddPortMapping(myPortNumber, myPortNumber, "TCP", appnameWithVersion).Pipe((isSucceed) => isSucceed.RaiseNotification(this.GetType(), "succeed_open_port", 5).NotRaiseNotification(this.GetType(), "fail_open_port", 5));
+            //    }
+            //    catch (Exception ex)
+            //    {
+            //        this.RaiseError("fail_open_port", 5, ex);
+            //    }
 
-                if (externalIpAddress != null)
-                    return externalIpAddress.Pipe((ipaddress) => this.RaiseNotification("succeed_get_global_ip", 5, ipaddress.ToString()));
+            //try
+            //{
+            //    IPAddress externalIpAddress = upnp.GetExternalIPAddress();
 
-                this.RaiseError("fail_get_global_ip", 5);
-            }
-            catch (Exception ex)
-            {
-                this.RaiseError("fail_get_global_ip", 5, ex);
-            }
+            //    if (externalIpAddress != null)
+            //        return externalIpAddress.Pipe((ipaddress) => this.RaiseNotification("succeed_get_global_ip", 5, ipaddress.ToString()));
 
-            return null;
+            //    this.RaiseError("fail_get_global_ip", 5);
+            //}
+            //catch (Exception ex)
+            //{
+            //    this.RaiseError("fail_get_global_ip", 5, ex);
+            //}
+
+            //return null;
         }
 
         private void AddFirstNodeInfos(IEnumerable<string> nodes)
@@ -3403,7 +3406,7 @@ namespace CREA2014
 
         protected override FirstNodeInformation[] NotifyAndGetFirstNodeInfos(bool isNotified)
         {
-            if (isNotified && myFirstNodeInfo == null)
+            if (isNotified && myIpAddress == IPAddress.None)
                 throw new InvalidOperationException();
 
             HttpWebRequest hwreq = WebRequest.Create(fnisRegistryURL + (isNotified ? "?add=" + myFirstNodeInfo.Hex : string.Empty)) as HttpWebRequest;
@@ -3412,7 +3415,7 @@ namespace CREA2014
             using (StreamReader sr = new StreamReader(stream, Encoding.UTF8))
                 AddFirstNodeInfos(sr.ReadToEnd().Split(new string[] { Environment.NewLine }, StringSplitOptions.RemoveEmptyEntries).Select((elem) => elem.Trim()));
 
-            if (myFirstNodeInfo == null)
+            if (isNotified)
                 this.RaiseNotification("register_fni", 5);
             this.RaiseNotification("get_fnis", 5);
 

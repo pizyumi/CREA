@@ -180,13 +180,12 @@ namespace CREA2014
 
             mining = new Mining();
 
-            //試験用（ポート番号は暫定）
-            creaNodeTest = new CreaNode(ps.NodePort, creaVersion, appnameWithVersion, new FirstNodeInfosDatabase(p2pDirectory));
-            //creaNodeTest = new CreaNodeTest(ps.NodePort, creaVersion, appnameWithVersion);
+            //creaNodeTest = new CreaNode(ps.NodePort, creaVersion, appnameWithVersion, new FirstNodeInfosDatabase(p2pDirectory));
+            creaNodeTest = new CreaNodeTest(ps.NodePort, creaVersion, appnameWithVersion);
             creaNodeTest.ReceivedNewTransaction += (sender, e) =>
             {
             };
-            creaNodeTest.Start();
+            //creaNodeTest.Start();
 
             isSystemStarted = true;
         }

@@ -368,6 +368,8 @@ namespace CREA2014
 
         private Action<string> _CreateUiFiles;
 
+        public event EventHandler LoadCompleted = delegate { };
+
         public abstract class WebResourceBase
         {
             public abstract byte[] GetData();
@@ -570,25 +572,29 @@ namespace CREA2014
             _UpdateserverStatus();
 
             string instanceName = null;
-            string pidString = _currentProcess.Id.ToString();
-            foreach (string instance in new PerformanceCounterCategory(".NET CLR Networking 4.0.0.0").GetInstanceNames())
-                if (instance.Contains(pidString))
-                {
-                    instanceName = instance;
-
-                    break;
-                }
-
-            PerformanceCounter bytesSentPC = new PerformanceCounter(".NET CLR Networking 4.0.0.0", "Bytes Sent", instanceName, true);
-            PerformanceCounter bytesReceivedPC = new PerformanceCounter(".NET CLR Networking 4.0.0.0", "Bytes Received", instanceName, true);
-
+            PerformanceCounter bytesSentPC = null;
+            PerformanceCounter bytesReceivedPC = null;
             float bytesSent1 = 0.0F;
             float bytesReceived1 = 0.0F;
             int timeCounter = 0;
+
+            string pidString = _currentProcess.Id.ToString();
+
             timer = new Timer((obj) =>
             {
                 try
                 {
+                    if (instanceName == null)
+                        instanceName = new PerformanceCounterCategory(".NET CLR Networking 4.0.0.0").GetInstanceNames().Where((elem) => elem.Contains(pidString)).FirstOrDefault();
+
+                    if (instanceName == null)
+                        return;
+
+                    if (bytesSentPC == null)
+                        bytesSentPC = new PerformanceCounter(".NET CLR Networking 4.0.0.0", "Bytes Sent", instanceName, true);
+                    if (bytesReceivedPC == null)
+                        bytesReceivedPC = new PerformanceCounter(".NET CLR Networking 4.0.0.0", "Bytes Received", instanceName, true);
+
                     timeCounter++;
 
                     float bytesSent2 = bytesSentPC.NextValue();
@@ -922,8 +928,9 @@ namespace CREA2014
             {
                 string[] balance = _CreateBalanceJSON();
 
-                foreach (var wssession in wss.GetAllSessions())
-                    wssession.Send("balanceUpdated " + string.Join(Environment.NewLine, balance));
+                if (wss != null)
+                    foreach (var wssession in wss.GetAllSessions())
+                        wssession.Send("balanceUpdated " + string.Join(Environment.NewLine, balance));
             };
 
             Action _SendAccountHolders = () =>
@@ -931,11 +938,12 @@ namespace CREA2014
                 string[] aah = _CreateAahJSON();
                 string[] pahs = _CreatePahsJSON();
 
-                foreach (var wssession in wss.GetAllSessions())
-                {
-                    wssession.Send("aahUpdated " + string.Join(Environment.NewLine, aah));
-                    wssession.Send("pahsUpdated " + string.Join(Environment.NewLine, pahs));
-                }
+                if (wss != null)
+                    foreach (var wssession in wss.GetAllSessions())
+                    {
+                        wssession.Send("aahUpdated " + string.Join(Environment.NewLine, aah));
+                        wssession.Send("pahsUpdated " + string.Join(Environment.NewLine, pahs));
+                    }
             };
 
             EventHandler _AccountChanged = (sender2, e2) => _SendAccountHolders();
@@ -984,38 +992,39 @@ namespace CREA2014
             {
                 string[] log = _CreateLogJSON(e2);
 
-                foreach (var wssession in wss.GetAllSessions())
-                    wssession.Send("logAdded " + string.Join(Environment.NewLine, log));
+                if (wss != null)
+                    foreach (var wssession in wss.GetAllSessions())
+                        wssession.Send("logAdded " + string.Join(Environment.NewLine, log));
             };
 
             core.iCreaNodeTest.ReceivedNewChat += (sender2, e2) =>
             {
                 string[] chat = _CreateChatJSON(e2);
 
-                foreach (var wssession in wss.GetAllSessions())
-                    wssession.Send("chatAdded " + string.Join(Environment.NewLine, chat));
+                if (wss != null)
+                    foreach (var wssession in wss.GetAllSessions())
+                        wssession.Send("chatAdded " + string.Join(Environment.NewLine, chat));
             };
 
-            //using (var server = new WebSocketEventListener(new IPEndPoint(IPAddress.Any, mws.PortWebSocket)))
-            //{
-            //    server.OnConnect += (ws) => Console.WriteLine("Connection from " + ws.RemoteEndpoint.ToString());
-            //    server.OnDisconnect += (ws) => Console.WriteLine("Disconnection from " + ws.RemoteEndpoint.ToString());
-            //    server.OnError += (ws, ex) => Console.WriteLine("Error: " + ex.Message);
-            //    server.OnMessage += (ws, msg) =>
-            //    {
-            //        Console.WriteLine("Message from [" + ws.RemoteEndpoint + "]: " + msg);
-            //        ws.WriteStringAsync(new String(msg.Reverse().ToArray()), CancellationToken.None).Wait();
-            //    };
+            WebSocketEventListener server = new WebSocketEventListener(new IPEndPoint(IPAddress.Any, mws.PortWebSocket), new WebSocketListenerOptions() { SubProtocols = new string[] { "text" } });
+            server.OnConnect += (ws) =>
+            {
+                Console.WriteLine("Connection from " + ws.RemoteEndpoint.ToString());
+            };
+            server.OnDisconnect += (ws) => Console.WriteLine("Disconnection from " + ws.RemoteEndpoint.ToString());
+            server.OnError += (ws, ex) => Console.WriteLine("Error: " + ex.Message);
+            server.OnMessage += (ws, msg) =>
+            {
+                Console.WriteLine("Message from [" + ws.RemoteEndpoint + "]: " + msg);
+                ws.WriteStringAsync(new String(msg.Reverse().ToArray()), CancellationToken.None).Wait();
+            };
+            server.Start();
 
-            //    server.Start();
-            //}
 
             WebSocketServer oldWss;
             wss = new WebSocketServer();
             wss.NewSessionConnected += (wssession) =>
             {
-                //this.RaiseNotification("test", 5);
-
                 string[] partBalanceName = json.CreateJSONPair("name", "残高".Multilanguage(201));
                 string[] partBalanceDetail = json.CreateJSONPair("detail", _CreateBalanceJSON());
                 string[] partBalance = json.CreateJSONObject(partBalanceName, partBalanceDetail);
@@ -1073,7 +1082,7 @@ namespace CREA2014
             };
             wss.NewMessageReceived += newMessageReceived;
             wss.Setup(mws.PortWebSocket);
-            wss.Start();
+            //wss.Start();
 
             //wb.Navigated += (sender2, e2) => ((mshtml.HTMLDocument)wb.Document).focus();
             if (isStartedWebServer)
@@ -1139,6 +1148,8 @@ namespace CREA2014
                     }
                 }
             };
+
+            LoadCompleted(this, EventArgs.Empty);
         }
 
         private void Window_Closing(object sender, System.ComponentModel.CancelEventArgs e)
