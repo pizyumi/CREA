@@ -3496,6 +3496,14 @@ namespace CREA2014
         [STAThread]
         public static void Main(string[] args)
         {
+            New.BlockChainTest.Test1();
+
+            Console.WriteLine("test1_succeeded");
+
+            New.BlockChainTest.Test2();
+
+            Console.WriteLine("test2_succeeded");
+
             string argExtract = "extract";
             string argCopy = "copy";
 

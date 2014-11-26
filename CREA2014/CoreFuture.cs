@@ -795,6 +795,7 @@ namespace CREA2014
 namespace New
 {
     using CREA2014;
+    using System.Reflection;
 
     //using BMI = BlockManagementInformation;
     //using BMIBlocks = BlockManagementInformationsPerBlockIndex;
@@ -952,20 +953,27 @@ namespace New
             if (ret.type == UpdateChainInnerReturnType.pending)
             {
                 if (pendingBlocks[ret.position] == null)
+                {
                     pendingBlocks[ret.position] = new Dictionary<X15Hash, Block>();
-                if (!pendingBlocks[ret.position].Keys.Contains(block.Id))
+                    pendingBlocks[ret.position].Add(block.Id, block);
+                }
+                else if (!pendingBlocks[ret.position].Keys.Contains(block.Id))
                     pendingBlocks[ret.position].Add(block.Id, block);
             }
             else if (ret.type == UpdateChainInnerReturnType.rejected)
             {
-                CirculatedInteger ci2 = new CirculatedInteger(ret.position, (int)capacity);
-                for (int i = 0; i < ret.rejectedBlocks.Count; i++, ci2.Previous())
+                CirculatedInteger ci = new CirculatedInteger(ret.position, (int)capacity);
+                for (int i = 0; i < ret.rejectedBlocks.Count; i++, ci.Previous())
                 {
-                    if (pendingBlocks[ci2.value] != null && pendingBlocks[ci2.value].Keys.Contains(ret.rejectedBlocks[i].Id))
-                        pendingBlocks[ci2.value].Remove(ret.rejectedBlocks[i].Id);
-                    if (rejectedBlocks[ci2.value] == null)
-                        rejectedBlocks[ci2.value] = new Dictionary<X15Hash, Block>();
-                    rejectedBlocks[ci2.value].Add(ret.rejectedBlocks[i].Id, ret.rejectedBlocks[i]);
+                    if (pendingBlocks[ci.value] != null && pendingBlocks[ci.value].Keys.Contains(ret.rejectedBlocks[i].Id))
+                        pendingBlocks[ci.value].Remove(ret.rejectedBlocks[i].Id);
+                    if (rejectedBlocks[ci.value] == null)
+                    {
+                        rejectedBlocks[ci.value] = new Dictionary<X15Hash, Block>();
+                        rejectedBlocks[ci.value].Add(ret.rejectedBlocks[i].Id, ret.rejectedBlocks[i]);
+                    }
+                    else
+                        rejectedBlocks[ci.value].Add(ret.rejectedBlocks[i].Id, ret.rejectedBlocks[i]);
                 }
             }
         }
@@ -1179,6 +1187,7 @@ namespace New
         private readonly Dictionary<long, Block> oldBlocks;
 
         public long headBlockIndex { get { return bmd.headBlockIndex; } }
+        public long finalizedBlockIndex { get { return bmd.finalizedBlockIndex; } }
 
         public void DeleteMainBlock(long blockIndex)
         {
@@ -1301,6 +1310,7 @@ namespace New
             foreach (var ufpitem in ufptemp.GetAll())
                 ufp.AddOrUpdate(ufpitem.Key, ufpitem.Value);
 
+            //<未実装>ファイルが壊れていないか確認するための
             ufpdb.UpdateData(ufp.ToBinary());
         }
 
@@ -1322,7 +1332,7 @@ namespace New
             bool isProcessed = false;
 
             UtxoFileItem ufi = null;
-            while (!isProcessed)
+            while (true)
             {
                 if (!position.HasValue)
                     ufi = new UtxoFileItem(FirstUtxoFileItemSize);
@@ -1331,7 +1341,7 @@ namespace New
                 else
                     ufi = SHAREDDATA.FromBinary<UtxoFileItem>(udb.GetUtxoData(position.Value));
 
-                for (int k = 0; k < ufi.Size && !isProcessed; k++)
+                for (int k = 0; k < ufi.Size; k++)
                     if (ufi.utxos[k].IsEmpty)
                     {
                         ufi.utxos[k].Reset(blockIndex, txIndex, txOutIndex, amount);
@@ -1347,7 +1357,12 @@ namespace New
                             udb.UpdateUtxoData(position.Value, ufi.ToBinary());
 
                         isProcessed = true;
+
+                        break;
                     }
+
+                if (isProcessed)
+                    break;
 
                 prevPosition = position;
                 position = ufi.nextPosition;
@@ -1609,6 +1624,7 @@ namespace New
         }
     }
 
+    //2014/11/26 試験済
     public class UtxoFileItem : SHAREDDATA
     {
         public UtxoFileItem() : base(null) { }
@@ -1632,7 +1648,7 @@ namespace New
             get
             {
                 return (msrw) => new MainDataInfomation[]{
-                    new MainDataInfomation(typeof(Utxo[]), () => utxos, (o) => utxos = (Utxo[])o),
+                    new MainDataInfomation(typeof(Utxo[]), null, null, () => utxos, (o) => utxos = (Utxo[])o),
                     new MainDataInfomation(typeof(long), () => nextPosition, (o) => nextPosition = (long)o),
                 };
             }
@@ -1667,6 +1683,7 @@ namespace New
 #endif
     }
 
+    //2014/11/26 試験済
     public class UtxoDB : DATABASEBASE
     {
         public UtxoDB(string _pathBase) : base(_pathBase) { }
@@ -1728,7 +1745,7 @@ namespace New
             }
         }
 
-        private string GetPath() { return System.IO.Path.Combine(pathBase, filenameBase); }
+        public string GetPath() { return System.IO.Path.Combine(pathBase, filenameBase); }
     }
 
     public class BlockFilePointersDB : DATABASEBASE
@@ -1843,6 +1860,149 @@ namespace New
     }
 
     #endregion
+
+    public static class BlockChainTest
+    {
+        //UtxoDBのテスト
+        public static void Test1()
+        {
+            string basepath = System.IO.Path.GetDirectoryName(Assembly.GetEntryAssembly().Location);
+            UtxoDB utxodb = new UtxoDB(basepath);
+            string path = utxodb.GetPath();
+
+            if (File.Exists(path))
+                File.Delete(path);
+
+            byte[] emptyBytes = utxodb.GetUtxoData(0);
+
+            if (emptyBytes.Length != 0)
+                throw new Exception("test1_1");
+
+            byte[] utxoBytesIn1 = new byte[1024];
+            for (int i = 0; i < utxoBytesIn1.Length; i++)
+                utxoBytesIn1[i] = (byte)256.RandomNum();
+
+            int overallLangth = utxoBytesIn1.Length + 4;
+
+            long position1 = utxodb.AddUtxoData(utxoBytesIn1);
+
+            if (position1 != 0)
+                throw new Exception("test1_2");
+
+            long position2 = utxodb.AddUtxoData(utxoBytesIn1);
+
+            if (position2 != overallLangth)
+                throw new Exception("test1_3");
+
+            byte[] utxoBytesOut1 = utxodb.GetUtxoData(position1);
+
+            if (!utxoBytesIn1.BytesEquals(utxoBytesOut1))
+                throw new Exception("test1_4");
+
+            byte[] utxoBytesOut2 = utxodb.GetUtxoData(position2);
+
+            if (!utxoBytesIn1.BytesEquals(utxoBytesOut2))
+                throw new Exception("test1_5");
+
+            byte[] utxoBytesIn2 = new byte[utxoBytesIn1.Length];
+            for (int i = 0; i < utxoBytesIn2.Length; i++)
+                utxoBytesIn2[i] = (byte)256.RandomNum();
+
+            utxodb.UpdateUtxoData(position1, utxoBytesIn2);
+
+            byte[] utxoBytesOut3 = utxodb.GetUtxoData(position1);
+
+            if (!utxoBytesIn2.BytesEquals(utxoBytesOut3))
+                throw new Exception("test1_6");
+
+            byte[] utxoBytesOut4 = utxodb.GetUtxoData(position2);
+
+            if (!utxoBytesIn1.BytesEquals(utxoBytesOut4))
+                throw new Exception("test1_7");
+
+            utxodb.UpdateUtxoData(position2, utxoBytesIn2);
+
+            byte[] utxoBytesOut5 = utxodb.GetUtxoData(position1);
+
+            if (!utxoBytesIn2.BytesEquals(utxoBytesOut5))
+                throw new Exception("test1_8");
+
+            byte[] utxoBytesOut6 = utxodb.GetUtxoData(position2);
+
+            if (!utxoBytesIn2.BytesEquals(utxoBytesOut6))
+                throw new Exception("test1_9");
+
+            byte[] emptyBytes2 = utxodb.GetUtxoData(overallLangth * 2);
+        }
+
+        //UtxoFileItemのテスト
+        public static void Test2()
+        {
+            int size1 = 16;
+
+            UtxoFileItem ufiIn = new UtxoFileItem(size1);
+
+            for (int i = 0; i < ufiIn.utxos.Length; i++)
+            {
+                if (ufiIn.utxos[i].blockIndex != 0)
+                    throw new Exception("test2_11");
+                if (ufiIn.utxos[i].txIndex != 0)
+                    throw new Exception("test2_12");
+                if (ufiIn.utxos[i].txOutIndex != 0)
+                    throw new Exception("test2_13");
+                if (ufiIn.utxos[i].amount.rawAmount != 0)
+                    throw new Exception("test2_14");
+            }
+
+            if (ufiIn.utxos.Length != size1)
+                throw new Exception("test2_1");
+
+            if (ufiIn.Size != size1)
+                throw new Exception("test2_2");
+
+            if (ufiIn.nextPosition != -1)
+                throw new Exception("test2_3");
+
+            for (int i = 0; i < ufiIn.utxos.Length; i++)
+                ufiIn.utxos[i] = new Utxo(65536.RandomNum(), 65536.RandomNum(), 65536.RandomNum(), new Creacoin(65536.RandomNum()));
+
+            byte[] ufiBytes = ufiIn.ToBinary();
+
+            if (ufiBytes.Length != 397)
+                throw new Exception("test2_16");
+
+            UtxoFileItem ufiOut = SHAREDDATA.FromBinary<UtxoFileItem>(ufiBytes);
+
+            if (ufiIn.utxos.Length != ufiOut.utxos.Length)
+                throw new Exception("test2_4");
+
+            if (ufiIn.Size != ufiOut.Size)
+                throw new Exception("test2_5");
+
+            if (ufiIn.nextPosition != ufiOut.nextPosition)
+                throw new Exception("test2_6");
+
+            for (int i = 0; i < ufiIn.utxos.Length; i++)
+            {
+                if (ufiIn.utxos[i].blockIndex != ufiOut.utxos[i].blockIndex)
+                    throw new Exception("test2_7");
+                if (ufiIn.utxos[i].txIndex != ufiOut.utxos[i].txIndex)
+                    throw new Exception("test2_8");
+                if (ufiIn.utxos[i].txOutIndex != ufiOut.utxos[i].txOutIndex)
+                    throw new Exception("test2_9");
+                if (ufiIn.utxos[i].amount.rawAmount != ufiOut.utxos[i].amount.rawAmount)
+                    throw new Exception("test2_10");
+            }
+
+            for (int i = 0; i < ufiIn.utxos.Length; i++)
+                ufiOut.utxos[i] = new Utxo(65536.RandomNum(), 65536.RandomNum(), 65536.RandomNum(), new Creacoin(65536.RandomNum()));
+
+            byte[] ufiBytes2 = ufiOut.ToBinary();
+
+            if (ufiBytes.Length != ufiBytes2.Length)
+                throw new Exception("test2_15");
+        }
+    }
 
     #region temp
 

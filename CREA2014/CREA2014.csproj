@@ -99,14 +99,6 @@
     <Reference Include="System.Xaml">
       <RequiredTargetFramework>4.0</RequiredTargetFramework>
     </Reference>
-    <Reference Include="vtortola.WebSockets, Version=2.1.2.0, Culture=neutral, PublicKeyToken=81d473dc006f9631, processorArchitecture=MSIL">
-      <SpecificVersion>False</SpecificVersion>
-      <HintPath>Component\vtortola.WebSockets.dll</HintPath>
-    </Reference>
-    <Reference Include="vtortola.WebSockets.Rfc6455, Version=2.1.2.0, Culture=neutral, PublicKeyToken=59ff114ce73f53a3, processorArchitecture=MSIL">
-      <SpecificVersion>False</SpecificVersion>
-      <HintPath>Component\vtortola.WebSockets.Rfc6455.dll</HintPath>
-    </Reference>
     <Reference Include="WindowsBase" />
     <Reference Include="PresentationCore" />
     <Reference Include="PresentationFramework" />

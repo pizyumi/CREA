@@ -18,87 +18,9 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Threading;
-using vtortola.WebSockets;
-using vtortola.WebSockets.Rfc6455;
 
 namespace CREA2014
 {
-    public delegate void WebSocketEventListenerOnConnect(WebSocket webSocket);
-    public delegate void WebSocketEventListenerOnDisconnect(WebSocket webSocket);
-    public delegate void WebSocketEventListenerOnMessage(WebSocket webSocket, String message);
-    public delegate void WebSocketEventListenerOnError(WebSocket webSocket, Exception error);
-
-    public class WebSocketEventListener : IDisposable
-    {
-        public event WebSocketEventListenerOnConnect OnConnect;
-        public event WebSocketEventListenerOnDisconnect OnDisconnect;
-        public event WebSocketEventListenerOnMessage OnMessage;
-        public event WebSocketEventListenerOnError OnError;
-
-        readonly WebSocketListener _listener;
-
-        public WebSocketEventListener(IPEndPoint endpoint)
-            : this(endpoint, new WebSocketListenerOptions())
-        {
-        }
-        public WebSocketEventListener(IPEndPoint endpoint, WebSocketListenerOptions options)
-        {
-            _listener = new WebSocketListener(endpoint, options);
-            _listener.Standards.RegisterStandard(new WebSocketFactoryRfc6455(_listener));
-        }
-        public void Start()
-        {
-            _listener.Start();
-            Task.Run((Func<Task>)ListenAsync);
-        }
-        public void Stop()
-        {
-            _listener.Stop();
-        }
-        private async Task ListenAsync()
-        {
-            while (_listener.IsStarted)
-            {
-                var websocket = await _listener.AcceptWebSocketAsync(CancellationToken.None)
-                                               .ConfigureAwait(false);
-                if (websocket != null)
-                    Task.Run(() => HandleWebSocketAsync(websocket));
-            }
-        }
-        private async Task HandleWebSocketAsync(WebSocket websocket)
-        {
-            try
-            {
-                if (OnConnect != null)
-                    OnConnect.Invoke(websocket);
-
-                while (websocket.IsConnected)
-                {
-                    var message = await websocket.ReadStringAsync(CancellationToken.None)
-                                                 .ConfigureAwait(false);
-                    if (message != null && OnMessage != null)
-                        OnMessage.Invoke(websocket, message);
-                }
-
-                if (OnDisconnect != null)
-                    OnDisconnect.Invoke(websocket);
-            }
-            catch (Exception ex)
-            {
-                if (OnError != null)
-                    OnError.Invoke(websocket, ex);
-            }
-            finally
-            {
-                websocket.Dispose();
-            }
-        }
-        public void Dispose()
-        {
-            _listener.Dispose();
-        }
-    }
-
     public partial class MainWindow : Window
     {
         public class MainWindowSettings : SAVEABLESETTINGSDATA
@@ -1006,25 +928,17 @@ namespace CREA2014
                         wssession.Send("chatAdded " + string.Join(Environment.NewLine, chat));
             };
 
-            WebSocketEventListener server = new WebSocketEventListener(new IPEndPoint(IPAddress.Any, mws.PortWebSocket), new WebSocketListenerOptions() { SubProtocols = new string[] { "text" } });
-            server.OnConnect += (ws) =>
-            {
-                Console.WriteLine("Connection from " + ws.RemoteEndpoint.ToString());
-            };
-            server.OnDisconnect += (ws) => Console.WriteLine("Disconnection from " + ws.RemoteEndpoint.ToString());
-            server.OnError += (ws, ex) => Console.WriteLine("Error: " + ex.Message);
-            server.OnMessage += (ws, msg) =>
-            {
-                Console.WriteLine("Message from [" + ws.RemoteEndpoint + "]: " + msg);
-                ws.WriteStringAsync(new String(msg.Reverse().ToArray()), CancellationToken.None).Wait();
-            };
-            server.Start();
-
-
             WebSocketServer oldWss;
             wss = new WebSocketServer();
             wss.NewSessionConnected += (wssession) =>
             {
+                if (!mws.IsWebServerAcceptExternal && !wssession.RemoteEndPoint.Address.Equals(IPAddress.Loopback) && !wssession.RemoteEndPoint.Address.Equals(IPAddress.IPv6Loopback))
+                {
+                    wssession.Close();
+
+                    return;
+                }
+
                 string[] partBalanceName = json.CreateJSONPair("name", "残高".Multilanguage(201));
                 string[] partBalanceDetail = json.CreateJSONPair("detail", _CreateBalanceJSON());
                 string[] partBalance = json.CreateJSONObject(partBalanceName, partBalanceDetail);
@@ -1082,7 +996,7 @@ namespace CREA2014
             };
             wss.NewMessageReceived += newMessageReceived;
             wss.Setup(mws.PortWebSocket);
-            //wss.Start();
+            wss.Start();
 
             //wb.Navigated += (sender2, e2) => ((mshtml.HTMLDocument)wb.Document).focus();
             if (isStartedWebServer)
