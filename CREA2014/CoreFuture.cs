@@ -1322,7 +1322,7 @@ namespace New
         private readonly UtxoFilePointers ufptemp;
         private readonly UtxoDB udb;
 
-        private void AddUtxo(Sha256Ripemd160Hash address, long blockIndex, int txIndex, int txOutIndex, CurrencyUnit amount)
+        public void AddUtxo(Sha256Ripemd160Hash address, long blockIndex, int txIndex, int txOutIndex, CurrencyUnit amount)
         {
             long? prevPosition = null;
             long? position = ufptemp.Get(address);
@@ -1369,7 +1369,7 @@ namespace New
             }
         }
 
-        private void RemoveUtxo(Sha256Ripemd160Hash address, long blockIndex, int txIndex, int txOutIndex)
+        public void RemoveUtxo(Sha256Ripemd160Hash address, long blockIndex, int txIndex, int txOutIndex)
         {
             long? position = ufptemp.Get(address);
             if (!position.HasValue)
@@ -1426,6 +1426,7 @@ namespace New
         }
     }
 
+    //2014/11/27 試験済
     public class UtxoFilePointers : SHAREDDATA
     {
         public UtxoFilePointers() : base(null) { addressFilePointers = new Dictionary<Sha256Ripemd160Hash, long>(); }
@@ -1655,6 +1656,55 @@ namespace New
         }
 
         public void Update(long nextPositionNew) { nextPosition = nextPositionNew; }
+    }
+
+    public class UtxoFileAccessDB : DATABASEBASE
+    {
+        public UtxoFileAccessDB(string _pathBase) : base(_pathBase) { }
+
+        protected override int version { get { return 0; } }
+
+#if TEST
+        protected override string filenameBase { get { return "utxos_access_test" + version.ToString(); } }
+#else
+        protected override string filenameBase { get { return "utxos" + version.ToString(); } }
+#endif
+
+        public void Create()
+        {
+            try
+            {
+                string path = GetPath();
+
+                if (File.Exists(path))
+                    throw new InvalidOperationException("utxos_access_file_exist");
+
+                File.Create(path);
+            }
+            catch (Exception ex)
+            {
+
+            }
+        }
+
+        public void Delete()
+        {
+            try
+            {
+                string path = GetPath();
+
+                if (!File.Exists(path))
+                    throw new InvalidOperationException("utxo_access_file_not_exist");
+
+                File.Delete(path);
+            }
+            catch (Exception ex)
+            {
+
+            }
+        }
+
+        public string GetPath() { return System.IO.Path.Combine(pathBase, filenameBase); }
     }
 
     public class UtxoFilePointersDB : SimpleDatabase
@@ -2001,6 +2051,186 @@ namespace New
 
             if (ufiBytes.Length != ufiBytes2.Length)
                 throw new Exception("test2_15");
+        }
+
+        //UtxoFilePointersのテスト
+        public static void Test3()
+        {
+            UtxoFilePointers ufp = new UtxoFilePointers();
+
+            Dictionary<Sha256Ripemd160Hash, long> afps = ufp.GetAll();
+
+            if (afps.Count != 0)
+                throw new Exception("test3_1");
+
+            Sha256Ripemd160Hash hash1 = new Sha256Ripemd160Hash(new byte[] { (byte)256.RandomNum() });
+            Sha256Ripemd160Hash hash2 = new Sha256Ripemd160Hash(new byte[] { (byte)256.RandomNum() });
+            Sha256Ripemd160Hash hash3 = new Sha256Ripemd160Hash(new byte[] { (byte)256.RandomNum() });
+
+            long position1 = 56636.RandomNum();
+            long position2 = 56636.RandomNum();
+            long position3 = 56636.RandomNum();
+
+            long? positionNull = ufp.Get(hash1);
+
+            if (positionNull.HasValue)
+                throw new Exception("test3_2");
+
+            ufp.Add(hash1, position1);
+            ufp.Add(hash2, position2);
+            ufp.Add(hash3, position3);
+
+            bool flag = false;
+            try
+            {
+                ufp.Add(hash1, position1);
+            }
+            catch (InvalidOperationException)
+            {
+                flag = true;
+            }
+            if (!flag)
+                throw new Exception("test3_3");
+
+            Dictionary<Sha256Ripemd160Hash, long> afps2 = ufp.GetAll();
+
+            if (afps2.Count != 3)
+                throw new Exception("test3_4");
+            if (!afps2.Keys.Contains(hash1))
+                throw new Exception("test3_5");
+            if (!afps2.Keys.Contains(hash2))
+                throw new Exception("test3_6");
+            if (!afps2.Keys.Contains(hash3))
+                throw new Exception("test3_7");
+            if (afps2[hash1] != position1)
+                throw new Exception("test3_8");
+            if (afps2[hash2] != position2)
+                throw new Exception("test3_9");
+            if (afps2[hash3] != position3)
+                throw new Exception("test3_10");
+
+            long? position1Out = ufp.Get(hash1);
+            long? position2Out = ufp.Get(hash2);
+            long? position3Out = ufp.Get(hash3);
+
+            if (!position1Out.HasValue || position1Out.Value != position1)
+                throw new Exception("test3_11");
+            if (!position2Out.HasValue || position2Out.Value != position2)
+                throw new Exception("test3_12");
+            if (!position3Out.HasValue || position3Out.Value != position3)
+                throw new Exception("test3_13");
+
+            ufp.Remove(hash1);
+
+            bool flag2 = false;
+            try
+            {
+                ufp.Remove(hash1);
+            }
+            catch (InvalidOperationException)
+            {
+                flag2 = true;
+            }
+            if (!flag2)
+                throw new Exception("test3_14");
+
+            Dictionary<Sha256Ripemd160Hash, long> afps3 = ufp.GetAll();
+
+            if (afps3.Count != 2)
+                throw new Exception("test3_15");
+
+            ufp.Update(hash2, position1);
+
+            long? position1Out2 = ufp.Get(hash2);
+
+            if (!position1Out2.HasValue || position1Out2.Value != position1)
+                throw new Exception("test3_16");
+
+            bool flag3 = false;
+            try
+            {
+                ufp.Update(hash1, position2);
+            }
+            catch (InvalidOperationException)
+            {
+                flag3 = true;
+            }
+            if (!flag3)
+                throw new Exception("test3_17");
+
+            Dictionary<Sha256Ripemd160Hash, long> afps4 = ufp.GetAll();
+
+            if (afps4.Count != 2)
+                throw new Exception("test3_18");
+
+            ufp.AddOrUpdate(hash2, position3);
+
+            long? position1Out3 = ufp.Get(hash2);
+
+            if (!position1Out3.HasValue || position1Out3.Value != position3)
+                throw new Exception("test3_19");
+
+            Dictionary<Sha256Ripemd160Hash, long> afps5 = ufp.GetAll();
+
+            if (afps5.Count != 2)
+                throw new Exception("test3_20");
+
+            ufp.AddOrUpdate(hash1, position3);
+
+            long? position1Out4 = ufp.Get(hash1);
+
+            if (!position1Out4.HasValue || position1Out4.Value != position3)
+                throw new Exception("test3_21");
+
+            Dictionary<Sha256Ripemd160Hash, long> afps6 = ufp.GetAll();
+
+            if (afps5.Count != 3)
+                throw new Exception("test3_22");
+
+            byte[] ufpBytes = ufp.ToBinary();
+
+            UtxoFilePointers ufp2 = SHAREDDATA.FromBinary<UtxoFilePointers>(ufpBytes);
+
+            Dictionary<Sha256Ripemd160Hash, long> afps7 = ufp2.GetAll();
+
+            if (afps6.Count != afps7.Count)
+                throw new Exception("test3_23");
+
+            foreach (var key in afps6.Keys)
+            {
+                if (!afps7.Keys.Contains(key))
+                    throw new Exception("test3_24");
+                if (afps6[key] != afps7[key])
+                    throw new Exception("test3_25");
+            }
+        }
+
+        //
+        public static void Test4()
+        {
+            string basepath = System.IO.Path.GetDirectoryName(Assembly.GetEntryAssembly().Location);
+
+            UtxoFilePointersDB ufpdb = new UtxoFilePointersDB(basepath);
+            string ufpdbPath = ufpdb.GetPath();
+
+            if (File.Exists(ufpdbPath))
+                File.Delete(ufpdbPath);
+
+            UtxoFilePointersTempDB ufptempdb = new UtxoFilePointersTempDB(basepath);
+            string ufptempdbPath = ufptempdb.GetPath();
+
+            if (File.Exists(ufptempdbPath))
+                File.Delete(ufptempdbPath);
+
+            UtxoDB utxodb = new UtxoDB(basepath);
+            string utxodbPath = utxodb.GetPath();
+
+            if (File.Exists(utxodbPath))
+                File.Delete(utxodbPath);
+
+            UtxoManager utxom = new UtxoManager(ufpdb, ufptempdb, utxodb);
+
+
         }
     }
 

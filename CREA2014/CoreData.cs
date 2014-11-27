@@ -4974,7 +4974,7 @@ namespace CREA2014
                 fs.Write(data, 0, data.Length);
         }
 
-        private string GetPath() { return Path.Combine(pathBase, filenameBase); }
+        public string GetPath() { return Path.Combine(pathBase, filenameBase); }
     }
 
     public class FirstNodeInfosDatabase : SimpleDatabase

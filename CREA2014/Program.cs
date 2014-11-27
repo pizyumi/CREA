@@ -3496,13 +3496,17 @@ namespace CREA2014
         [STAThread]
         public static void Main(string[] args)
         {
-            New.BlockChainTest.Test1();
+            //New.BlockChainTest.Test1();
 
-            Console.WriteLine("test1_succeeded");
+            //Console.WriteLine("test1_succeeded");
 
-            New.BlockChainTest.Test2();
+            //New.BlockChainTest.Test2();
 
-            Console.WriteLine("test2_succeeded");
+            //Console.WriteLine("test2_succeeded");
+
+            //New.BlockChainTest.Test3();
+
+            //Console.WriteLine("test3_succeeded");
 
             string argExtract = "extract";
             string argCopy = "copy";
@@ -3749,16 +3753,16 @@ namespace CREA2014
                 {"keep_connection_fnis_zero", (args) => "初期ノード情報を取得できなかったため、常時接続を開始できませんでした。".Multilanguage(196)},
                 {"keep_connection_nis_zero", (args) => "初期ノードからノード情報を取得できなかったため、常時接続を開始できませんでした。".Multilanguage(197)},
                 {"update_keep_conn", (args) => "常時接続更新".Multilanguage(215)},
+                {"web_server_data", (args) => "内部ウェブサーバデータが存在しません。".Multilanguage(91)},
+                {"wss_command", (args) => "内部ウェブソケット命令が存在しません。".Multilanguage(92)},
             };
 
             exceptionMessages = new Dictionary<string, Func<string>>() {
-                {"already_starting", () => string.Format("{0}は既に起動しています。".Multilanguage(0), appname)},
+                {"fatal:already_starting", () => string.Format("{0}は既に起動しています。".Multilanguage(0), appname)},
                 {"ie_not_existing", () => string.Format("{0}の動作には Internet Explorer 10 以上が必要です。".Multilanguage(1), appname)},
                 {"ie_too_old", () => string.Format("{0}の動作には Internet Explorer 10 以上が必要です。".Multilanguage(2), appname)},
                 {"require_administrator", () => string.Format("{0}は管理者として実行する必要があります。".Multilanguage(3), appname)},
                 {"lisence_text_not_found", () => "ソフトウェア使用許諾契約書が見付かりません。".Multilanguage(90)},
-                {"web_server_data", () => "内部ウェブサーバデータが存在しません。".Multilanguage(91)},
-                {"wss_command", () => "内部ウェブソケット命令が存在しません。".Multilanguage(92)},
                 {"http_listener_not_supported", () => "HTTP Listenerに対応していません。".Multilanguage(191)},
             };
 
@@ -3918,9 +3922,19 @@ namespace CREA2014
                 foreach (var unhandledExceptionEventHandler in unhandledExceptionEventHandlers)
                     unhandledExceptionEventHandler(sender, e);
             };
-            //<未実装>例外発生状況の記録など？
             AppDomain.CurrentDomain.FirstChanceException += (sender, e) =>
             {
+                if (e.Exception.Message.StartsWith("fatal:"))
+                {
+                    string exceptionMessage = e.Exception.Message.GetExceptionMessage();
+
+                    if (exceptionMessage != e.Exception.Message)
+                    {
+                        MessageBox.Show(string.Join(Environment.NewLine, "致命的な問題が発生したため終了します：".Multilanguage(226), exceptionMessage), appnameWithVersion, MessageBoxButton.OK, MessageBoxImage.Error);
+
+                        Environment.Exit(0);
+                    }
+                }
             };
 
             //<未実装>各種統計情報の取得
@@ -3936,7 +3950,7 @@ namespace CREA2014
             isCanRunMultiple = false;
             //testApplication = new CreaNetworkLocalTestApplication(logger);
 #else
-                testApplication = null;
+            testApplication = null;
             isCanRunMultiple = false;
 #endif
 
@@ -3960,7 +3974,7 @@ namespace CREA2014
 
                 Process currentProcess = Process.GetCurrentProcess();
                 string fileName = Path.GetFileName(currentProcess.MainModule.FileName);
-                if (String.Compare(fileName, "devenv.exe", true) != 0 && String.Compare(fileName, "XDesProc.exe", true) != 0)
+                if (string.Compare(fileName, "devenv.exe", true) != 0 && string.Compare(fileName, "XDesProc.exe", true) != 0)
                 {
                     string basepathFC = @"Software\Microsoft\Internet Explorer\Main\FeatureControl";
 
@@ -4047,6 +4061,8 @@ namespace CREA2014
                 File.WriteAllBytes(pstatusFilepath, pstatus.ToBinary());
             };
 
+            throw new ApplicationException("fatal:already_starting");
+
             if (!isCanRunMultiple)
             {
                 // Windows 2000（NT 5.0）以降のみグローバル・ミューテックス利用可
@@ -4062,7 +4078,7 @@ namespace CREA2014
                 }
                 catch (ApplicationException)
                 {
-                    throw new ApplicationException("already_starting");
+                    throw new ApplicationException("fatal:already_starting");
                 }
 
                 if (mutex.WaitOne(0, false))
@@ -4092,7 +4108,7 @@ namespace CREA2014
                         API.SetForegroundWindow(preveousProcess.MainWindowHandle);
                     }
                     else
-                        throw new ApplicationException("already_starting");
+                        throw new ApplicationException("fatal:already_starting");
                 }
 
                 mutex.Close();

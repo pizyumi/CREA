@@ -720,7 +720,7 @@ namespace CREA2014
                                 hlres.OutputStream.Write(data, 0, data.Length);
                             }
                             else
-                                throw new KeyNotFoundException("web_server_data");
+                                this.RaiseError("web_server_data", 5);
                     }
                 });
                 thread.Start();
@@ -769,7 +769,7 @@ namespace CREA2014
                             throw new InvalidOperationException("new_chat_pah_not_found");
                         }
                         else
-                            throw new NotSupportedException("wss_command");
+                            this.RaiseError("wss_command", 5);
                     });
                 }
                 catch (Exception ex)
