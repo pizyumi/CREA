@@ -3497,16 +3497,11 @@ namespace CREA2014
         public static void Main(string[] args)
         {
             //New.BlockChainTest.Test1();
-
-            //Console.WriteLine("test1_succeeded");
-
             //New.BlockChainTest.Test2();
-
-            //Console.WriteLine("test2_succeeded");
-
             //New.BlockChainTest.Test3();
-
-            //Console.WriteLine("test3_succeeded");
+            //New.BlockChainTest.Test4();
+            New.BlockChainTest.Test5();
+            New.BlockChainTest.Test6();
 
             string argExtract = "extract";
             string argCopy = "copy";
@@ -3759,11 +3754,12 @@ namespace CREA2014
 
             exceptionMessages = new Dictionary<string, Func<string>>() {
                 {"fatal:already_starting", () => string.Format("{0}は既に起動しています。".Multilanguage(0), appname)},
-                {"ie_not_existing", () => string.Format("{0}の動作には Internet Explorer 10 以上が必要です。".Multilanguage(1), appname)},
-                {"ie_too_old", () => string.Format("{0}の動作には Internet Explorer 10 以上が必要です。".Multilanguage(2), appname)},
-                {"require_administrator", () => string.Format("{0}は管理者として実行する必要があります。".Multilanguage(3), appname)},
-                {"lisence_text_not_found", () => "ソフトウェア使用許諾契約書が見付かりません。".Multilanguage(90)},
-                {"http_listener_not_supported", () => "HTTP Listenerに対応していません。".Multilanguage(191)},
+                {"fatal:ie_not_existing", () => string.Format("{0}の動作には Internet Explorer 10 以上が必要です。".Multilanguage(1), appname)},
+                {"fatal:ie_too_old", () => string.Format("{0}の動作には Internet Explorer 10 以上が必要です。".Multilanguage(2), appname)},
+                {"fatal:require_administrator", () => string.Format("{0}は管理者として実行する必要があります。".Multilanguage(3), appname)},
+                {"fatal:lisence_text_not_found", () => "ソフトウェア使用許諾契約書が見付かりません。".Multilanguage(90)},
+                {"fatal:http_listener_not_supported", () => "HTTP Listenerに対応していません。".Multilanguage(191)},
+                {"fatal:utxos_access", () => string.Format("データベースが破損した可能性があります。{0}を起動できません。".Multilanguage(227), appname)},
             };
 
             Extension.Tasked += (sender, e) => tasker.New(new TaskData(e, taskNumber++));
@@ -3965,12 +3961,12 @@ namespace CREA2014
                     {
                         v = ieKey.GetValue("Version");
                         if (v == null)
-                            throw new ApplicationException("ie_not_existing");
+                            throw new ApplicationException("fatal:ie_not_existing");
                     }
                     int.TryParse(v.ToString().Split('.')[0], out ieVersion);
                 }
                 if (ieVersion < 10)
-                    throw new ApplicationException("ie_too_old");
+                    throw new ApplicationException("fatal:ie_too_old");
 
                 Process currentProcess = Process.GetCurrentProcess();
                 string fileName = Path.GetFileName(currentProcess.MainModule.FileName);

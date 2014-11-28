@@ -2505,7 +2505,7 @@ namespace CREA2014
         {
             if (_index < 1)
                 throw new ArgumentOutOfRangeException("block_header_index_out");
-            if (_nonce.Length > maxNonceLength)
+            if (_nonce.Length != nonceLength)
                 throw new ArgumentOutOfRangeException("block_header_nonce_out");
 
             index = _index;
@@ -2515,7 +2515,7 @@ namespace CREA2014
             nonce = _nonce;
         }
 
-        private static readonly int maxNonceLength = 10;
+        private static readonly int nonceLength = 10;
 
         public long index { get; private set; }
         public X15Hash prevBlockHash { get; private set; }
@@ -2535,7 +2535,7 @@ namespace CREA2014
                         new MainDataInfomation(typeof(Sha256Sha256Hash), null, () => merkleRootHash, (o) => merkleRootHash = (Sha256Sha256Hash)o),
                         new MainDataInfomation(typeof(DateTime), () => timestamp, (o) => timestamp = (DateTime)o),
                         new MainDataInfomation(typeof(byte[]), 4, () => difficulty.CompactTarget, (o) => difficulty = new Difficulty<X15Hash>((byte[])o)),
-                        new MainDataInfomation(typeof(byte[]), null, () => nonce, (o) => nonce = (byte[])o),
+                        new MainDataInfomation(typeof(byte[]), nonceLength, () => nonce, (o) => nonce = (byte[])o),
                     };
                 else
                     throw new NotSupportedException();
@@ -2548,7 +2548,7 @@ namespace CREA2014
         public void UpdateTimestamp(DateTime newTimestamp) { timestamp = newTimestamp; }
         public void UpdateNonce(byte[] newNonce)
         {
-            if (newNonce.Length > maxNonceLength)
+            if (newNonce.Length != nonceLength)
                 throw new ArgumentOutOfRangeException("block_header_nonce_out");
 
             nonce = newNonce;

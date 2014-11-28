@@ -605,7 +605,7 @@ namespace CREA2014
             if (pstatus.IsFirst)
             {
                 if (!File.Exists(lisenceTextFilePath))
-                    throw new FileNotFoundException("lisence_text_not_found");
+                    throw new FileNotFoundException("fatal:lisence_text_not_found");
 
                 LisenceWindow lw = new LisenceWindow(File.ReadAllText(lisenceTextFilePath));
                 lw.Owner = this;
@@ -651,7 +651,7 @@ namespace CREA2014
             Action _StartWebServer = () =>
             {
                 if (!HttpListener.IsSupported)
-                    throw new Exception("http_listener_not_supported");
+                    throw new Exception("fatal:http_listener_not_supported");
 
                 DefaltNetworkInterface defaultNetworkInterface = new DefaltNetworkInterface();
                 defaultNetworkInterface.Get();
@@ -671,7 +671,7 @@ namespace CREA2014
                         return;
                     }
                     else if (ex.ErrorCode == 5)
-                        throw new HttpListenerException(ex.ErrorCode, "require_administrator");
+                        throw new HttpListenerException(ex.ErrorCode, "fatal:require_administrator");
 
                     throw ex;
                 }

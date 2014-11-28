@@ -872,17 +872,18 @@ namespace New
 
     public class BlockChain
     {
-        public BlockChain(BlockManagerDB _bmdb, BlockDB _bdb, BlockFilePointersDB _bfpdb, UtxoFilePointersDB _ufpdb, UtxoFilePointersTempDB _ufptempdb, UtxoDB _udb)
+        public BlockChain(BlockManagerDB _bmdb, BlockDB _bdb, BlockFilePointersDB _bfpdb, UtxoFileAccessDB _ufadb, UtxoFilePointersDB _ufpdb, UtxoFilePointersTempDB _ufptempdb, UtxoDB _udb)
         {
             bmdb = _bmdb;
             bdb = _bdb;
             bfpdb = _bfpdb;
+            ufadb = _ufadb;
             ufpdb = _ufpdb;
             ufptempdb = _ufptempdb;
             udb = _udb;
 
             blockManager = new BlockManager(bmdb, bdb, bfpdb, mainBlocksRetain, oldBlocksRetain, mainBlockFinalization);
-            utxoManager = new UtxoManager(ufpdb, ufptempdb, udb);
+            utxoManager = new UtxoManager(ufadb, ufpdb, ufptempdb, udb);
 
             pendingBlocks = new Dictionary<X15Hash, Block>[capacity];
             rejectedBlocks = new Dictionary<X15Hash, Block>[capacity];
@@ -899,6 +900,7 @@ namespace New
         private readonly BlockManagerDB bmdb;
         private readonly BlockDB bdb;
         private readonly BlockFilePointersDB bfpdb;
+        private readonly UtxoFileAccessDB ufadb;
         private readonly UtxoFilePointersDB ufpdb;
         private readonly UtxoFilePointersTempDB ufptempdb;
         private readonly UtxoDB udb;
@@ -1298,38 +1300,48 @@ namespace New
 
     public class UtxoManager
     {
-        public UtxoManager(UtxoFilePointersDB _ufpdb, UtxoFilePointersTempDB _ufptempdb, UtxoDB _udb)
+        public UtxoManager(UtxoFileAccessDB _ufadb, UtxoFilePointersDB _ufpdb, UtxoFilePointersTempDB _ufptempdb, UtxoDB _udb)
         {
+            ufadb = _ufadb;
             ufpdb = _ufpdb;
             ufptempdb = _ufptempdb;
             udb = _udb;
 
-            ufp = SHAREDDATA.FromBinary<UtxoFilePointers>(ufpdb.GetData());
-            ufptemp = SHAREDDATA.FromBinary<UtxoFilePointers>(ufptempdb.GetData());
+            ufp = ufpdb.GetData().Pipe((bytes) => bytes.Length == 0 ? new UtxoFilePointers() : SHAREDDATA.FromBinary<UtxoFilePointers>(bytes));
+            ufptemp = ufptempdb.GetData().Pipe((bytes) => bytes.Length == 0 ? new UtxoFilePointers() : SHAREDDATA.FromBinary<UtxoFilePointers>(bytes));
 
             foreach (var ufpitem in ufptemp.GetAll())
                 ufp.AddOrUpdate(ufpitem.Key, ufpitem.Value);
 
-            //<未実装>ファイルが壊れていないか確認するための
+            ufadb.Create();
             ufpdb.UpdateData(ufp.ToBinary());
+            ufptempdb.Delete();
+            ufadb.Delete();
+
+            ufptemp = new UtxoFilePointers();
         }
 
         private static readonly int FirstUtxoFileItemSize = 16;
 
+        private readonly UtxoFileAccessDB ufadb;
         private readonly UtxoFilePointersDB ufpdb;
         private readonly UtxoFilePointersTempDB ufptempdb;
+        private readonly UtxoDB udb;
+
         private readonly UtxoFilePointers ufp;
         private readonly UtxoFilePointers ufptemp;
-        private readonly UtxoDB udb;
 
         public void AddUtxo(Sha256Ripemd160Hash address, long blockIndex, int txIndex, int txOutIndex, CurrencyUnit amount)
         {
-            long? prevPosition = null;
             long? position = ufptemp.Get(address);
             if (!position.HasValue)
                 position = ufp.Get(address);
 
             bool isProcessed = false;
+
+            bool isFirst = true;
+            long? firstPosition = null;
+            int? firstSize = null;
 
             UtxoFileItem ufi = null;
             while (true)
@@ -1337,20 +1349,28 @@ namespace New
                 if (!position.HasValue)
                     ufi = new UtxoFileItem(FirstUtxoFileItemSize);
                 else if (position == -1)
-                    ufi = new UtxoFileItem(ufi.Size * 2);
+                    ufi = new UtxoFileItem(firstSize.Value * 2);
                 else
                     ufi = SHAREDDATA.FromBinary<UtxoFileItem>(udb.GetUtxoData(position.Value));
 
-                for (int k = 0; k < ufi.Size; k++)
-                    if (ufi.utxos[k].IsEmpty)
+                if (isFirst)
+                {
+                    firstPosition = position;
+                    firstSize = ufi.Size;
+
+                    isFirst = false;
+                }
+
+                for (int i = 0; i < ufi.Size; i++)
+                    if (ufi.utxos[i].IsEmpty)
                     {
-                        ufi.utxos[k].Reset(blockIndex, txIndex, txOutIndex, amount);
+                        ufi.utxos[i].Reset(blockIndex, txIndex, txOutIndex, amount);
 
                         if (!position.HasValue)
                             ufptemp.Add(address, udb.AddUtxoData(ufi.ToBinary()));
                         else if (position == -1)
                         {
-                            ufi.Update(prevPosition.Value);
+                            ufi.Update(firstPosition.Value);
                             ufptemp.Update(address, udb.AddUtxoData(ufi.ToBinary()));
                         }
                         else
@@ -1364,7 +1384,6 @@ namespace New
                 if (isProcessed)
                     break;
 
-                prevPosition = position;
                 position = ufi.nextPosition;
             }
         }
@@ -1376,49 +1395,92 @@ namespace New
                 position = ufp.Get(address);
 
             if (!position.HasValue)
-                throw new InvalidOperationException();
+                throw new InvalidOperationException("utxo_address_not_exist");
 
             bool isProcessed = false;
 
-            while (!isProcessed && position.Value != -1)
+            while (position.Value != -1)
             {
                 UtxoFileItem ufi = SHAREDDATA.FromBinary<UtxoFileItem>(udb.GetUtxoData(position.Value));
 
-                for (int k = 0; k < ufi.Size && !isProcessed; k++)
-                    if (ufi.utxos[k].IsMatch(blockIndex, txIndex, txOutIndex))
+                for (int i = 0; i < ufi.Size; i++)
+                    if (ufi.utxos[i].IsMatch(blockIndex, txIndex, txOutIndex))
                     {
-                        ufi.utxos[k].Empty();
+                        ufi.utxos[i].Empty();
 
                         udb.UpdateUtxoData(position.Value, ufi.ToBinary());
 
                         isProcessed = true;
+
+                        break;
                     }
+
+                if (isProcessed)
+                    break;
 
                 position = ufi.nextPosition;
             }
 
             if (!isProcessed)
-                throw new InvalidOperationException();
+                throw new InvalidOperationException("utxo_not_exist");
         }
 
+        public void SaveUFPTemp()
+        {
+            ufptempdb.UpdateData(ufptemp.ToBinary());
+        }
+
+        public Utxo FindUtxo(Sha256Ripemd160Hash address, long blockIndex, int txIndex, int txOutIndex)
+        {
+            long? position = ufptemp.Get(address);
+            if (!position.HasValue)
+                position = ufp.Get(address);
+
+            if (!position.HasValue)
+                return null;
+
+            while (position.Value != -1)
+            {
+                UtxoFileItem ufi = SHAREDDATA.FromBinary<UtxoFileItem>(udb.GetUtxoData(position.Value));
+
+                for (int i = 0; i < ufi.Size; i++)
+                    if (ufi.utxos[i].IsMatch(blockIndex, txIndex, txOutIndex))
+                        return ufi.utxos[i];
+
+                position = ufi.nextPosition;
+            }
+
+            return null;
+        }
+
+        //prevTxOutssは全ての取引に対するものを含んでいなければならないことに注意
+        //貨幣移動取引のみならず貨幣生成取引に対するもの（貨幣生成取引の場合取引入力は0個であるため空になる筈）も含んでいなければならない
         public void ApplyBlock(Block block, TransactionOutput[][] prevTxOutss)
         {
+            if (block.Transactions.Length != prevTxOutss.Length)
+                throw new InvalidOperationException("apply_blk_num_of_txs_mismatch");
+
             block.Transactions.ForEach((i, tx) =>
             {
+                if (tx.TxInputs.Length != prevTxOutss[i].Length)
+                    throw new InvalidOperationException("apply_blk_num_of_txin_and_txout_mismatch");
+
                 tx.TxInputs.ForEach((j, txIn) => RemoveUtxo(prevTxOutss[i][j].Address, txIn.PrevTxBlockIndex, txIn.PrevTxIndex, txIn.PrevTxOutputIndex));
                 tx.TxOutputs.ForEach((j, txOut) => AddUtxo(txOut.Address, block.Index, i, j, txOut.Amount));
             });
         }
 
+        //prevTxOutssは全ての取引に対するものを含んでいなければならないことに注意
+        //貨幣移動取引のみならず貨幣生成取引に対するもの（貨幣生成取引の場合取引入力は0個であるため空になる筈）も含んでいなければならない
         public void RevertBlock(Block block, TransactionOutput[][] prevTxOutss)
         {
             if (block.Transactions.Length != prevTxOutss.Length)
-                throw new ArgumentException();
+                throw new InvalidOperationException("revert_blk_num_of_txs_mismatch");
 
             block.Transactions.ForEach((i, tx) =>
             {
                 if (tx.TxInputs.Length != prevTxOutss[i].Length)
-                    throw new ArgumentException();
+                    throw new InvalidOperationException("revert_blk_num_of_txin_and_txout_mismatch");
 
                 tx.TxInputs.ForEach((j, txIn) => AddUtxo(prevTxOutss[i][j].Address, txIn.PrevTxBlockIndex, txIn.PrevTxIndex, txIn.PrevTxOutputIndex, prevTxOutss[i][j].Amount));
                 tx.TxOutputs.ForEach((j, txOut) => RemoveUtxo(txOut.Address, block.Index, i, j));
@@ -1679,11 +1741,11 @@ namespace New
                 if (File.Exists(path))
                     throw new InvalidOperationException("utxos_access_file_exist");
 
-                File.Create(path);
+                File.WriteAllText(path, string.Empty);
             }
             catch (Exception ex)
             {
-
+                throw new ApplicationException("fatal:utxos_access", ex);
             }
         }
 
@@ -1700,7 +1762,7 @@ namespace New
             }
             catch (Exception ex)
             {
-
+                throw new ApplicationException("fatal:utxos_access", ex);
             }
         }
 
@@ -1731,12 +1793,22 @@ namespace New
 #else
         protected override string filenameBase { get { return "utxos_index_tamp" + version.ToString(); } }
 #endif
+
+        public void Delete()
+        {
+            string path = GetPath();
+
+            if (File.Exists(path))
+                File.Delete(path);
+        }
     }
 
     //2014/11/26 試験済
     public class UtxoDB : DATABASEBASE
     {
         public UtxoDB(string _pathBase) : base(_pathBase) { }
+
+        private FileStream fs;
 
         protected override int version { get { return 0; } }
 
@@ -1746,53 +1818,79 @@ namespace New
         protected override string filenameBase { get { return "utxos" + version.ToString(); } }
 #endif
 
+        public void Open()
+        {
+            if (fs != null)
+                throw new InvalidOperationException("utxodb_open_twice");
+
+            fs = new FileStream(GetPath(), FileMode.OpenOrCreate, FileAccess.ReadWrite);
+        }
+
+        public void Close()
+        {
+            if (fs == null)
+                throw new InvalidOperationException("utxodb_close_twice_or_first");
+
+            fs.Close();
+            fs = null;
+        }
+
+        public void Flush()
+        {
+            if (fs == null)
+                throw new InvalidOperationException("utxodb_not_opened");
+
+            fs.Flush();
+        }
+
         public byte[] GetUtxoData(long position)
         {
-            using (FileStream fs = new FileStream(GetPath(), FileMode.OpenOrCreate, FileAccess.Read))
-            {
-                if (position >= fs.Length)
-                    return new byte[] { };
+            if (fs == null)
+                throw new InvalidOperationException("utxodb_not_opened");
 
-                fs.Seek(position, SeekOrigin.Begin);
+            if (position >= fs.Length)
+                return new byte[] { };
 
-                byte[] lengthBytes = new byte[4];
-                fs.Read(lengthBytes, 0, 4);
-                int length = BitConverter.ToInt32(lengthBytes, 0);
+            fs.Seek(position, SeekOrigin.Begin);
 
-                byte[] data = new byte[length];
-                fs.Read(data, 0, length);
-                return data;
-            }
+            byte[] lengthBytes = new byte[4];
+            fs.Read(lengthBytes, 0, 4);
+            int length = BitConverter.ToInt32(lengthBytes, 0);
+
+            byte[] data = new byte[length];
+            fs.Read(data, 0, length);
+            return data;
         }
 
         public long AddUtxoData(byte[] utxoData)
         {
-            using (FileStream fs = new FileStream(GetPath(), FileMode.Append, FileAccess.Write))
-            {
-                long position = fs.Position;
+            if (fs == null)
+                throw new InvalidOperationException("utxodb_not_opened");
 
-                fs.Write(BitConverter.GetBytes(utxoData.Length), 0, 4);
-                fs.Write(utxoData, 0, utxoData.Length);
+            long position = fs.Length;
 
-                return position;
-            }
+            fs.Seek(fs.Length, SeekOrigin.Begin);
+            fs.Write(BitConverter.GetBytes(utxoData.Length), 0, 4);
+            fs.Write(utxoData, 0, utxoData.Length);
+
+            return position;
         }
 
         public void UpdateUtxoData(long position, byte[] utxoData)
         {
-            using (FileStream fs = new FileStream(GetPath(), FileMode.OpenOrCreate, FileAccess.ReadWrite))
-            {
-                fs.Seek(position, SeekOrigin.Begin);
+            if (fs == null)
+                throw new InvalidOperationException("utxodb_not_opened");
 
-                byte[] lengthBytes = new byte[4];
-                fs.Read(lengthBytes, 0, 4);
-                int length = BitConverter.ToInt32(lengthBytes, 0);
+            fs.Seek(position, SeekOrigin.Begin);
 
-                if (utxoData.Length != length)
-                    throw new InvalidOperationException();
+            byte[] lengthBytes = new byte[4];
+            fs.Read(lengthBytes, 0, 4);
+            int length = BitConverter.ToInt32(lengthBytes, 0);
 
-                fs.Write(utxoData, 0, utxoData.Length);
-            }
+            if (utxoData.Length != length)
+                throw new InvalidOperationException();
+
+            fs.Write(utxoData, 0, utxoData.Length);
         }
 
         public string GetPath() { return System.IO.Path.Combine(pathBase, filenameBase); }
@@ -1923,6 +2021,8 @@ namespace New
             if (File.Exists(path))
                 File.Delete(path);
 
+            utxodb.Open();
+
             byte[] emptyBytes = utxodb.GetUtxoData(0);
 
             if (emptyBytes.Length != 0)
@@ -1983,6 +2083,10 @@ namespace New
                 throw new Exception("test1_9");
 
             byte[] emptyBytes2 = utxodb.GetUtxoData(overallLangth * 2);
+
+            utxodb.Close();
+
+            Console.WriteLine("test1_succeeded");
         }
 
         //UtxoFileItemのテスト
@@ -2051,6 +2155,8 @@ namespace New
 
             if (ufiBytes.Length != ufiBytes2.Length)
                 throw new Exception("test2_15");
+
+            Console.WriteLine("test2_succeeded");
         }
 
         //UtxoFilePointersのテスト
@@ -2203,12 +2309,20 @@ namespace New
                 if (afps6[key] != afps7[key])
                     throw new Exception("test3_25");
             }
+
+            Console.WriteLine("test3_succeeded");
         }
 
-        //
+        //UtxoManagerのテスト1
         public static void Test4()
         {
             string basepath = System.IO.Path.GetDirectoryName(Assembly.GetEntryAssembly().Location);
+
+            UtxoFileAccessDB ufadb = new UtxoFileAccessDB(basepath);
+            string ufadbPath = ufadb.GetPath();
+
+            if (File.Exists(ufadbPath))
+                File.Delete(ufadbPath);
 
             UtxoFilePointersDB ufpdb = new UtxoFilePointersDB(basepath);
             string ufpdbPath = ufpdb.GetPath();
@@ -2228,9 +2342,306 @@ namespace New
             if (File.Exists(utxodbPath))
                 File.Delete(utxodbPath);
 
-            UtxoManager utxom = new UtxoManager(ufpdb, ufptempdb, utxodb);
+            UtxoManager utxom = new UtxoManager(ufadb, ufpdb, ufptempdb, utxodb);
 
+            if (File.Exists(ufadbPath))
+                throw new Exception("test4_9");
 
+            utxodb.Open();
+
+            Sha256Ripemd160Hash address1 = new Sha256Ripemd160Hash(new byte[] { 0 });
+            Sha256Ripemd160Hash address2 = new Sha256Ripemd160Hash(new byte[] { 1 });
+            Sha256Ripemd160Hash address3 = new Sha256Ripemd160Hash(new byte[] { 2 });
+
+            Utxo utxoNull = utxom.FindUtxo(address1, 65536.RandomNum(), 65536.RandomNum(), 65536.RandomNum());
+
+            if (utxoNull != null)
+                throw new Exception("test4_1");
+
+            long bi1 = 65536.RandomNum();
+            int ti1 = 65536.RandomNum();
+            int toi1 = 65536.RandomNum();
+            Creacoin c1 = new Creacoin(65536.RandomNum());
+
+            long bi2 = 65536.RandomNum();
+            int ti2 = 65536.RandomNum();
+            int toi2 = 65536.RandomNum();
+            Creacoin c2 = new Creacoin(65536.RandomNum());
+
+            long bi3 = 65536.RandomNum();
+            int ti3 = 65536.RandomNum();
+            int toi3 = 65536.RandomNum();
+            Creacoin c3 = new Creacoin(65536.RandomNum());
+
+            utxom.AddUtxo(address1, bi1, ti1, toi1, c1);
+            utxom.AddUtxo(address2, bi2, ti1, toi1, c1);
+            utxom.AddUtxo(address3, bi3, ti1, toi1, c1);
+            utxom.AddUtxo(address1, bi1, ti2, toi2, c2);
+            utxom.AddUtxo(address2, bi2, ti2, toi2, c2);
+            utxom.AddUtxo(address3, bi3, ti2, toi2, c2);
+            utxom.AddUtxo(address1, bi1, ti3, toi3, c3);
+            utxom.AddUtxo(address2, bi2, ti3, toi3, c3);
+            utxom.AddUtxo(address3, bi3, ti3, toi3, c3);
+
+            Utxo utxo1 = utxom.FindUtxo(address1, bi1, ti1, toi1);
+
+            if (utxo1 == null)
+                throw new Exception("test4_2");
+            if (utxo1.blockIndex != bi1)
+                throw new Exception("test4_3");
+            if (utxo1.txIndex != ti1)
+                throw new Exception("test4_4");
+            if (utxo1.txOutIndex != toi1)
+                throw new Exception("test4_5");
+            if (utxo1.amount.rawAmount != c1.rawAmount)
+                throw new Exception("test4_6");
+
+            utxom.AddUtxo(address1, bi1, ti1, toi1, c1);
+
+            utxom.RemoveUtxo(address1, bi1, ti1, toi1);
+            utxom.RemoveUtxo(address1, bi1, ti1, toi1);
+
+            bool flag = false;
+            try
+            {
+                utxom.RemoveUtxo(address1, bi1, ti1, toi1);
+            }
+            catch (InvalidOperationException)
+            {
+                flag = true;
+            }
+            if (!flag)
+                throw new Exception("test4_7");
+
+            Utxo utxoNull2 = utxom.FindUtxo(address1, bi1, ti1, toi1);
+
+            if (utxoNull2 != null)
+                throw new Exception("test4_8");
+
+            utxom.SaveUFPTemp();
+
+            utxodb.Close();
+
+            if (!File.Exists(ufpdbPath))
+                throw new Exception("test4_9");
+            if (!File.Exists(ufptempdbPath))
+                throw new Exception("test4_10");
+            if (!File.Exists(utxodbPath))
+                throw new Exception("test4_11");
+
+            UtxoManager utxom2 = new UtxoManager(ufadb, ufpdb, ufptempdb, utxodb);
+
+            if (File.Exists(ufptempdbPath))
+                throw new Exception("test4_13");
+
+            utxodb.Open();
+
+            Utxo utxo2 = utxom.FindUtxo(address2, bi2, ti1, toi1);
+
+            if (utxo2 == null)
+                throw new Exception("test4_14");
+            if (utxo2.blockIndex != bi2)
+                throw new Exception("test4_15");
+            if (utxo2.txIndex != ti1)
+                throw new Exception("test4_16");
+            if (utxo2.txOutIndex != toi1)
+                throw new Exception("test4_17");
+            if (utxo2.amount.rawAmount != c1.rawAmount)
+                throw new Exception("test4_18");
+
+            utxodb.Close();
+
+            Console.WriteLine("test4_succeeded");
+        }
+
+        //UtxoManagerのテスト2
+        public static void Test5()
+        {
+            string basepath = System.IO.Path.GetDirectoryName(Assembly.GetEntryAssembly().Location);
+
+            UtxoFileAccessDB ufadb = new UtxoFileAccessDB(basepath);
+            string ufadbPath = ufadb.GetPath();
+
+            if (File.Exists(ufadbPath))
+                File.Delete(ufadbPath);
+
+            UtxoFilePointersDB ufpdb = new UtxoFilePointersDB(basepath);
+            string ufpdbPath = ufpdb.GetPath();
+
+            if (File.Exists(ufpdbPath))
+                File.Delete(ufpdbPath);
+
+            UtxoFilePointersTempDB ufptempdb = new UtxoFilePointersTempDB(basepath);
+            string ufptempdbPath = ufptempdb.GetPath();
+
+            if (File.Exists(ufptempdbPath))
+                File.Delete(ufptempdbPath);
+
+            UtxoDB utxodb = new UtxoDB(basepath);
+            string utxodbPath = utxodb.GetPath();
+
+            if (File.Exists(utxodbPath))
+                File.Delete(utxodbPath);
+
+            UtxoManager utxom = new UtxoManager(ufadb, ufpdb, ufptempdb, utxodb);
+
+            Sha256Ripemd160Hash address = new Sha256Ripemd160Hash(new byte[] { 0 });
+
+            int length = 100;
+
+            long[] bis = new long[length];
+            int[] tis = new int[length];
+            int[] tois = new int[length];
+            Creacoin[] cs = new Creacoin[length];
+
+            for (int i = 0; i < length; i++)
+            {
+                bis[i] = 65536.RandomNum();
+                tis[i] = 65536.RandomNum();
+                tois[i] = 65536.RandomNum();
+                cs[i] = new Creacoin(65536.RandomNum());
+            }
+
+            Stopwatch stopwatch = new Stopwatch();
+            stopwatch.Start();
+
+            utxodb.Open();
+
+            for (int i = 0; i < length; i++)
+                utxom.AddUtxo(address, bis[i], tis[i], tois[i], cs[i]);
+
+            utxom.SaveUFPTemp();
+
+            utxodb.Close();
+
+            stopwatch.Stop();
+
+            Console.WriteLine(string.Join(":", "test5_5", stopwatch.ElapsedMilliseconds.ToString() + "ms"));
+
+            UtxoManager utxom2 = new UtxoManager(ufadb, ufpdb, ufptempdb, utxodb);
+
+            Utxo[] utxos = new Utxo[length];
+
+            stopwatch.Reset();
+            stopwatch.Start();
+
+            utxodb.Open();
+
+            for (int i = 0; i < length; i++)
+                utxos[i] = utxom.FindUtxo(address, bis[i], tis[i], tois[i]);
+
+            utxodb.Close();
+
+            stopwatch.Stop();
+
+            Console.WriteLine(string.Join(":", "test5_6", stopwatch.ElapsedMilliseconds.ToString() + "ms"));
+
+            for (int i = 0; i < length; i++)
+            {
+                if (utxos[i].blockIndex != bis[i])
+                    throw new Exception("test5_1");
+                if (utxos[i].txIndex != tis[i])
+                    throw new Exception("test5_2");
+                if (utxos[i].txOutIndex != tois[i])
+                    throw new Exception("test5_3");
+                if (utxos[i].amount.rawAmount != cs[i].rawAmount)
+                    throw new Exception("test5_4");
+            }
+        }
+
+        //UtxoManagerのテスト3
+        public static void Test6()
+        {
+            string basepath = System.IO.Path.GetDirectoryName(Assembly.GetEntryAssembly().Location);
+
+            UtxoFileAccessDB ufadb = new UtxoFileAccessDB(basepath);
+            string ufadbPath = ufadb.GetPath();
+
+            if (File.Exists(ufadbPath))
+                File.Delete(ufadbPath);
+
+            UtxoFilePointersDB ufpdb = new UtxoFilePointersDB(basepath);
+            string ufpdbPath = ufpdb.GetPath();
+
+            if (File.Exists(ufpdbPath))
+                File.Delete(ufpdbPath);
+
+            UtxoFilePointersTempDB ufptempdb = new UtxoFilePointersTempDB(basepath);
+            string ufptempdbPath = ufptempdb.GetPath();
+
+            if (File.Exists(ufptempdbPath))
+                File.Delete(ufptempdbPath);
+
+            UtxoDB utxodb = new UtxoDB(basepath);
+            string utxodbPath = utxodb.GetPath();
+
+            if (File.Exists(utxodbPath))
+                File.Delete(utxodbPath);
+
+            UtxoManager utxom = new UtxoManager(ufadb, ufpdb, ufptempdb, utxodb);
+
+            int length = 100;
+
+            Sha256Ripemd160Hash[] addrs = new Sha256Ripemd160Hash[length];
+            long[] bis = new long[length];
+            int[] tis = new int[length];
+            int[] tois = new int[length];
+            Creacoin[] cs = new Creacoin[length];
+
+            for (int i = 0; i < length; i++)
+            {
+                addrs[i] = new Sha256Ripemd160Hash(BitConverter.GetBytes(i));
+                bis[i] = 65536.RandomNum();
+                tis[i] = 65536.RandomNum();
+                tois[i] = 65536.RandomNum();
+                cs[i] = new Creacoin(65536.RandomNum());
+            }
+
+            Stopwatch stopwatch = new Stopwatch();
+            stopwatch.Start();
+
+            utxodb.Open();
+
+            for (int i = 0; i < length; i++)
+                utxom.AddUtxo(addrs[i], bis[i], tis[i], tois[i], cs[i]);
+
+            utxom.SaveUFPTemp();
+
+            utxodb.Close();
+
+            stopwatch.Stop();
+
+            Console.WriteLine(string.Join(":", "test6_5", stopwatch.ElapsedMilliseconds.ToString() + "ms"));
+
+            UtxoManager utxom2 = new UtxoManager(ufadb, ufpdb, ufptempdb, utxodb);
+
+            Utxo[] utxos = new Utxo[length];
+
+            stopwatch.Reset();
+            stopwatch.Start();
+
+            utxodb.Open();
+
+            for (int i = 0; i < length; i++)
+                utxos[i] = utxom.FindUtxo(addrs[i], bis[i], tis[i], tois[i]);
+
+            utxodb.Close();
+
+            stopwatch.Stop();
+
+            Console.WriteLine(string.Join(":", "test6_6", stopwatch.ElapsedMilliseconds.ToString() + "ms"));
+
+            for (int i = 0; i < length; i++)
+            {
+                if (utxos[i].blockIndex != bis[i])
+                    throw new Exception("test6_1");
+                if (utxos[i].txIndex != tis[i])
+                    throw new Exception("test6_2");
+                if (utxos[i].txOutIndex != tois[i])
+                    throw new Exception("test6_3");
+                if (utxos[i].amount.rawAmount != cs[i].rawAmount)
+                    throw new Exception("test6_4");
+            }
         }
     }
 

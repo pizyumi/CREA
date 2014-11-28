@@ -3454,7 +3454,7 @@ namespace CREA2014
                 if (ex.ErrorCode == 183)
                     return;
                 else if (ex.ErrorCode == 5)
-                    throw new HttpListenerException(ex.ErrorCode, "require_administrator");
+                    throw new HttpListenerException(ex.ErrorCode, "fatal:require_administrator");
 
                 throw ex;
             }
