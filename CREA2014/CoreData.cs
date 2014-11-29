@@ -364,6 +364,62 @@ namespace CREA2014
         }
     }
 
+    public class Creahash : HASHBASE
+    {
+        public Creahash() : base() { }
+
+        public Creahash(string stringHash) : base(stringHash) { }
+
+        public Creahash(byte[] data) : base(data) { }
+
+        public string tripKey { get; private set; }
+        public string trip { get; private set; }
+
+        public override int SizeBit { get { return 256; } }
+
+        protected override byte[] ComputeHash(byte[] data)
+        {
+            tripKey = Convert.ToBase64String(data.ComputeSha1());
+
+            byte[] sha1base64shiftjissha1 = Encoding.GetEncoding("Shift-JIS").GetBytes(tripKey).ComputeSha1();
+
+            tripKey += "#";
+            trip = "◆" + Convert.ToBase64String(sha1base64shiftjissha1).Substring(0, 12).Replace('+', '.');
+
+            byte[] blake512 = data.ComputeBlake512();
+            byte[] bmw512 = data.ComputeBmw512();
+            byte[] groestl512 = data.ComputeGroestl512();
+            byte[] skein512 = data.ComputeSkein512();
+            byte[] jh512 = data.ComputeJh512();
+            byte[] keccak512 = data.ComputeKeccak512();
+            byte[] luffa512 = data.ComputeLuffa512();
+
+            byte[] cubehash512 = data.ComputeCubehash512();
+            byte[] shavite512 = data.ComputeShavite512();
+            byte[] simd512 = data.ComputeSimd512();
+            byte[] echo512 = data.ComputeEcho512();
+
+            byte[] fugue512 = data.ComputeFugue512();
+            byte[] hamsi512 = data.ComputeHamsi512();
+
+            byte[] shabal512 = data.ComputeShabal512();
+
+            byte[] hash = new byte[32];
+
+            Array.Copy(sha1base64shiftjissha1, hash, 20);
+
+            foreach (var item in new byte[][] { blake512, bmw512, groestl512, skein512, jh512, keccak512, luffa512
+                    , cubehash512, shavite512, simd512, echo512, fugue512, hamsi512, shabal512 })
+            {
+                for (int i = 0; i < 32; i++)
+                    hash[i] ^= item[i];
+            }
+
+            return hash;
+        }
+    }
+
+
     #endregion
 
     #region 電子署名
@@ -2461,15 +2517,15 @@ namespace CREA2014
 
     public abstract class Block : SHAREDDATA
     {
-        public Block(int? _version) : base(_version) { idCache = new CachedData<X15Hash>(IdGenerator); }
+        public Block(int? _version) : base(_version) { idCache = new CachedData<Creahash>(IdGenerator); }
 
-        protected CachedData<X15Hash> idCache;
-        protected virtual Func<X15Hash> IdGenerator { get { return () => new X15Hash(ToBinary()); } }
-        public virtual X15Hash Id { get { return idCache.Data; } }
+        protected CachedData<Creahash> idCache;
+        protected virtual Func<Creahash> IdGenerator { get { return () => new Creahash(ToBinary()); } }
+        public virtual Creahash Id { get { return idCache.Data; } }
 
         public abstract long Index { get; }
-        public abstract X15Hash PrevId { get; }
-        public abstract Difficulty<X15Hash> Difficulty { get; }
+        public abstract Creahash PrevId { get; }
+        public abstract Difficulty<Creahash> Difficulty { get; }
         public abstract Transaction[] Transactions { get; }
 
         public virtual bool Verify() { return true; }
@@ -2482,8 +2538,8 @@ namespace CREA2014
         public readonly string genesisWord = "Bitstamp 2014/05/25 BTC/USD High 586.34 BTC to the moooooooon!!";
 
         public override long Index { get { return 0; } }
-        public override X15Hash PrevId { get { return null; } }
-        public override Difficulty<X15Hash> Difficulty { get { return new Difficulty<X15Hash>(HASHBASE.FromHash<X15Hash>(new byte[] { 0, 127, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255 })); } }
+        public override Creahash PrevId { get { return null; } }
+        public override Difficulty<Creahash> Difficulty { get { return new Difficulty<Creahash>(HASHBASE.FromHash<Creahash>(new byte[] { 0, 127, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255 })); } }
         public override Transaction[] Transactions { get { return new Transaction[] { }; } }
 
         protected override Func<ReaderWriter, IEnumerable<MainDataInfomation>> StreamInfo
@@ -2501,7 +2557,7 @@ namespace CREA2014
     {
         public BlockHeader() : base(0) { }
 
-        public void LoadVersion0(long _index, X15Hash _prevBlockHash, DateTime _timestamp, Difficulty<X15Hash> _difficulty, byte[] _nonce)
+        public void LoadVersion0(long _index, Creahash _prevBlockHash, DateTime _timestamp, Difficulty<Creahash> _difficulty, byte[] _nonce)
         {
             if (_index < 1)
                 throw new ArgumentOutOfRangeException("block_header_index_out");
@@ -2518,10 +2574,10 @@ namespace CREA2014
         private static readonly int nonceLength = 10;
 
         public long index { get; private set; }
-        public X15Hash prevBlockHash { get; private set; }
+        public Creahash prevBlockHash { get; private set; }
         public Sha256Sha256Hash merkleRootHash { get; private set; }
         public DateTime timestamp { get; private set; }
-        public Difficulty<X15Hash> difficulty { get; private set; }
+        public Difficulty<Creahash> difficulty { get; private set; }
         public byte[] nonce { get; private set; }
 
         protected override Func<ReaderWriter, IEnumerable<MainDataInfomation>> StreamInfo
@@ -2531,10 +2587,10 @@ namespace CREA2014
                 if (Version == 0)
                     return (msrw) => new MainDataInfomation[]{
                         new MainDataInfomation(typeof(long), () => index, (o) => index = (long)o),
-                        new MainDataInfomation(typeof(X15Hash), null, () => prevBlockHash, (o) => prevBlockHash = (X15Hash)o),
+                        new MainDataInfomation(typeof(Creahash), null, () => prevBlockHash, (o) => prevBlockHash = (Creahash)o),
                         new MainDataInfomation(typeof(Sha256Sha256Hash), null, () => merkleRootHash, (o) => merkleRootHash = (Sha256Sha256Hash)o),
                         new MainDataInfomation(typeof(DateTime), () => timestamp, (o) => timestamp = (DateTime)o),
-                        new MainDataInfomation(typeof(byte[]), 4, () => difficulty.CompactTarget, (o) => difficulty = new Difficulty<X15Hash>((byte[])o)),
+                        new MainDataInfomation(typeof(byte[]), 4, () => difficulty.CompactTarget, (o) => difficulty = new Difficulty<Creahash>((byte[])o)),
                         new MainDataInfomation(typeof(byte[]), nonceLength, () => nonce, (o) => nonce = (byte[])o),
                     };
                 else
@@ -2625,7 +2681,7 @@ namespace CREA2014
         private static readonly long numberOfTimestamps = 11;
         private static readonly long targetTimespan = blockGenerationInterval * 1; //[sec]
 
-        private static readonly Difficulty<X15Hash> minDifficulty = new Difficulty<X15Hash>(HASHBASE.FromHash<X15Hash>(new byte[] { 0, 127, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255 }));
+        private static readonly Difficulty<Creahash> minDifficulty = new Difficulty<Creahash>(HASHBASE.FromHash<Creahash>(new byte[] { 0, 127, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255 }));
 
 #if TEST
         public static readonly Sha256Ripemd160Hash foundationPubKeyHash = new Sha256Ripemd160Hash(new byte[] { 69, 67, 83, 49, 32, 0, 0, 0, 16, 31, 116, 194, 127, 71, 154, 183, 50, 198, 23, 17, 129, 220, 25, 98, 4, 30, 93, 45, 53, 252, 176, 145, 108, 20, 226, 233, 36, 7, 35, 198, 98, 239, 109, 66, 206, 41, 162, 179, 255, 189, 126, 72, 97, 140, 165, 139, 118, 107, 137, 103, 76, 238, 125, 62, 163, 205, 108, 62, 189, 240, 124, 71 });
@@ -2680,10 +2736,10 @@ namespace CREA2014
         }
 
         public override long Index { get { return header.index; } }
-        public override X15Hash PrevId { get { return header.prevBlockHash; } }
-        public override Difficulty<X15Hash> Difficulty { get { return header.difficulty; } }
+        public override Creahash PrevId { get { return header.prevBlockHash; } }
+        public override Difficulty<Creahash> Difficulty { get { return header.difficulty; } }
 
-        protected override Func<X15Hash> IdGenerator { get { return () => new X15Hash(header.ToBinary()); } }
+        protected override Func<Creahash> IdGenerator { get { return () => new Creahash(header.ToBinary()); } }
 
         protected CachedData<Transaction[]> transactionsCache;
         protected virtual Func<Transaction[]> TransactionsGenerator
@@ -2964,7 +3020,7 @@ namespace CREA2014
                 throw new NotSupportedException("tx_block_not_supported");
         }
 
-        public static Difficulty<X15Hash> GetWorkRequired(long index, Func<long, TransactionalBlock> indexToTxBlock, int version)
+        public static Difficulty<Creahash> GetWorkRequired(long index, Func<long, TransactionalBlock> indexToTxBlock, int version)
         {
             if (index < 1)
                 throw new ArgumentOutOfRangeException("index_out");
@@ -3016,7 +3072,7 @@ namespace CREA2014
                     }
                     target3Bytes.Add((byte)prevtarget2BytesDouble);
 
-                    X15Hash hash = new X15Hash();
+                    Creahash hash = new Creahash();
 
                     byte[] targetBytes = new byte[hash.SizeByte];
                     if (pos != prevTargetBytes.Length - 1)
@@ -3052,7 +3108,7 @@ namespace CREA2014
 
                     hash.FromHash(targetBytes);
 
-                    Difficulty<X15Hash> difficulty = new Difficulty<X15Hash>(hash);
+                    Difficulty<Creahash> difficulty = new Difficulty<Creahash>(hash);
 
                     return (difficulty.Diff < minDifficulty.Diff ? minDifficulty : difficulty).Pipe((dif) => dif.RaiseNotification("difficulty", 3, difficulty.Diff.ToString()));
                 }
@@ -3448,7 +3504,7 @@ namespace CREA2014
 
             blockGroups = new SortedDictionary<long, List<TransactionalBlock>>();
             mainBlocks = new SortedDictionary<long, TransactionalBlock>();
-            isVerifieds = new Dictionary<X15Hash, bool>();
+            isVerifieds = new Dictionary<Creahash, bool>();
             numOfMainBlocksWhenSaveNext = numOfMainBlocksWhenSave;
 
             currentBngIndex = head / blockNodesGroupDiv;
@@ -3585,7 +3641,7 @@ namespace CREA2014
         private SortedDictionary<long, TransactionalBlock> mainBlocks;
         //検証したら結果を格納する
         //<未実装>保存したら（或いは、参照される可能性が低くなったら）削除しなければならない
-        private Dictionary<X15Hash, bool> isVerifieds;
+        private Dictionary<Creahash, bool> isVerifieds;
 
         private long cacheBgIndex;
         //bgPosition1（ブロック群のファイル上の位置）

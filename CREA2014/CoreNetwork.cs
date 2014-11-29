@@ -1294,6 +1294,7 @@ namespace CREA2014
             {
                 myPrivateRsaParameters = GetPrivateRsaParameters();
                 myIpAddress = GetIpAddressAndOpenPort();
+                myIpAddress = IPAddress.None;
                 myFirstNodeInfo = new FirstNodeInformation(myIpAddress, myPortNumber, Network);
 
                 CreateNodeInfo();
@@ -2647,20 +2648,19 @@ namespace CREA2014
                 sc.WriteBytes(BitConverter.GetBytes(isNew));
                 if (isNew)
                 {
-                    ResTransaction rt = SHAREDDATA.FromBinary<ResTransaction>(sc.ReadBytes());
-                    TransferTransaction tt = rt.transaction as TransferTransaction;
+                    TransferTransaction ttransaction = SHAREDDATA.FromBinary<Transaction>(sc.ReadBytes()) as TransferTransaction;
 
-                    if (tt == null)
+                    if (ttransaction == null)
                         throw new InvalidOperationException();
-                    if (!nnt.hash.Equals(tt.Id))
+                    if (!nnt.hash.Equals(ttransaction.Id))
                         throw new InvalidOperationException();
 
-                    if (!processedTransactions.AddTransaction(tt))
+                    if (!processedTransactions.AddTransaction(ttransaction))
                         return;
 
-                    ReceivedNewTransaction(this, tt);
+                    ReceivedNewTransaction(this, ttransaction);
 
-                    this.StartTask("diffuseNewTransactions", "diffuseNewTransactions", () => DiffuseNewTransaction(nodeInfo, nnt, rt));
+                    this.StartTask("diffuseNewTransactions", "diffuseNewTransactions", () => DiffuseNewTransaction(nodeInfo, nnt, ttransaction));
                 }
             }
             else if (message.name == MessageName.NotifyNewChat)
@@ -2714,19 +2714,16 @@ namespace CREA2014
                     throw new InvalidOperationException();
 
                 NotifyNewTransaction nnt = datas[0] as NotifyNewTransaction;
-                ResTransaction rt = datas[1] as ResTransaction;
-                TransferTransaction tt = rt.transaction as TransferTransaction;
+                TransferTransaction ttransaction = datas[1] as TransferTransaction;
 
-                if (nnt == null || rt == null)
+                if (nnt == null || ttransaction == null)
                     throw new InvalidOperationException();
-                if (tt == null)
-                    throw new InvalidOperationException();
-                if (!nnt.hash.Equals(tt.Id))
+                if (!nnt.hash.Equals(ttransaction.Id))
                     throw new InvalidOperationException();
 
                 sc.WriteBytes(nnt.ToBinary());
                 if (BitConverter.ToBoolean(sc.ReadBytes(), 0))
-                    sc.WriteBytes(rt.ToBinary());
+                    sc.WriteBytes(SHAREDDATA.ToBinary<Transaction>(ttransaction));
 
                 return new SHAREDDATA[] { };
             }
@@ -2762,17 +2759,17 @@ namespace CREA2014
                 throw new NotSupportedException("protocol_not_supported");
         }
 
-        public void DiffuseNewTransaction(Transaction transaction)
+        public void DiffuseNewTransaction(TransferTransaction ttransaction)
         {
-            if ((!processedTransactions.AddTransaction(transaction)).RaiseNotification(this.GetType(), "alredy_processed_tx", 3))
+            if ((!processedTransactions.AddTransaction(ttransaction)).RaiseNotification(this.GetType(), "alredy_processed_tx", 3))
                 return;
 
-            ReceivedNewTransaction(this, transaction);
+            ReceivedNewTransaction(this, ttransaction);
 
-            DiffuseNewTransaction(null, new NotifyNewTransaction(transaction.Id), new ResTransaction(transaction));
+            DiffuseNewTransaction(null, new NotifyNewTransaction(ttransaction.Id), ttransaction);
         }
 
-        private void DiffuseNewTransaction(NodeInformation source, NotifyNewTransaction nnt, ResTransaction rt) { Diffuse(source, new Message(MessageName.notifyNewTransaction, 0), nnt, rt); }
+        private void DiffuseNewTransaction(NodeInformation source, NotifyNewTransaction nnt, TransferTransaction ttransaction) { Diffuse(source, new Message(MessageName.notifyNewTransaction, 0), nnt, ttransaction); }
 
         public void DiffuseNewChat(Chat chat)
         {

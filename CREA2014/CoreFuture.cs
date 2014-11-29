@@ -812,8 +812,8 @@ namespace New
         private long index;
 
         public override long Index { get { return index; } }
-        public override X15Hash PrevId { get { return null; } }
-        public override Difficulty<X15Hash> Difficulty { get { return null; } }
+        public override Creahash PrevId { get { return null; } }
+        public override Difficulty<Creahash> Difficulty { get { return null; } }
         public override Transaction[] Transactions { get { return new Transaction[] { }; } }
 
         protected override Func<ReaderWriter, IEnumerable<MainDataInfomation>> StreamInfo
@@ -885,8 +885,8 @@ namespace New
             blockManager = new BlockManager(bmdb, bdb, bfpdb, mainBlocksRetain, oldBlocksRetain, mainBlockFinalization);
             utxoManager = new UtxoManager(ufadb, ufpdb, ufptempdb, udb);
 
-            pendingBlocks = new Dictionary<X15Hash, Block>[capacity];
-            rejectedBlocks = new Dictionary<X15Hash, Block>[capacity];
+            pendingBlocks = new Dictionary<Creahash, Block>[capacity];
+            rejectedBlocks = new Dictionary<Creahash, Block>[capacity];
             blocksCurrent = new CirculatedInteger((int)capacity);
         }
 
@@ -908,8 +908,8 @@ namespace New
         private readonly BlockManager blockManager;
         private readonly UtxoManager utxoManager;
 
-        private readonly Dictionary<X15Hash, Block>[] pendingBlocks;
-        private readonly Dictionary<X15Hash, Block>[] rejectedBlocks;
+        private readonly Dictionary<Creahash, Block>[] pendingBlocks;
+        private readonly Dictionary<Creahash, Block>[] rejectedBlocks;
         private readonly CirculatedInteger blocksCurrent;
 
         public enum UpdateChainInnerReturnType { updated, invariable, pending, rejected }
@@ -956,7 +956,7 @@ namespace New
             {
                 if (pendingBlocks[ret.position] == null)
                 {
-                    pendingBlocks[ret.position] = new Dictionary<X15Hash, Block>();
+                    pendingBlocks[ret.position] = new Dictionary<Creahash, Block>();
                     pendingBlocks[ret.position].Add(block.Id, block);
                 }
                 else if (!pendingBlocks[ret.position].Keys.Contains(block.Id))
@@ -971,7 +971,7 @@ namespace New
                         pendingBlocks[ci.value].Remove(ret.rejectedBlocks[i].Id);
                     if (rejectedBlocks[ci.value] == null)
                     {
-                        rejectedBlocks[ci.value] = new Dictionary<X15Hash, Block>();
+                        rejectedBlocks[ci.value] = new Dictionary<Creahash, Block>();
                         rejectedBlocks[ci.value].Add(ret.rejectedBlocks[i].Id, ret.rejectedBlocks[i]);
                     }
                     else

@@ -3500,8 +3500,12 @@ namespace CREA2014
             //New.BlockChainTest.Test2();
             //New.BlockChainTest.Test3();
             //New.BlockChainTest.Test4();
-            New.BlockChainTest.Test5();
-            New.BlockChainTest.Test6();
+            //New.BlockChainTest.Test5();
+            //New.BlockChainTest.Test6();
+
+
+
+
 
             string argExtract = "extract";
             string argCopy = "copy";
@@ -3943,7 +3947,7 @@ namespace CREA2014
             bool isCanRunMultiple;
 #if TEST
             testApplication = null;
-            isCanRunMultiple = false;
+            isCanRunMultiple = true;
             //testApplication = new CreaNetworkLocalTestApplication(logger);
 #else
             testApplication = null;
@@ -4056,8 +4060,6 @@ namespace CREA2014
 
                 File.WriteAllBytes(pstatusFilepath, pstatus.ToBinary());
             };
-
-            throw new ApplicationException("fatal:already_starting");
 
             if (!isCanRunMultiple)
             {
