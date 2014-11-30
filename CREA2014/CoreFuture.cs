@@ -980,13 +980,15 @@ namespace New
             }
         }
 
-        public UpdateChainInnerReturn UpdateChainInner(Block block)
+        private UpdateChainInnerReturn UpdateChainInner(Block block)
         {
-            long minBlockIndex = blockManager.mainBlockFinalization;
+            long minBlockIndex = blockManager.finalizedBlockIndex;
             long maxBlockIndex = blockManager.headBlockIndex + maxBlockIndexMargin;
 
+            //確定されたブロックのブロック番号以下のブロック番号を有するブロックは認められない
             if (block.Index > maxBlockIndex)
                 throw new InvalidOperationException();
+            //現在のブロックのブロック番号より大き過ぎるブロック番号を有するブロックは認められない
             if (block.Index <= minBlockIndex)
                 throw new InvalidOperationException();
 
@@ -996,17 +998,23 @@ namespace New
 
             if (block.Index == blockManager.headBlockIndex + 1)
             {
-                //if (block.PrevId.Equals(blockManager.GetHeadBlock().Id) && VerifyBlock(block))
-                //{
+                if (!block.PrevId.Equals(blockManager.GetHeadBlock().Id))
+                    return new UpdateChainInnerReturn(UpdateChainInnerReturnType.pending, position);
 
+                TransactionOutput[][] prevTxOutputss = new TransactionOutput[block.Transactions.Length][];
+                block.Transactions.ForEach((i, tx) =>
+                {
+                    prevTxOutputss[i] = new TransactionOutput[tx.TxInputs.Length];
+                    tx.TxInputs.ForEach((j, txIn) => prevTxOutputss[i][j] = blockManager.GetMainBlock(txIn.PrevTxBlockIndex).Transactions[txIn.PrevTxIndex].TxOutputs[txIn.PrevTxOutputIndex]);
+                });
 
-                //    blockManager.AddMainBlock(block);
-                //    //utxoManager.ApplyBlock(block);
+                if (!VerifyBlock(block, prevTxOutputss, new Dictionary<Sha256Ripemd160Hash, List<Utxo>>(), new Dictionary<Sha256Ripemd160Hash, List<Utxo>>()))
+                    return new UpdateChainInnerReturn(UpdateChainInnerReturnType.pending, position);
 
-                //    return new UpdateChainInnerReturn(UpdateChainInnerReturnType.updated);
-                //}
+                blockManager.AddMainBlock(block);
+                utxoManager.ApplyBlock(block, prevTxOutputss);
 
-                return new UpdateChainInnerReturn(UpdateChainInnerReturnType.pending, position);
+                return new UpdateChainInnerReturn(UpdateChainInnerReturnType.updated);
             }
 
             Block currentBrunchBlock = block;
@@ -1148,7 +1156,7 @@ namespace New
     {
         public BlockManager(BlockManagerDB _bmdb, BlockDB _bdb, BlockFilePointersDB _bfpdb, int _mainBlocksRetain, int _oldBlocksRetain, long _mainBlockFinalization)
         {
-            if (mainBlocksRetain < mainBlockFinalization)
+            if (_mainBlocksRetain < _mainBlockFinalization)
                 throw new InvalidOperationException();
 
             bmdb = _bmdb;
@@ -1180,6 +1188,7 @@ namespace New
         private readonly BlockManagerDB bmdb;
         private readonly BlockDB bdb;
         private readonly BlockFilePointersDB bfpdb;
+
         private readonly BlockManagerData bmd;
 
         private readonly Block[] mainBlocks;
@@ -2004,7 +2013,7 @@ namespace New
             return position;
         }
 
-        private string GetPath(long blockFileIndex) { return System.IO.Path.Combine(pathBase, filenameBase + blockFileIndex.ToString()); }
+        public string GetPath(long blockFileIndex) { return System.IO.Path.Combine(pathBase, filenameBase + blockFileIndex.ToString()); }
     }
 
     #endregion
@@ -2642,6 +2651,58 @@ namespace New
                 if (utxos[i].amount.rawAmount != cs[i].rawAmount)
                     throw new Exception("test6_4");
             }
+        }
+
+        //
+        public static void Test7()
+        {
+        }
+
+        //
+        public static void Test8()
+        {
+        }
+
+        //BlockManagerのテスト1
+        public static void Test9()
+        {
+            string basepath = System.IO.Path.GetDirectoryName(Assembly.GetEntryAssembly().Location);
+
+            BlockManagerDB _bmdb;
+            BlockDB _bdb;
+            BlockFilePointersDB _bfpdb;
+
+            BlockManagerDB bmdb = new BlockManagerDB(basepath);
+            string bmdbPath = bmdb.GetPath();
+
+            BlockDB bdb = new BlockDB(basepath);
+            //string bdbPath = bdb.getpa
+
+            UtxoFileAccessDB ufadb = new UtxoFileAccessDB(basepath);
+            string ufadbPath = ufadb.GetPath();
+
+            if (File.Exists(ufadbPath))
+                File.Delete(ufadbPath);
+
+            UtxoFilePointersDB ufpdb = new UtxoFilePointersDB(basepath);
+            string ufpdbPath = ufpdb.GetPath();
+
+            if (File.Exists(ufpdbPath))
+                File.Delete(ufpdbPath);
+
+            UtxoFilePointersTempDB ufptempdb = new UtxoFilePointersTempDB(basepath);
+            string ufptempdbPath = ufptempdb.GetPath();
+
+            if (File.Exists(ufptempdbPath))
+                File.Delete(ufptempdbPath);
+
+            UtxoDB utxodb = new UtxoDB(basepath);
+            string utxodbPath = utxodb.GetPath();
+
+            if (File.Exists(utxodbPath))
+                File.Delete(utxodbPath);
+
+            UtxoManager utxom = new UtxoManager(ufadb, ufpdb, ufptempdb, utxodb);
         }
     }
 
