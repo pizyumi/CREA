@@ -816,6 +816,9 @@ namespace New
         public override Difficulty<Creahash> Difficulty { get { return null; } }
         public override Transaction[] Transactions { get { return new Transaction[] { }; } }
 
+        public const string guidString = "4c5f058d31606b4d9830bc713f6162f0";
+        public override Guid Guid { get { return new Guid(guidString); } }
+
         protected override Func<ReaderWriter, IEnumerable<MainDataInfomation>> StreamInfo
         {
             get
@@ -1191,11 +1194,12 @@ namespace New
 
         private readonly BlockManagerData bmd;
 
-        private readonly Block[] mainBlocks;
-        private readonly List<Block>[] sideBlocks;
-        private readonly CirculatedInteger mainBlocksCurrent;
+        public readonly Block[] mainBlocks;
+        //<未改良>どこに保存したかも保持しておかないと意味がない
+        public readonly List<Block>[] sideBlocks;
+        public readonly CirculatedInteger mainBlocksCurrent;
 
-        private readonly Dictionary<long, Block> oldBlocks;
+        public readonly Dictionary<long, Block> oldBlocks;
 
         public long headBlockIndex { get { return bmd.headBlockIndex; } }
         public long finalizedBlockIndex { get { return bmd.finalizedBlockIndex; } }
@@ -1228,6 +1232,7 @@ namespace New
 
         }
 
+        //<未改良>sideBlocksを使うように
         public void AddMainBlock(Block block)
         {
             if (block.Index != bmd.headBlockIndex + 1)
@@ -1239,9 +1244,9 @@ namespace New
             sideBlocks[mainBlocksCurrent.value] = new List<Block>();
 
             bmd.headBlockIndex = block.Index;
-            bmd.finalizedBlockIndex = bmd.headBlockIndex < 300 ? 0 : bmd.headBlockIndex - mainBlockFinalization;
+            bmd.finalizedBlockIndex = bmd.headBlockIndex < mainBlockFinalization ? 0 : bmd.headBlockIndex - mainBlockFinalization;
 
-            bfpdb.UpdateBlockFilePointerData(block.Index, BitConverter.GetBytes(bdb.AddBlockData(block.Index / blockFileCapacity, SHAREDDATA.ToBinary<Block>(block))));
+            bfpdb.UpdateBlockFilePointerData(block.Index, bdb.AddBlockData(block.Index / blockFileCapacity, SHAREDDATA.ToBinary<Block>(block)));
             bmdb.UpdateData(bmd.ToBinary());
         }
 
@@ -1250,18 +1255,20 @@ namespace New
 
         }
 
-        public Block GetHeadBlock() { return GetMainBlock(headBlockIndex); }
+        public Block GetHeadBlock() { return GetMainBlock(bmd.headBlockIndex); }
 
         public Block GetMainBlock(long blockIndex)
         {
             if (blockIndex > bmd.headBlockIndex)
+                throw new InvalidOperationException();
+            if (blockIndex < 0)
                 throw new InvalidOperationException();
 
             if (blockIndex > bmd.headBlockIndex - mainBlocksRetain)
             {
                 int index = mainBlocksCurrent.GetBackward((int)(bmd.headBlockIndex - blockIndex));
                 if (mainBlocks[index] == null)
-                    mainBlocks[index] = SHAREDDATA.FromBinary<Block>(bdb.GetBlockData(blockIndex / blockFileCapacity, BitConverter.ToInt64(bfpdb.GetBlockFilePointerData(blockIndex), 0)));
+                    mainBlocks[index] = SHAREDDATA.FromBinary<Block>(bdb.GetBlockData(blockIndex / blockFileCapacity, bfpdb.GetBlockFilePointerData(blockIndex)));
 
                 if (mainBlocks[index].Index != blockIndex)
                     throw new InvalidOperationException();
@@ -1272,7 +1279,7 @@ namespace New
             if (oldBlocks.Keys.Contains(blockIndex))
                 return oldBlocks[blockIndex];
 
-            Block block = SHAREDDATA.FromBinary<Block>(bdb.GetBlockData(blockIndex / blockFileCapacity, BitConverter.ToInt64(bfpdb.GetBlockFilePointerData(blockIndex), 0)));
+            Block block = SHAREDDATA.FromBinary<Block>(bdb.GetBlockData(blockIndex / blockFileCapacity, bfpdb.GetBlockFilePointerData(blockIndex)));
 
             if (block.Index != blockIndex)
                 throw new InvalidOperationException();
@@ -1286,6 +1293,7 @@ namespace New
         }
 
         //<未改良>一括取得
+        //2014/12/01 試験除外　一括取得を実装したら試験する
         public Block[] GetMainBlocks(long[] blockIndexes)
         {
             Block[] blocks = new Block[blockIndexes.Length];
@@ -1295,6 +1303,7 @@ namespace New
         }
 
         //<未改良>一括取得
+        //2014/12/01 試験除外　一括取得を実装したら試験する
         public Block[] GetMainBlocks(long blockIndexFrom, long blockIndexThrough)
         {
             if (blockIndexFrom > blockIndexThrough)
@@ -1905,6 +1914,7 @@ namespace New
         public string GetPath() { return System.IO.Path.Combine(pathBase, filenameBase); }
     }
 
+    //2014/12/01 試験済
     public class BlockFilePointersDB : DATABASEBASE
     {
         public BlockFilePointersDB(string _pathBase) : base(_pathBase) { }
@@ -1917,30 +1927,54 @@ namespace New
         protected override string filenameBase { get { return "blks_index_test" + version.ToString(); } }
 #endif
 
-        public byte[] GetBlockFilePointerData(long blockIndex)
+        public long GetBlockFilePointerData(long blockIndex)
         {
             using (FileStream fs = new FileStream(GetPath(), FileMode.OpenOrCreate, FileAccess.Read))
             {
-                fs.Seek(blockIndex * 8, SeekOrigin.Begin);
+                if (fs.Length % 8 != 0)
+                    throw new InvalidOperationException("fatal:bfpdb");
+
+                long position = blockIndex * 8;
+
+                if (position >= fs.Length)
+                    return -1;
+
+                fs.Seek(position, SeekOrigin.Begin);
 
                 byte[] blockPointerData = new byte[8];
                 fs.Read(blockPointerData, 0, 8);
-                return blockPointerData;
+                return BitConverter.ToInt64(blockPointerData, 0);
             }
         }
 
-        public void UpdateBlockFilePointerData(long blockIndex, byte[] blockFilePointerData)
+        public void UpdateBlockFilePointerData(long blockIndex, long blockFilePointerData)
         {
             using (FileStream fs = new FileStream(GetPath(), FileMode.OpenOrCreate, FileAccess.Write))
             {
-                fs.Seek(blockIndex * 8, SeekOrigin.Begin);
-                fs.Write(blockFilePointerData, 0, 8);
+                if (fs.Length % 8 != 0)
+                    throw new InvalidOperationException("fatal:bfpdb");
+
+                long position = blockIndex * 8;
+
+                if (position >= fs.Length)
+                {
+                    fs.Seek(fs.Length, SeekOrigin.Begin);
+                    while (position > fs.Length)
+                        fs.Write(BitConverter.GetBytes((long)-1), 0, 8);
+                    fs.Write(BitConverter.GetBytes(blockFilePointerData), 0, 8);
+                }
+                else
+                {
+                    fs.Seek(position, SeekOrigin.Begin);
+                    fs.Write(BitConverter.GetBytes(blockFilePointerData), 0, 8);
+                }
             }
         }
 
-        private string GetPath() { return System.IO.Path.Combine(pathBase, filenameBase); }
+        public string GetPath() { return System.IO.Path.Combine(pathBase, filenameBase); }
     }
 
+    //2014/12/01 試験済
     public class BlockDB : DATABASEBASE
     {
         public BlockDB(string _pathBase) : base(_pathBase) { }
@@ -1982,7 +2016,7 @@ namespace New
 
             using (FileStream fs = new FileStream(GetPath(blockFileIndex), FileMode.Append, FileAccess.Write))
                 for (int i = 0; i < blockDatas.Length; i++)
-                    positions[i] = AddBlockData(blockFileIndex, blockDatas[i]);
+                    positions[i] = AddBlockData(fs, blockFileIndex, blockDatas[i]);
 
             return positions;
         }
@@ -2653,14 +2687,166 @@ namespace New
             }
         }
 
-        //
+        //BlockDBのテスト
         public static void Test7()
         {
+            string basepath = System.IO.Path.GetDirectoryName(Assembly.GetEntryAssembly().Location);
+            BlockDB blkdb = new BlockDB(basepath);
+            string path1 = blkdb.GetPath(0);
+            string path2 = blkdb.GetPath(1);
+
+            if (File.Exists(path1))
+                File.Delete(path1);
+
+            if (File.Exists(path2))
+                File.Delete(path2);
+
+            byte[] emptyBytes = blkdb.GetBlockData(0, 0);
+
+            if (emptyBytes.Length != 0)
+                throw new Exception("test1_1");
+
+            byte[][] emptyBytess = blkdb.GetBlockDatas(0, new long[10]);
+
+            for (int i = 0; i < emptyBytess.Length; i++)
+                if (emptyBytess[i].Length != 0)
+                    throw new Exception("test1_2");
+
+            byte[] blkBytesIn1 = new byte[1024];
+            for (int i = 0; i < blkBytesIn1.Length; i++)
+                blkBytesIn1[i] = (byte)256.RandomNum();
+
+            int overallLangth = blkBytesIn1.Length + 4;
+
+            long position1 = blkdb.AddBlockData(0, blkBytesIn1);
+
+            if (position1 != 0)
+                throw new Exception("test1_3");
+
+            long position2 = blkdb.AddBlockData(1, blkBytesIn1);
+
+            if (position2 != 0)
+                throw new Exception("test1_4");
+
+            byte[][] blkBytessIn1 = new byte[10][];
+            for (int i = 0; i < blkBytessIn1.Length; i++)
+            {
+                blkBytessIn1[i] = new byte[blkBytesIn1.Length];
+                for (int j = 0; j < blkBytessIn1[i].Length; j++)
+                    blkBytessIn1[i][j] = (byte)256.RandomNum();
+            }
+
+            long[] positions1 = blkdb.AddBlockDatas(0, blkBytessIn1);
+
+            for (int i = 0; i < blkBytessIn1.Length; i++)
+                if (positions1[i] != overallLangth * (i + 1))
+                    throw new Exception("test1_5");
+
+            long[] positions2 = blkdb.AddBlockDatas(1, blkBytessIn1);
+
+            for (int i = 0; i < blkBytessIn1.Length; i++)
+                if (positions2[i] != overallLangth * (i + 1))
+                    throw new Exception("test1_6");
+
+            byte[] blkBytesOut1 = blkdb.GetBlockData(0, position1);
+
+            if (!blkBytesIn1.BytesEquals(blkBytesOut1))
+                throw new Exception("test1_7");
+
+            byte[] utxoBytesOut2 = blkdb.GetBlockData(1, position1);
+
+            if (!blkBytesIn1.BytesEquals(utxoBytesOut2))
+                throw new Exception("test1_8");
+
+            byte[][] blkBytessOut1 = blkdb.GetBlockDatas(0, positions1);
+
+            for (int i = 0; i < blkBytessIn1.Length; i++)
+                if (!blkBytessIn1[i].BytesEquals(blkBytessOut1[i]))
+                    throw new Exception("test1_9");
+
+            byte[][] blkBytessOut2 = blkdb.GetBlockDatas(1, positions2);
+
+            for (int i = 0; i < blkBytessIn1.Length; i++)
+                if (!blkBytessIn1[i].BytesEquals(blkBytessOut2[i]))
+                    throw new Exception("test1_10");
+
+            byte[] emptyBytes2 = blkdb.GetBlockData(0, overallLangth * 11);
+
+            if (emptyBytes2.Length != 0)
+                throw new Exception("test1_11");
+
+            byte[] emptyBytes3 = blkdb.GetBlockData(1, overallLangth * 11);
+
+            if (emptyBytes3.Length != 0)
+                throw new Exception("test1_12");
+
+            Console.WriteLine("test7_succeeded");
         }
 
-        //
+        //BlockFilePointersDBのテスト
         public static void Test8()
         {
+            string basepath = System.IO.Path.GetDirectoryName(Assembly.GetEntryAssembly().Location);
+            BlockFilePointersDB bfpdb = new BlockFilePointersDB(basepath);
+            string path = bfpdb.GetPath();
+
+            if (File.Exists(path))
+                File.Delete(path);
+
+            for (int i = 0; i < 10; i++)
+            {
+                long position = bfpdb.GetBlockFilePointerData(256.RandomNum());
+
+                if (position != -1)
+                    throw new Exception("test8_1");
+            }
+
+            long[] bindexes = 256.RandomNums().Take(10).Select((elem) => (long)elem).ToArray();
+
+            for (int i = 0; i < bindexes.Length; i++)
+                bfpdb.UpdateBlockFilePointerData(bindexes[i], bindexes[i]);
+
+            long[] bindexesSorted = bindexes.ToList().Pipe((list) => list.Sort()).ToArray();
+
+            int pointer = 0;
+            for (int i = 0; i < 256; i++)
+            {
+                long position = bfpdb.GetBlockFilePointerData(i);
+
+                if (pointer < bindexesSorted.Length && i == bindexesSorted[pointer])
+                {
+                    if (position != bindexesSorted[pointer])
+                        throw new Exception("test8_2");
+
+                    pointer++;
+                }
+                else
+                {
+                    if (position != -1)
+                        throw new Exception("test8_3");
+                }
+            }
+
+            for (int i = 0; i < 10; i++)
+            {
+                int[] random = 256.RandomNums();
+
+                long[] bindexes2 = random.Take(10).Select((elem) => (long)elem).ToArray();
+                long[] positions2 = random.Skip(10).Take(10).Select((elem) => (long)elem).ToArray();
+
+                for (int j = 0; j < bindexes2.Length; j++)
+                    bfpdb.UpdateBlockFilePointerData(bindexes2[j], positions2[j]);
+
+                for (int j = 0; j < bindexes2.Length; j++)
+                {
+                    long positionOut = bfpdb.GetBlockFilePointerData(bindexes2[j]);
+
+                    if (positionOut != positions2[j])
+                        throw new Exception("test8_4");
+                }
+            }
+
+            Console.WriteLine("test8_succeeded");
         }
 
         //BlockManagerのテスト1
@@ -2668,41 +2854,1284 @@ namespace New
         {
             string basepath = System.IO.Path.GetDirectoryName(Assembly.GetEntryAssembly().Location);
 
-            BlockManagerDB _bmdb;
-            BlockDB _bdb;
-            BlockFilePointersDB _bfpdb;
-
             BlockManagerDB bmdb = new BlockManagerDB(basepath);
             string bmdbPath = bmdb.GetPath();
 
+            if (File.Exists(bmdbPath))
+                File.Delete(bmdbPath);
+
             BlockDB bdb = new BlockDB(basepath);
-            //string bdbPath = bdb.getpa
+            string bdbPath = bdb.GetPath(0);
 
-            UtxoFileAccessDB ufadb = new UtxoFileAccessDB(basepath);
-            string ufadbPath = ufadb.GetPath();
+            if (File.Exists(bdbPath))
+                File.Delete(bdbPath);
 
-            if (File.Exists(ufadbPath))
-                File.Delete(ufadbPath);
+            BlockFilePointersDB bfpdb = new BlockFilePointersDB(basepath);
+            string bfpPath = bfpdb.GetPath();
 
-            UtxoFilePointersDB ufpdb = new UtxoFilePointersDB(basepath);
-            string ufpdbPath = ufpdb.GetPath();
+            if (File.Exists(bfpPath))
+                File.Delete(bfpPath);
 
-            if (File.Exists(ufpdbPath))
-                File.Delete(ufpdbPath);
+            BlockManager blkmanager = new BlockManager(bmdb, bdb, bfpdb, 10, 10, 3);
 
-            UtxoFilePointersTempDB ufptempdb = new UtxoFilePointersTempDB(basepath);
-            string ufptempdbPath = ufptempdb.GetPath();
+            if (blkmanager.headBlockIndex != 0)
+                throw new InvalidOperationException("test9_1");
+            if (blkmanager.finalizedBlockIndex != 0)
+                throw new InvalidOperationException("test9_2");
+            if (blkmanager.mainBlocksCurrent.value != 1)
+                throw new InvalidOperationException("test9_16");
+            if (blkmanager.mainBlocks[blkmanager.mainBlocksCurrent.value] == null)
+                throw new InvalidOperationException("test9_3");
+            if (!(blkmanager.mainBlocks[blkmanager.mainBlocksCurrent.value] is GenesisBlock))
+                throw new InvalidOperationException("test9_4");
 
-            if (File.Exists(ufptempdbPath))
-                File.Delete(ufptempdbPath);
+            bool flag = false;
+            try
+            {
+                blkmanager.GetMainBlock(-1);
+            }
+            catch (InvalidOperationException)
+            {
+                flag = true;
+            }
+            if (!flag)
+                throw new Exception("test9_5");
 
-            UtxoDB utxodb = new UtxoDB(basepath);
-            string utxodbPath = utxodb.GetPath();
+            bool flag2 = false;
+            try
+            {
+                blkmanager.GetMainBlock(1);
+            }
+            catch (InvalidOperationException)
+            {
+                flag2 = true;
+            }
+            if (!flag2)
+                throw new Exception("test9_6");
 
-            if (File.Exists(utxodbPath))
-                File.Delete(utxodbPath);
+            Block block1 = blkmanager.GetMainBlock(0);
+            Block block2 = blkmanager.GetHeadBlock();
 
-            UtxoManager utxom = new UtxoManager(ufadb, ufpdb, ufptempdb, utxodb);
+            if (!(block1 is GenesisBlock))
+                throw new Exception("test9_10");
+            if (!(block2 is GenesisBlock))
+                throw new Exception("test9_11");
+
+            bool flag3 = false;
+            try
+            {
+                blkmanager.DeleteMainBlock(-1);
+            }
+            catch (InvalidOperationException)
+            {
+                flag3 = true;
+            }
+            if (!flag3)
+                throw new Exception("test9_7");
+
+            bool flag4 = false;
+            try
+            {
+                blkmanager.DeleteMainBlock(1);
+            }
+            catch (InvalidOperationException)
+            {
+                flag4 = true;
+            }
+            if (!flag4)
+                throw new Exception("test9_8");
+
+            bool flag5 = false;
+            try
+            {
+                blkmanager.DeleteMainBlock(0);
+            }
+            catch (InvalidOperationException)
+            {
+                flag5 = true;
+            }
+            if (!flag5)
+                throw new Exception("test9_9");
+
+            TestBlock testblk1 = new TestBlock(1);
+
+            blkmanager.AddMainBlock(testblk1);
+
+            if (blkmanager.headBlockIndex != 1)
+                throw new InvalidOperationException("test9_12");
+            if (blkmanager.finalizedBlockIndex != 0)
+                throw new InvalidOperationException("test9_13");
+            if (blkmanager.mainBlocksCurrent.value != 2)
+                throw new InvalidOperationException("test9_17");
+            if (blkmanager.mainBlocks[blkmanager.mainBlocksCurrent.value] == null)
+                throw new InvalidOperationException("test9_14");
+            if (!(blkmanager.mainBlocks[blkmanager.mainBlocksCurrent.value] is TestBlock))
+                throw new InvalidOperationException("test9_15");
+
+            blkmanager.DeleteMainBlock(1);
+
+            if (blkmanager.headBlockIndex != 0)
+                throw new InvalidOperationException("test9_18");
+            if (blkmanager.finalizedBlockIndex != 0)
+                throw new InvalidOperationException("test9_19");
+            if (blkmanager.mainBlocksCurrent.value != 1)
+                throw new InvalidOperationException("test9_20");
+            if (blkmanager.mainBlocks[blkmanager.mainBlocksCurrent.value] == null)
+                throw new InvalidOperationException("test9_21");
+            if (!(blkmanager.mainBlocks[blkmanager.mainBlocksCurrent.value] is GenesisBlock))
+                throw new InvalidOperationException("test9_22");
+
+            TestBlock testblk2 = new TestBlock(2);
+
+            bool flag6 = false;
+            try
+            {
+                blkmanager.AddMainBlock(testblk2);
+            }
+            catch (InvalidOperationException)
+            {
+                flag6 = true;
+            }
+            if (!flag6)
+                throw new Exception("test9_23");
+
+            for (int i = 1; i < 18; i++)
+            {
+                TestBlock testblk = new TestBlock(i);
+
+                blkmanager.AddMainBlock(testblk);
+            }
+
+            for (int i = 17; i > 0; i--)
+            {
+                if (i == 14)
+                {
+                    bool flag7 = false;
+                    try
+                    {
+                        blkmanager.DeleteMainBlock(i);
+                    }
+                    catch (InvalidOperationException)
+                    {
+                        flag7 = true;
+                    }
+                    if (!flag7)
+                        throw new Exception("test9_24");
+
+                    break;
+                }
+
+                blkmanager.DeleteMainBlock(i);
+            }
+
+            Block block3 = blkmanager.GetHeadBlock();
+
+            if (block3.Index != 14)
+                throw new Exception("test9_25");
+
+            for (int i = 17; i > 0; i--)
+            {
+                if (i > 14)
+                {
+                    bool flag8 = false;
+                    try
+                    {
+                        blkmanager.GetMainBlock(i);
+                    }
+                    catch (InvalidOperationException)
+                    {
+                        flag8 = true;
+                    }
+                    if (!flag8)
+                        throw new Exception("test9_24");
+
+                    continue;
+                }
+
+                Block block4 = blkmanager.GetMainBlock(i);
+
+                if (block4.Index != i)
+                    throw new Exception("test9_25");
+            }
+
+            Console.WriteLine("test9_succeeded");
+        }
+
+        //TransactionOutput、TransactionInput、CoinbaseTransaction、TransferTransactionのテスト
+        public static void Test10()
+        {
+            Ecdsa256KeyPair keypair1 = new Ecdsa256KeyPair(true);
+            Ecdsa256KeyPair keypair2 = new Ecdsa256KeyPair(true);
+            Ecdsa256KeyPair keypair3 = new Ecdsa256KeyPair(true);
+
+            Sha256Ripemd160Hash address1 = new Sha256Ripemd160Hash(keypair1.pubKey.pubKey);
+            CurrencyUnit amount1 = new Creacoin(50.0m);
+            Sha256Ripemd160Hash address2 = new Sha256Ripemd160Hash(keypair2.pubKey.pubKey);
+            CurrencyUnit amount2 = new Creacoin(25.0m);
+            Sha256Ripemd160Hash address3 = new Sha256Ripemd160Hash(keypair3.pubKey.pubKey);
+            CurrencyUnit amount3 = new Yumina(0.01m);
+
+            TransactionOutput txOut1 = new TransactionOutput();
+            txOut1.LoadVersion0(address1, amount1);
+            TransactionOutput txOut2 = new TransactionOutput();
+            txOut2.LoadVersion0(address2, amount2);
+            TransactionOutput txOut3 = new TransactionOutput();
+            txOut3.LoadVersion0(address3, amount3);
+
+            if (txOut1.Address != address1)
+                throw new Exception("test10_1");
+            if (txOut1.Amount != amount1)
+                throw new Exception("test10_2");
+
+            byte[] txOutBytes = txOut1.ToBinary();
+
+            if (txOutBytes.Length != 29)
+                throw new Exception("test10_3");
+
+            TransactionOutput txOutRestore = SHAREDDATA.FromBinary<TransactionOutput>(txOutBytes, 0);
+
+            if (!txOut1.Address.Equals(txOutRestore.Address))
+                throw new Exception("test10_4");
+            if (txOut1.Amount.rawAmount != txOutRestore.Amount.rawAmount)
+                throw new Exception("test10_5");
+
+            TransactionInput txIn1 = new TransactionInput();
+            txIn1.LoadVersion0(0, 0, 0, keypair1.pubKey);
+            TransactionInput txIn2 = new TransactionInput();
+            txIn2.LoadVersion0(1, 0, 0, keypair2.pubKey);
+            TransactionInput txIn3 = new TransactionInput();
+            txIn3.LoadVersion0(2, 0, 0, keypair3.pubKey);
+
+            if (txIn1.PrevTxBlockIndex != 0)
+                throw new Exception("test10_6");
+            if (txIn1.PrevTxIndex != 0)
+                throw new Exception("test10_7");
+            if (txIn1.PrevTxOutputIndex != 0)
+                throw new Exception("test10_8");
+            if (txIn1.SenderPubKey != keypair1.pubKey)
+                throw new Exception("test10_9");
+
+            TransactionOutput[] txOuts = new TransactionOutput[] { txOut1, txOut2, txOut3 };
+
+            CoinbaseTransaction cTx = new CoinbaseTransaction();
+            cTx.LoadVersion0(txOuts);
+
+            if (cTx.TxOutputs != txOuts)
+                throw new Exception("test10_10");
+            if (cTx.TxInputs.Length != 0)
+                throw new Exception("test10_11");
+
+            byte[] cTxBytes = cTx.ToBinary();
+
+            if (cTxBytes.Length != 97)
+                throw new Exception("test10_12");
+
+            CoinbaseTransaction cTxRestore = SHAREDDATA.FromBinary<CoinbaseTransaction>(cTxBytes);
+
+            if (!cTx.Id.Equals(cTxRestore.Id))
+                throw new Exception("test10_13");
+
+            if (cTx.Verify())
+                throw new Exception("test10_14");
+            if (cTx.VerifyNotExistDustTxOutput())
+                throw new Exception("test10_15");
+            if (!cTx.VerifyNumberOfTxInputs())
+                throw new Exception("test10_16");
+            if (!cTx.VerifyNumberOfTxOutputs())
+                throw new Exception("test10_17");
+
+            TransactionOutput[] txOuts2 = new TransactionOutput[11];
+            for (int i = 0; i < txOuts2.Length; i++)
+                txOuts2[i] = txOut1;
+
+            CoinbaseTransaction cTx2 = new CoinbaseTransaction();
+            cTx2.LoadVersion0(txOuts2);
+
+            if (cTx2.Verify())
+                throw new Exception("test10_18");
+            if (!cTx2.VerifyNotExistDustTxOutput())
+                throw new Exception("test10_19");
+            if (!cTx2.VerifyNumberOfTxInputs())
+                throw new Exception("test10_20");
+            if (cTx2.VerifyNumberOfTxOutputs())
+                throw new Exception("test10_21");
+
+            TransactionOutput[] txOuts3 = new TransactionOutput[] { txOut1, txOut2 };
+
+            CoinbaseTransaction cTx3 = new CoinbaseTransaction();
+            cTx3.LoadVersion0(txOuts3);
+
+            if (!cTx3.Verify())
+                throw new Exception("test10_22");
+            if (!cTx3.VerifyNotExistDustTxOutput())
+                throw new Exception("test10_23");
+            if (!cTx3.VerifyNumberOfTxInputs())
+                throw new Exception("test10_24");
+            if (!cTx3.VerifyNumberOfTxOutputs())
+                throw new Exception("test10_25");
+
+            TransactionInput[] txIns = new TransactionInput[] { txIn1, txIn2, txIn3 };
+
+            TransferTransaction tTx1 = new TransferTransaction();
+            tTx1.LoadVersion0(txIns, txOuts);
+            tTx1.Sign(txOuts, new DSAPRIVKEYBASE[] { keypair1.privKey, keypair2.privKey, keypair3.privKey });
+
+            if (tTx1.TxInputs != txIns)
+                throw new Exception("test10_26");
+            if (tTx1.TxOutputs != txOuts)
+                throw new Exception("test10_27");
+
+            byte[] txInBytes = txIn1.ToBinary();
+
+            if (txInBytes.Length != 153)
+                throw new Exception("test10_28");
+
+            TransactionInput txInRestore = SHAREDDATA.FromBinary<TransactionInput>(txInBytes, 0);
+
+            if (txIn1.PrevTxBlockIndex != txInRestore.PrevTxBlockIndex)
+                throw new Exception("test10_29");
+            if (txIn1.PrevTxIndex != txInRestore.PrevTxIndex)
+                throw new Exception("test10_30");
+            if (txIn1.PrevTxOutputIndex != txInRestore.PrevTxOutputIndex)
+                throw new Exception("test10_31");
+            if (!txIn1.SenderPubKey.pubKey.BytesEquals(txInRestore.SenderPubKey.pubKey))
+                throw new Exception("test10_32");
+            if (!txIn1.SenderSignature.signature.BytesEquals(txInRestore.SenderSignature.signature))
+                throw new Exception("test10_33");
+
+            byte[] tTxBytes = tTx1.ToBinary();
+
+            if (tTxBytes.Length != 557)
+                throw new Exception("test10_34");
+
+            TransferTransaction tTxRestore = SHAREDDATA.FromBinary<TransferTransaction>(tTxBytes);
+
+            if (!tTx1.Id.Equals(tTxRestore.Id))
+                throw new Exception("test10_35");
+
+            if (tTx1.Verify(txOuts))
+                throw new Exception("test10_36");
+            if (tTx1.VerifyNotExistDustTxOutput())
+                throw new Exception("test10_37");
+            if (!tTx1.VerifyNumberOfTxInputs())
+                throw new Exception("test10_38");
+            if (!tTx1.VerifyNumberOfTxOutputs())
+                throw new Exception("test10_39");
+            if (!tTx1.VerifySignature(txOuts))
+                throw new Exception("test10_40");
+            if (!tTx1.VerifyPubKey(txOuts))
+                throw new Exception("test10_41");
+            if (!tTx1.VerifyAmount(txOuts))
+                throw new Exception("test10_42");
+            if (tTx1.GetFee(txOuts).rawAmount != 0)
+                throw new Exception("test10_43");
+
+            TransactionOutput[] txOuts4 = new TransactionOutput[] { txOut2, txOut1, txOut3 };
+
+            if (tTx1.Verify(txOuts4))
+                throw new Exception("test10_44");
+            if (tTx1.VerifySignature(txOuts4))
+                throw new Exception("test10_45");
+            if (tTx1.VerifyPubKey(txOuts4))
+                throw new Exception("test10_46");
+
+            byte temp2 = tTx1.TxInputs[0].SenderSignature.signature[0];
+
+            tTx1.TxInputs[0].SenderSignature.signature[0] = 0;
+
+            if (tTx1.Verify(txOuts))
+                throw new Exception("test10_47");
+            if (tTx1.VerifySignature(txOuts))
+                throw new Exception("test10_48");
+            if (!tTx1.VerifyPubKey(txOuts))
+                throw new Exception("test10_49");
+
+            tTx1.TxInputs[0].SenderSignature.signature[0] = temp2;
+
+            TransferTransaction tTx2 = new TransferTransaction();
+            tTx2.LoadVersion0(txIns, txOuts);
+            tTx2.Sign(txOuts, new DSAPRIVKEYBASE[] { keypair2.privKey, keypair1.privKey, keypair3.privKey });
+
+            if (tTx2.Verify(txOuts))
+                throw new Exception("test10_50");
+            if (tTx2.VerifySignature(txOuts))
+                throw new Exception("test10_51");
+            if (!tTx2.VerifyPubKey(txOuts))
+                throw new Exception("test10_52");
+
+            TransferTransaction tTx3 = new TransferTransaction();
+            tTx3.LoadVersion0(txIns, txOuts);
+            tTx3.Sign(txOuts, new DSAPRIVKEYBASE[] { keypair1.privKey, keypair2.privKey, keypair3.privKey });
+
+            byte temp = tTx3.TxInputs[0].SenderPubKey.pubKey[0];
+
+            tTx3.TxInputs[0].SenderPubKey.pubKey[0] = 0;
+
+            if (tTx3.Verify(txOuts))
+                throw new Exception("test10_50");
+            if (tTx3.VerifySignature(txOuts))
+                throw new Exception("test10_51");
+            if (tTx3.VerifyPubKey(txOuts))
+                throw new Exception("test10_52");
+
+            tTx3.TxInputs[0].SenderPubKey.pubKey[0] = temp;
+
+            TransferTransaction tTx4 = new TransferTransaction();
+            tTx4.LoadVersion0(txIns, txOuts2);
+            tTx4.Sign(txOuts, new DSAPRIVKEYBASE[] { keypair1.privKey, keypair2.privKey, keypair3.privKey });
+
+            if (tTx4.Verify(txOuts))
+                throw new Exception("test10_53");
+            if (!tTx4.VerifyNotExistDustTxOutput())
+                throw new Exception("test10_54");
+            if (!tTx4.VerifyNumberOfTxInputs())
+                throw new Exception("test10_55");
+            if (tTx4.VerifyNumberOfTxOutputs())
+                throw new Exception("test10_56");
+            if (!tTx4.VerifySignature(txOuts))
+                throw new Exception("test10_57");
+            if (!tTx4.VerifyPubKey(txOuts))
+                throw new Exception("test10_58");
+            if (tTx4.VerifyAmount(txOuts))
+                throw new Exception("test10_59");
+            if (tTx4.GetFee(txOuts).rawAmount != -47499990000)
+                throw new Exception("test10_60");
+
+            TransferTransaction tTx5 = new TransferTransaction();
+            tTx5.LoadVersion0(txIns, txOuts3);
+            tTx5.Sign(txOuts, new DSAPRIVKEYBASE[] { keypair1.privKey, keypair2.privKey, keypair3.privKey });
+
+            if (!tTx5.Verify(txOuts))
+                throw new Exception("test10_61");
+            if (!tTx5.VerifyNotExistDustTxOutput())
+                throw new Exception("test10_62");
+            if (!tTx5.VerifyNumberOfTxInputs())
+                throw new Exception("test10_63");
+            if (!tTx5.VerifyNumberOfTxOutputs())
+                throw new Exception("test10_64");
+            if (!tTx5.VerifySignature(txOuts))
+                throw new Exception("test10_65");
+            if (!tTx5.VerifyPubKey(txOuts))
+                throw new Exception("test10_66");
+            if (!tTx5.VerifyAmount(txOuts))
+                throw new Exception("test10_67");
+            if (tTx5.GetFee(txOuts).rawAmount != 10000)
+                throw new Exception("test10_68");
+
+            TransactionInput[] txIns2 = new TransactionInput[101];
+            for (int i = 0; i < txIns2.Length; i++)
+                txIns2[i] = txIn1;
+
+            TransactionOutput[] txOuts5 = new TransactionOutput[txIns2.Length];
+            for (int i = 0; i < txOuts5.Length; i++)
+                txOuts5[i] = txOut1;
+
+            Ecdsa256PrivKey[] privKeys = new Ecdsa256PrivKey[txIns2.Length];
+            for (int i = 0; i < privKeys.Length; i++)
+                privKeys[i] = keypair1.privKey;
+
+            TransferTransaction tTx6 = new TransferTransaction();
+            tTx6.LoadVersion0(txIns2, txOuts3);
+            tTx6.Sign(txOuts5, privKeys);
+
+            if (tTx6.Verify(txOuts5))
+                throw new Exception("test10_61");
+            if (!tTx6.VerifyNotExistDustTxOutput())
+                throw new Exception("test10_62");
+            if (tTx6.VerifyNumberOfTxInputs())
+                throw new Exception("test10_63");
+            if (!tTx6.VerifyNumberOfTxOutputs())
+                throw new Exception("test10_64");
+            if (!tTx6.VerifySignature(txOuts5))
+                throw new Exception("test10_65");
+            if (!tTx6.VerifyPubKey(txOuts5))
+                throw new Exception("test10_66");
+            if (!tTx6.VerifyAmount(txOuts5))
+                throw new Exception("test10_67");
+            if (tTx6.GetFee(txOuts5).rawAmount != 497500000000)
+                throw new Exception("test10_68");
+
+            byte[] cTxBytes2 = SHAREDDATA.ToBinary<Transaction>(cTx);
+
+            if (cTxBytes2.Length != 117)
+                throw new Exception("test10_69");
+
+            CoinbaseTransaction cTxRestore2 = SHAREDDATA.FromBinary<Transaction>(cTxBytes2) as CoinbaseTransaction;
+
+            if (!cTx.Id.Equals(cTxRestore2.Id))
+                throw new Exception("test10_70");
+
+            byte[] tTxBytes2 = SHAREDDATA.ToBinary<Transaction>(tTx6);
+
+            if (tTxBytes2.Length != 15445)
+                throw new Exception("test10_71");
+
+            TransferTransaction tTxRestore2 = SHAREDDATA.FromBinary<Transaction>(tTxBytes2) as TransferTransaction;
+
+            if (!tTx6.Id.Equals(tTxRestore2.Id))
+                throw new Exception("test10_72");
+
+            Sha256Sha256Hash ctxid = new Sha256Sha256Hash(cTxBytes);
+
+            if (!ctxid.Equals(cTx.Id))
+                throw new Exception("test10_73");
+
+            Sha256Sha256Hash ttxid = new Sha256Sha256Hash(tTx6.ToBinary());
+
+            if (!ttxid.Equals(tTx6.Id))
+                throw new Exception("test10_74");
+
+            Console.WriteLine("test10_succeeded");
+        }
+
+        //Blockのテスト1
+        public static void Test11()
+        {
+            GenesisBlock gblk = new GenesisBlock();
+
+            if (gblk.Index != 0)
+                throw new Exception("test11_1");
+            if (gblk.PrevId != null)
+                throw new Exception("test11_2");
+            if (gblk.Difficulty.Diff != 0.00000011)
+                throw new Exception("test11_3");
+            if (gblk.Transactions.Length != 0)
+                throw new Exception("test11_4");
+
+            byte[] gblkBytes = gblk.ToBinary();
+
+            if (gblkBytes.Length != 68)
+                throw new Exception("test11_5");
+
+            GenesisBlock gblkRestore = SHAREDDATA.FromBinary<GenesisBlock>(gblkBytes);
+
+            if (!gblk.Id.Equals(gblkRestore.Id))
+                throw new Exception("test11_6");
+
+            byte[] gblkBytes2 = SHAREDDATA.ToBinary<Block>(gblk);
+
+            if (gblkBytes2.Length != 88)
+                throw new Exception("test11_7");
+
+            GenesisBlock gblkRestore2 = SHAREDDATA.FromBinary<Block>(gblkBytes2) as GenesisBlock;
+
+            if (!gblk.Id.Equals(gblkRestore2.Id))
+                throw new Exception("test11_8");
+
+            BlockHeader bh = new BlockHeader();
+
+            bool flag = false;
+            try
+            {
+                bh.LoadVersion0(0, null, DateTime.Now, null, new byte[10]);
+            }
+            catch (ArgumentOutOfRangeException)
+            {
+                flag = true;
+            }
+            if (!flag)
+                throw new Exception("test11_9");
+
+            bool flag2 = false;
+            try
+            {
+                bh.LoadVersion0(1, null, DateTime.Now, null, new byte[9]);
+            }
+            catch (ArgumentOutOfRangeException)
+            {
+                flag2 = true;
+            }
+            if (!flag2)
+                throw new Exception("test11_10");
+
+            Difficulty<Creahash> diff = new Difficulty<Creahash>(HASHBASE.FromHash<Creahash>(new byte[] { 0, 127, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255 }));
+            Sha256Sha256Hash hash = new Sha256Sha256Hash(new byte[] { 1 });
+            DateTime dt = DateTime.Now;
+            byte[] nonce = new byte[10] { 0, 1, 2, 3, 4, 5, 6, 7, 8, 9 };
+
+            bh.LoadVersion0(1, gblk.Id, DateTime.Now, diff, new byte[10]);
+
+            bool flag3 = false;
+            try
+            {
+                bh.UpdateNonce(new byte[11]);
+            }
+            catch (ArgumentOutOfRangeException)
+            {
+                flag3 = true;
+            }
+            if (!flag3)
+                throw new Exception("test11_11");
+
+            bh.UpdateMerkleRootHash(hash);
+            bh.UpdateTimestamp(dt);
+            bh.UpdateNonce(nonce);
+
+            if (bh.index != 1)
+                throw new Exception("test11_12");
+            if (bh.prevBlockHash != gblk.Id)
+                throw new Exception("test11_13");
+            if (bh.merkleRootHash != hash)
+                throw new Exception("test11_14");
+            if (bh.timestamp != dt)
+                throw new Exception("test11_15");
+            if (bh.difficulty != diff)
+                throw new Exception("test11_16");
+            if (bh.nonce != nonce)
+                throw new Exception("test11_17");
+
+            byte[] bhBytes = bh.ToBinary();
+
+            if (bhBytes.Length != 95)
+                throw new Exception("test11_18");
+
+            BlockHeader bhRestore = SHAREDDATA.FromBinary<BlockHeader>(bhBytes);
+
+            if (bh.index != bhRestore.index)
+                throw new Exception("test11_19");
+            if (!bh.prevBlockHash.Equals(bhRestore.prevBlockHash))
+                throw new Exception("test11_20");
+            if (!bh.merkleRootHash.Equals(bhRestore.merkleRootHash))
+                throw new Exception("test11_21");
+            if (bh.timestamp != bhRestore.timestamp)
+                throw new Exception("test11_22");
+            if (bh.difficulty.Diff != bhRestore.difficulty.Diff)
+                throw new Exception("test11_23");
+            if (!bh.nonce.BytesEquals(bhRestore.nonce))
+                throw new Exception("test11_24");
+
+            bool flag4 = false;
+            try
+            {
+                TransactionalBlock.GetBlockType(0, 0);
+            }
+            catch (ArgumentOutOfRangeException)
+            {
+                flag4 = true;
+            }
+            if (!flag4)
+                throw new Exception("test11_25");
+
+            Type type1 = TransactionalBlock.GetBlockType(60 * 24 - 1, 0);
+            Type type2 = TransactionalBlock.GetBlockType(60 * 24, 0);
+            Type type3 = TransactionalBlock.GetBlockType(60 * 24 + 1, 0);
+
+            if (type1 != typeof(NormalBlock))
+                throw new Exception("test11_26");
+            if (type2 != typeof(FoundationalBlock))
+                throw new Exception("test11_27");
+            if (type3 != typeof(NormalBlock))
+                throw new Exception("test11_28");
+
+            bool flag5 = false;
+            try
+            {
+                TransactionalBlock.GetRewardToAll(0, 0);
+            }
+            catch (ArgumentOutOfRangeException)
+            {
+                flag5 = true;
+            }
+            if (!flag5)
+                throw new Exception("test11_29");
+
+            bool flag6 = false;
+            try
+            {
+                TransactionalBlock.GetRewardToMiner(0, 0);
+            }
+            catch (ArgumentOutOfRangeException)
+            {
+                flag6 = true;
+            }
+            if (!flag6)
+                throw new Exception("test11_30");
+
+            bool flag7 = false;
+            try
+            {
+                TransactionalBlock.GetRewardToFoundation(0, 0);
+            }
+            catch (ArgumentOutOfRangeException)
+            {
+                flag7 = true;
+            }
+            if (!flag7)
+                throw new Exception("test11_31");
+
+            bool flag8 = false;
+            try
+            {
+                TransactionalBlock.GetRewardToFoundationInterval(0, 0);
+            }
+            catch (ArgumentOutOfRangeException)
+            {
+                flag8 = true;
+            }
+            if (!flag8)
+                throw new Exception("test11_32");
+
+            bool flag9 = false;
+            try
+            {
+                TransactionalBlock.GetRewardToFoundationInterval(1, 0);
+            }
+            catch (ArgumentException)
+            {
+                flag9 = true;
+            }
+            if (!flag9)
+                throw new Exception("test11_33");
+
+            CurrencyUnit initial = new Creacoin(60.0m);
+            decimal rate = 1.25m;
+            for (int i = 0; i < 8; i++)
+            {
+                CurrencyUnit reward1 = i != 0 ? TransactionalBlock.GetRewardToAll((60 * 24 * 365 * i) - 1, 0) : null;
+                CurrencyUnit reward2 = i != 0 ? TransactionalBlock.GetRewardToAll(60 * 24 * 365 * i, 0) : null;
+                CurrencyUnit reward3 = TransactionalBlock.GetRewardToAll((60 * 24 * 365 * i) + 1, 0);
+
+                CurrencyUnit reward7 = i != 0 ? TransactionalBlock.GetRewardToMiner((60 * 24 * 365 * i) - 1, 0) : null;
+                CurrencyUnit reward8 = i != 0 ? TransactionalBlock.GetRewardToMiner(60 * 24 * 365 * i, 0) : null;
+                CurrencyUnit reward9 = TransactionalBlock.GetRewardToMiner((60 * 24 * 365 * i) + 1, 0);
+
+                CurrencyUnit reward10 = i != 0 ? TransactionalBlock.GetRewardToFoundation((60 * 24 * 365 * i) - 1, 0) : null;
+                CurrencyUnit reward11 = i != 0 ? TransactionalBlock.GetRewardToFoundation(60 * 24 * 365 * i, 0) : null;
+                CurrencyUnit reward12 = TransactionalBlock.GetRewardToFoundation((60 * 24 * 365 * i) + 1, 0);
+
+                CurrencyUnit reward19 = i != 0 ? TransactionalBlock.GetRewardToFoundationInterval(((365 * i) - 1) * 60 * 24, 0) : null;
+                CurrencyUnit reward20 = i != 0 ? TransactionalBlock.GetRewardToFoundationInterval(60 * 24 * 365 * i, 0) : null;
+                CurrencyUnit reward21 = TransactionalBlock.GetRewardToFoundationInterval(((365 * i) + 1) * 60 * 24, 0);
+
+                if (i != 0 && reward1.rawAmount != initial.rawAmount * rate)
+                    throw new Exception("test11_34");
+                if (i != 0 && reward7.rawAmount != initial.rawAmount * rate * 0.9m)
+                    throw new Exception("test11_35");
+                if (i != 0 && reward10.rawAmount != initial.rawAmount * rate * 0.1m)
+                    throw new Exception("test11_36");
+                if (i != 0 && reward19.rawAmount != initial.rawAmount * rate * 0.1m * 60m * 24m)
+                    throw new Exception("test11_37");
+
+                rate *= 0.8m;
+
+                if (i != 0 && reward2.rawAmount != initial.rawAmount * rate)
+                    throw new Exception("test11_38");
+                if (i != 0 && reward8.rawAmount != initial.rawAmount * rate * 0.9m)
+                    throw new Exception("test11_39");
+                if (i != 0 && reward11.rawAmount != initial.rawAmount * rate * 0.1m)
+                    throw new Exception("test11_40");
+                if (i != 0 && reward20.rawAmount != initial.rawAmount * rate * 0.1m * 60m * 24m)
+                    throw new Exception("test11_41");
+
+                if (reward3.rawAmount != initial.rawAmount * rate)
+                    throw new Exception("test11_42");
+                if (reward9.rawAmount != initial.rawAmount * rate * 0.9m)
+                    throw new Exception("test11_43");
+                if (reward12.rawAmount != initial.rawAmount * rate * 0.1m)
+                    throw new Exception("test11_44");
+                if (reward21.rawAmount != initial.rawAmount * rate * 0.1m * 60m * 24m)
+                    throw new Exception("test11_45");
+            }
+
+            CurrencyUnit reward4 = TransactionalBlock.GetRewardToAll((60 * 24 * 365 * 8) - 1, 0);
+            CurrencyUnit reward5 = TransactionalBlock.GetRewardToAll(60 * 24 * 365 * 8, 0);
+            CurrencyUnit reward6 = TransactionalBlock.GetRewardToAll((60 * 24 * 365 * 8) + 1, 0);
+
+            CurrencyUnit reward13 = TransactionalBlock.GetRewardToMiner((60 * 24 * 365 * 8) - 1, 0);
+            CurrencyUnit reward14 = TransactionalBlock.GetRewardToMiner(60 * 24 * 365 * 8, 0);
+            CurrencyUnit reward15 = TransactionalBlock.GetRewardToMiner((60 * 24 * 365 * 8) + 1, 0);
+
+            CurrencyUnit reward16 = TransactionalBlock.GetRewardToFoundation((60 * 24 * 365 * 8) - 1, 0);
+            CurrencyUnit reward17 = TransactionalBlock.GetRewardToFoundation(60 * 24 * 365 * 8, 0);
+            CurrencyUnit reward18 = TransactionalBlock.GetRewardToFoundation((60 * 24 * 365 * 8) + 1, 0);
+
+            CurrencyUnit reward22 = TransactionalBlock.GetRewardToFoundationInterval(((365 * 8) - 1) * 60 * 24, 0);
+            CurrencyUnit reward23 = TransactionalBlock.GetRewardToFoundationInterval(60 * 24 * 365 * 8, 0);
+            CurrencyUnit reward24 = TransactionalBlock.GetRewardToFoundationInterval(((365 * 8) + 1) * 60 * 24, 0);
+
+            if (reward4.rawAmount != initial.rawAmount * rate)
+                throw new Exception("test11_46");
+            if (reward13.rawAmount != initial.rawAmount * rate * 0.9m)
+                throw new Exception("test11_47");
+            if (reward16.rawAmount != initial.rawAmount * rate * 0.1m)
+                throw new Exception("test11_48");
+            if (reward22.rawAmount != initial.rawAmount * rate * 0.1m * 60m * 24m)
+                throw new Exception("test11_49");
+
+            if (reward5.rawAmount != 0)
+                throw new Exception("test11_50");
+            if (reward14.rawAmount != 0)
+                throw new Exception("test11_51");
+            if (reward17.rawAmount != 0)
+                throw new Exception("test11_52");
+            if (reward23.rawAmount != 0)
+                throw new Exception("test11_53");
+
+            if (reward6.rawAmount != 0)
+                throw new Exception("test11_54");
+            if (reward15.rawAmount != 0)
+                throw new Exception("test11_55");
+            if (reward18.rawAmount != 0)
+                throw new Exception("test11_56");
+            if (reward24.rawAmount != 0)
+                throw new Exception("test11_57");
+
+            Console.WriteLine("test11_succeeded");
+        }
+
+        //Blockのテスト2
+        public static void Test12()
+        {
+            BlockGenerator bg = new BlockGenerator();
+
+            Block[] blks = new Block[10];
+            BlockContext[] blkCons = new BlockContext[blks.Length];
+            for (int i = 0; i < blks.Length; i++)
+            {
+                blkCons[i] = bg.CreateNextValidBlock();
+                blks[i] = blkCons[i].block;
+
+                if (i > 0)
+                {
+                    NormalBlock nblk = blks[i] as NormalBlock;
+
+                    byte[] nblkBytes = nblk.ToBinary();
+
+                    NormalBlock nblkRestore = SHAREDDATA.FromBinary<NormalBlock>(nblkBytes);
+
+                    if (!nblk.Id.Equals(nblkRestore.Id))
+                        throw new Exception("test12_1");
+
+                    byte[] nblkBytes2 = SHAREDDATA.ToBinary<Block>(blks[i]);
+
+                    NormalBlock nblkRestore2 = SHAREDDATA.FromBinary<Block>(nblkBytes2) as NormalBlock;
+
+                    if (!nblk.Id.Equals(nblkRestore2.Id))
+                        throw new Exception("test12_2");
+                }
+            }
+
+            GenesisBlock gblk = blks[0] as GenesisBlock;
+
+            Creahash gblkid = new Creahash(gblk.ToBinary());
+
+            if (!gblk.Id.Equals(gblkid))
+                throw new Exception("test12_3");
+
+            NormalBlock nblk2 = blks[1] as NormalBlock;
+
+            Creahash nblkid = new Creahash(nblk2.header.ToBinary());
+
+            if (!nblk2.Id.Equals(nblkid))
+                throw new Exception("test12_4");
+
+            nblk2.UpdateTimestamp(DateTime.Now);
+
+            Creahash nblkid2 = new Creahash(nblk2.header.ToBinary());
+
+            if (!nblk2.Id.Equals(nblkid2))
+                throw new Exception("test12_5");
+
+            nblk2.UpdateNonce(new byte[10]);
+
+            Creahash nblkid3 = new Creahash(nblk2.header.ToBinary());
+
+            if (!nblk2.Id.Equals(nblkid3))
+                throw new Exception("test12_6");
+
+            nblk2.UpdateMerkleRootHash();
+
+            Creahash nblkid4 = new Creahash(nblk2.header.ToBinary());
+
+            if (!nblk2.Id.Equals(nblkid4))
+                throw new Exception("test12_7");
+
+            if (!nblk2.VerifyBlockType())
+                throw new Exception("test12_8");
+
+            FoundationalBlock fblk = new FoundationalBlock();
+            fblk.LoadVersion0(nblk2.header, nblk2.coinbaseTxToMiner, nblk2.coinbaseTxToMiner, nblk2.transferTxs);
+
+            byte[] fblkBytes = fblk.ToBinary();
+
+            FoundationalBlock fblkRestore = SHAREDDATA.FromBinary<FoundationalBlock>(fblkBytes);
+
+            if (!fblk.Id.Equals(fblkRestore.Id))
+                throw new Exception("test12_9");
+
+            byte[] fblkBytes2 = SHAREDDATA.ToBinary<Block>(fblk);
+
+            FoundationalBlock fblkRestore2 = SHAREDDATA.FromBinary<Block>(fblkBytes2) as FoundationalBlock;
+
+            if (!fblk.Id.Equals(fblkRestore2.Id))
+                throw new Exception("test12_10");
+
+            if (fblk.VerifyBlockType())
+                throw new Exception("test12_11");
+
+            if (!nblk2.VerifyMerkleRootHash())
+                throw new Exception("test12_12");
+
+            byte[] nblkBytes3 = nblk2.ToBinary();
+
+            NormalBlock nblk3 = SHAREDDATA.FromBinary<NormalBlock>(nblkBytes3);
+
+            nblk3.header.merkleRootHash.hash[0] ^= 255;
+
+            if (nblk3.VerifyMerkleRootHash())
+                throw new Exception("test12_13");
+
+            byte[] nonce = new byte[10];
+            while (true)
+            {
+                nblk2.UpdateNonce(nonce);
+
+                if (nblk2.Id.hash[0] == 0 && nblk2.Id.hash[1] <= 127)
+                {
+                    if (!nblk2.VerifyId())
+                        throw new Exception("test12_14");
+
+                    break;
+                }
+
+                if (nblk2.VerifyId())
+                    throw new Exception("test12_15");
+
+                int index = nonce.Length.RandomNum();
+                int value = 256.RandomNum();
+
+                nonce[index] = (byte)value;
+            }
+
+            TransferTransaction[] transferTxs1 = new TransferTransaction[99];
+            for (int i = 0; i < transferTxs1.Length; i++)
+                transferTxs1[i] = (blks[2] as TransactionalBlock).transferTxs[0];
+
+            TransferTransaction[] transferTxs2 = new TransferTransaction[100];
+            for (int i = 0; i < transferTxs2.Length; i++)
+                transferTxs2[i] = (blks[2] as TransactionalBlock).transferTxs[0];
+
+            NormalBlock nblk4 = new NormalBlock();
+            nblk4.LoadVersion0(nblk2.header, nblk2.coinbaseTxToMiner, transferTxs1);
+
+            NormalBlock nblk5 = new NormalBlock();
+            nblk5.LoadVersion0(nblk2.header, nblk2.coinbaseTxToMiner, transferTxs2);
+
+            if (!nblk4.VerifyNumberOfTxs())
+                throw new Exception("test12_16");
+
+            if (nblk5.VerifyNumberOfTxs())
+                throw new Exception("test12_17");
+
+            for (int i = 1; i < blks.Length; i++)
+            {
+                TransactionalBlock tblk = blks[i] as TransactionalBlock;
+
+                CurrencyUnit amount = tblk.GetActualRewardToMinerAndTxFee();
+                CurrencyUnit amount2 = tblk.GetValidRewardToMinerAndTxFee(blkCons[i].prevTxOutss);
+                CurrencyUnit amount3 = tblk.GetValidTxFee(blkCons[i].prevTxOutss);
+
+                if (amount.rawAmount != (long)5400000000 + blkCons[i].feeRawAmount)
+                    throw new Exception("test12_18");
+                if (amount2.rawAmount != amount.rawAmount)
+                    throw new Exception("test12_19");
+                if (amount3.rawAmount != blkCons[i].feeRawAmount)
+                    throw new Exception("test12_20");
+
+                if (!tblk.VerifyRewardAndTxFee(blkCons[i].prevTxOutss))
+                    throw new Exception("test12_21");
+                if (!tblk.VerifyTransferTransaction(blkCons[i].prevTxOutss))
+                    throw new Exception("test12_22");
+
+                bool flag = false;
+                TransactionOutput[][] invalidPrevTxOutss = new TransactionOutput[blkCons[i].prevTxOutss.Length][];
+                for (int j = 0; j < invalidPrevTxOutss.Length; j++)
+                {
+                    invalidPrevTxOutss[j] = new TransactionOutput[blkCons[i].prevTxOutss[j].Length];
+                    for (int k = 0; k < invalidPrevTxOutss[j].Length; k++)
+                    {
+                        if (j == 1 && k == 0)
+                        {
+                            invalidPrevTxOutss[j][k] = new TransactionOutput();
+                            invalidPrevTxOutss[j][k].LoadVersion0(new Sha256Ripemd160Hash(), new CurrencyUnit(0));
+
+                            flag = true;
+                        }
+                        else
+                            invalidPrevTxOutss[j][k] = blkCons[i].prevTxOutss[j][k];
+                    }
+                }
+
+                if (flag)
+                {
+                    if (tblk.VerifyRewardAndTxFee(invalidPrevTxOutss))
+                        throw new Exception("test12_23");
+                    if (tblk.VerifyTransferTransaction(invalidPrevTxOutss))
+                        throw new Exception("test12_24");
+                }
+            }
+
+            Console.WriteLine("test12_succeeded");
+        }
+
+        //BlockManagerのテスト2
+        public static void Test13()
+        {
+
+        }
+
+        //BlockChainのテスト（分岐がない場合）
+        public static void Test14()
+        {
+
+        }
+
+        //BlockChainのテスト（分岐がない場合・採掘）
+        public static void Test15()
+        {
+
+        }
+    }
+
+    public class TransactionOutputContext
+    {
+        public TransactionOutputContext(long _bIndex, int _txIndex, int _txOutIndex, CurrencyUnit _amount, Sha256Ripemd160Hash _address, Ecdsa256KeyPair _keyPair)
+        {
+            bIndex = _bIndex;
+            txIndex = _txIndex;
+            txOutIndex = _txOutIndex;
+            amount = _amount;
+            address = _address;
+            keyPair = _keyPair;
+        }
+
+        public long bIndex { get; set; }
+        public int txIndex { get; set; }
+        public int txOutIndex { get; set; }
+        public CurrencyUnit amount { get; set; }
+        public Sha256Ripemd160Hash address { get; set; }
+        public Ecdsa256KeyPair keyPair { get; set; }
+
+        public TransactionOutput GenerateTrasactionOutput()
+        {
+            TransactionOutput txOut = new TransactionOutput();
+            txOut.LoadVersion0(address, amount);
+            return txOut;
+        }
+
+        public TransactionInput GenerateTransactionInput()
+        {
+            TransactionInput txIn = new TransactionInput();
+            txIn.LoadVersion0(bIndex, txIndex, txOutIndex, keyPair.pubKey);
+            return txIn;
+        }
+    }
+
+    public class BlockContext
+    {
+        public BlockContext(Block _block, TransactionOutput[][] _prevTxOutss, long _feesRawAmount)
+        {
+            block = _block;
+            prevTxOutss = _prevTxOutss;
+            feeRawAmount = _feesRawAmount;
+        }
+
+        public Block block { get; set; }
+        public TransactionOutput[][] prevTxOutss { get; set; }
+        public long feeRawAmount { get; set; }
+    }
+
+    public class BlockGenerator
+    {
+        public BlockGenerator(int _numOfKeyPairs = 10, int _numOfCoinbaseTxOuts = 5, int _maxNumOfSpendTxs = 5, int _maxNumOfSpendTxOuts = 2, double _avgIORatio = 1.5)
+        {
+            numOfKeyPairs = _numOfKeyPairs;
+            numOfCoinbaseTxOuts = _numOfCoinbaseTxOuts;
+            maxNumOfSpendTxs = _maxNumOfSpendTxs;
+            maxNumOfSpendTxOuts = _maxNumOfSpendTxOuts;
+            avgIORatio = _avgIORatio;
+
+            keyPairs = new Ecdsa256KeyPair[numOfKeyPairs];
+            addresses = new Sha256Ripemd160Hash[numOfKeyPairs];
+            for (int i = 0; i < keyPairs.Length; i++)
+            {
+                keyPairs[i] = new Ecdsa256KeyPair(true);
+                addresses[i] = new Sha256Ripemd160Hash(keyPairs[i].pubKey.pubKey);
+            }
+
+            currentBIndex = -1;
+
+            unspentTxOuts = new List<TransactionOutputContext>();
+            spentTxOuts = new List<TransactionOutputContext>();
+            blks = new List<Block>();
+        }
+
+        private readonly int numOfKeyPairs;
+        private readonly int numOfCoinbaseTxOuts;
+        private readonly int maxNumOfSpendTxs;
+        private readonly int maxNumOfSpendTxOuts;
+        private readonly double avgIORatio;
+
+        private Ecdsa256KeyPair[] keyPairs;
+        private Sha256Ripemd160Hash[] addresses;
+        private long currentBIndex;
+        private List<TransactionOutputContext> unspentTxOuts;
+        private List<TransactionOutputContext> spentTxOuts;
+        private List<Block> blks;
+
+        public BlockContext CreateNextValidBlock()
+        {
+            currentBIndex++;
+
+            if (currentBIndex == 0)
+            {
+                Block blk = new GenesisBlock();
+
+                blks.Add(blk);
+
+                return new BlockContext(blk, new TransactionOutput[][] { }, 0);
+            }
+
+            int numOfSpendTxs = maxNumOfSpendTxs.RandomNum() + 1;
+            int[] numOfSpendTxOutss = new int[numOfSpendTxs];
+            for (int i = 0; i < numOfSpendTxOutss.Length; i++)
+                numOfSpendTxOutss[i] = maxNumOfSpendTxOuts.RandomNum() + 1;
+
+            TransactionOutputContext[][] spendTxOutss = new TransactionOutputContext[numOfSpendTxs][];
+            for (int i = 0; i < spendTxOutss.Length; i++)
+            {
+                if (unspentTxOuts.Count == 0)
+                    break;
+
+                spendTxOutss[i] = new TransactionOutputContext[numOfSpendTxOutss[i]];
+
+                for (int j = 0; j < spendTxOutss[i].Length; j++)
+                {
+                    int index = unspentTxOuts.Count.RandomNum();
+
+                    spendTxOutss[i][j] = unspentTxOuts[index];
+
+                    spentTxOuts.Add(unspentTxOuts[index]);
+                    unspentTxOuts.RemoveAt(index);
+
+                    if (unspentTxOuts.Count == 0)
+                        break;
+                }
+            }
+
+            long fee = 0;
+            List<TransferTransaction> transferTxs = new List<TransferTransaction>();
+            List<TransactionOutput[]> prevTxOutsList = new List<TransactionOutput[]>();
+            for (int i = 0; i < spendTxOutss.Length; i++)
+            {
+                if (spendTxOutss[i] == null)
+                    break;
+
+                long sumRawAmount = 0;
+
+                List<TransactionInput> txInputsList = new List<TransactionInput>();
+                for (int j = 0; j < spendTxOutss[i].Length; j++)
+                {
+                    if (spendTxOutss[i][j] == null)
+                        break;
+
+                    txInputsList.Add(spendTxOutss[i][j].GenerateTransactionInput());
+
+                    sumRawAmount += spendTxOutss[i][j].amount.rawAmount;
+                }
+
+                TransactionInput[] txIns = txInputsList.ToArray();
+
+                int num = (int)Math.Ceiling(((avgIORatio - 1) * 2) * 1.RandomDouble() * txIns.Length);
+
+                TransactionOutputContext[] txOutsCon = new TransactionOutputContext[num];
+                TransactionOutput[] txOuts = new TransactionOutput[num];
+                for (int j = 0; j < txOutsCon.Length; j++)
+                {
+                    long sumRawAmountDivided = sumRawAmount / 1000000;
+
+                    int subtract = ((int)sumRawAmountDivided / 2).RandomNum();
+
+                    long outAmount = (long)subtract * 1000000;
+
+                    sumRawAmount -= outAmount;
+
+                    int index = numOfKeyPairs.RandomNum();
+
+                    txOutsCon[j] = new TransactionOutputContext(currentBIndex, i + 1, j, new CurrencyUnit(outAmount), addresses[index], keyPairs[index]);
+                    txOuts[j] = txOutsCon[j].GenerateTrasactionOutput();
+                }
+
+                fee += sumRawAmount;
+
+                for (int j = 0; j < txOutsCon.Length; j++)
+                    unspentTxOuts.Add(txOutsCon[j]);
+
+                TransactionOutput[] prevTxOuts = new TransactionOutput[txIns.Length];
+                Ecdsa256PrivKey[] privKeys = new Ecdsa256PrivKey[txIns.Length];
+                for (int j = 0; j < prevTxOuts.Length; j++)
+                {
+                    prevTxOuts[j] = spendTxOutss[i][j].GenerateTrasactionOutput();
+                    privKeys[j] = spendTxOutss[i][j].keyPair.privKey;
+                }
+
+                TransferTransaction tTx = new TransferTransaction();
+                tTx.LoadVersion0(txIns, txOuts);
+                tTx.Sign(prevTxOuts, privKeys);
+
+                transferTxs.Add(tTx);
+                prevTxOutsList.Add(prevTxOuts);
+            }
+
+            long rewardAndFee = TransactionalBlock.GetRewardToMiner(currentBIndex, 0).rawAmount + fee;
+
+            TransactionOutputContext[] coinbaseTxOutsCon = new TransactionOutputContext[numOfCoinbaseTxOuts];
+            TransactionOutput[] coinbaseTxOuts = new TransactionOutput[numOfCoinbaseTxOuts];
+            for (int i = 0; i < coinbaseTxOutsCon.Length; i++)
+            {
+                long outAmount2 = 0;
+                if (i != coinbaseTxOutsCon.Length - 1)
+                {
+                    long rewardAndFeeDevided = rewardAndFee / 1000000;
+
+                    int subtract2 = ((int)rewardAndFeeDevided / 2).RandomNum();
+
+                    outAmount2 = (long)subtract2 * 1000000;
+
+                    rewardAndFee -= outAmount2;
+                }
+                else
+                    outAmount2 = rewardAndFee;
+
+                int index = numOfKeyPairs.RandomNum();
+
+                coinbaseTxOutsCon[i] = new TransactionOutputContext(currentBIndex, 0, i, new CurrencyUnit(outAmount2), addresses[index], keyPairs[index]);
+                coinbaseTxOuts[i] = coinbaseTxOutsCon[i].GenerateTrasactionOutput();
+            }
+
+            CoinbaseTransaction coinbaseTx = new CoinbaseTransaction();
+            coinbaseTx.LoadVersion0(coinbaseTxOuts);
+
+            for (int i = 0; i < coinbaseTxOutsCon.Length; i++)
+                unspentTxOuts.Add(coinbaseTxOutsCon[i]);
+
+            prevTxOutsList.Insert(0, new TransactionOutput[] { });
+
+            Difficulty<Creahash> diff = new Difficulty<Creahash>(HASHBASE.FromHash<Creahash>(new byte[] { 0, 127, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255 }));
+            byte[] nonce = new byte[10] { 0, 1, 2, 3, 4, 5, 6, 7, 8, 9 };
+
+            BlockHeader bh = new BlockHeader();
+            bh.LoadVersion0(currentBIndex, blks[blks.Count - 1].Id, DateTime.Now, diff, nonce);
+
+            NormalBlock nblk = new NormalBlock();
+            nblk.LoadVersion0(bh, coinbaseTx, transferTxs.ToArray());
+            nblk.UpdateMerkleRootHash();
+
+            blks.Add(nblk);
+
+            BlockContext blkCon = new BlockContext(nblk, prevTxOutsList.ToArray(), fee);
+
+            return blkCon;
         }
     }
 

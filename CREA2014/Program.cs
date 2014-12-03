@@ -3496,15 +3496,25 @@ namespace CREA2014
         [STAThread]
         public static void Main(string[] args)
         {
+            string guidString1 = Guid.NewGuid().ToByteArray().ToHexstring();
+            string guidString2 = Guid.NewGuid().ToByteArray().ToHexstring();
+            string guidString3 = Guid.NewGuid().ToByteArray().ToHexstring();
+            string guidString4 = Guid.NewGuid().ToByteArray().ToHexstring();
+            string guidString5 = Guid.NewGuid().ToByteArray().ToHexstring();
+
+
             //New.BlockChainTest.Test1();
             //New.BlockChainTest.Test2();
             //New.BlockChainTest.Test3();
             //New.BlockChainTest.Test4();
             //New.BlockChainTest.Test5();
             //New.BlockChainTest.Test6();
-
-
-
+            //New.BlockChainTest.Test7();
+            //New.BlockChainTest.Test8();
+            //New.BlockChainTest.Test9();
+            //New.BlockChainTest.Test10();
+            //New.BlockChainTest.Test11();
+            New.BlockChainTest.Test12();
 
 
             string argExtract = "extract";
@@ -3763,7 +3773,8 @@ namespace CREA2014
                 {"fatal:require_administrator", () => string.Format("{0}は管理者として実行する必要があります。".Multilanguage(3), appname)},
                 {"fatal:lisence_text_not_found", () => "ソフトウェア使用許諾契約書が見付かりません。".Multilanguage(90)},
                 {"fatal:http_listener_not_supported", () => "HTTP Listenerに対応していません。".Multilanguage(191)},
-                {"fatal:utxos_access", () => string.Format("データベースが破損した可能性があります。{0}を起動できません。".Multilanguage(227), appname)},
+                {"fatal:utxos_access", () => "データベースが破損した可能性があります。".Multilanguage(227)},
+                {"fatal:bfpdb", () => "データベースが破損した可能性があります。".Multilanguage(227)},
             };
 
             Extension.Tasked += (sender, e) => tasker.New(new TaskData(e, taskNumber++));

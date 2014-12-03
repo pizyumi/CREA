@@ -542,7 +542,16 @@ namespace CREA2014
 
         public override int SizeByte { get { return 72; } }
 
-        public override bool Verify(byte[] data, byte[] signature) { return data.VerifyEcdsa(signature, pubKey); }
+        public override bool Verify(byte[] data, byte[] signature)
+        {
+            try
+            {
+                return data.VerifyEcdsa(signature, pubKey);
+            }
+            catch (Exception) { }
+
+            return false;
+        }
     }
 
     public class Ecdsa256PrivKey : DSAPRIVKEYBASE
@@ -1957,6 +1966,7 @@ namespace CREA2014
 
     //<未実装>Load部分の抽象化
 
+    //2014/12/02 試験済
     public class TransactionInput : SHAREDDATA
     {
         public TransactionInput() : base(0) { }
@@ -2108,6 +2118,7 @@ namespace CREA2014
         }
     }
 
+    //2014/12/02 試験済
     public class TransactionOutput : SHAREDDATA
     {
         public TransactionOutput() : base(0) { }
@@ -2123,12 +2134,8 @@ namespace CREA2014
         private Sha256Ripemd160Hash receiverPubKeyHash;
         private CurrencyUnit amount;
 
-        public Sha256Ripemd160Hash Sha256Ripemd160Hash { get { return receiverPubKeyHash; } }
-        public CurrencyUnit Amount { get { return amount; } }
-
-        //<未改良>本来HASHBASEにすべきだが・・・
-        public Sha256Ripemd160Hash ReceiverPubKeyHash { get { return receiverPubKeyHash; } }
         public Sha256Ripemd160Hash Address { get { return receiverPubKeyHash; } }
+        public CurrencyUnit Amount { get { return amount; } }
 
         protected override Func<ReaderWriter, IEnumerable<MainDataInfomation>> StreamInfo
         {
@@ -2174,6 +2181,7 @@ namespace CREA2014
         }
     }
 
+    //2014/12/02 試験済
     //<未実装>再度行う必要のない検証は行わない
     public abstract class Transaction : SHAREDDATA
     {
@@ -2290,12 +2298,23 @@ namespace CREA2014
         }
     }
 
+    //2014/12/02 試験済
     public class CoinbaseTransaction : Transaction
     {
         public override void LoadVersion1(TransactionOutput[] _txOutputs) { throw new NotSupportedException(); }
 
-        public const string guidString = "784aee51e677e6469ca2ae0d6c72d60e";
-        public override Guid Guid { get { return new Guid(guidString); } }
+        private const string guidString = "784aee51e677e6469ca2ae0d6c72d60e";
+        private Guid guid;
+        public override Guid Guid
+        {
+            get
+            {
+                if (guid == Guid.Empty)
+                    guid = new Guid(guidString);
+
+                return guid;
+            }
+        }
 
         protected override Func<ReaderWriter, IEnumerable<MainDataInfomation>> StreamInfo
         {
@@ -2309,6 +2328,7 @@ namespace CREA2014
         }
     }
 
+    //2014/12/02 試験済
     //<未実装>再度行う必要のない検証は行わない
     public class TransferTransaction : Transaction
     {
@@ -2362,8 +2382,18 @@ namespace CREA2014
 
         public override TransactionInput[] TxInputs { get { return txInputs; } }
 
-        public const string guidString = "5c5493dff997774db351ae5018844b23";
-        public override Guid Guid { get { return new Guid(guidString); } }
+        private const string guidString = "5c5493dff997774db351ae5018844b23";
+        private Guid guid;
+        public override Guid Guid
+        {
+            get
+            {
+                if (guid == Guid.Empty)
+                    guid = new Guid(guidString);
+
+                return guid;
+            }
+        }
 
         protected override Func<ReaderWriter, IEnumerable<MainDataInfomation>> StreamInfo
         {
@@ -2454,8 +2484,10 @@ namespace CREA2014
             }
             else if (Version == 1)
             {
+                //<未改良>予め公開鍵を復元しておく？
                 for (int i = 0; i < txInputs.Length; i++)
-                    if (!Secp256k1Utility.Recover<Sha256Hash>(bytesToSign, txInputs[i].SenderSignature.signature).Verify(bytesToSign, txInputs[i].SenderSignature.signature))
+                    //if (!Secp256k1Utility.Recover<Sha256Hash>(bytesToSign, txInputs[i].SenderSignature.signature).Verify(bytesToSign, txInputs[i].SenderSignature.signature))
+                    if (!Secp256k1Utility.RecoverAndVerify<Sha256Hash>(bytesToSign, txInputs[i].SenderSignature.signature))
                         return false;
             }
             else
@@ -2471,15 +2503,16 @@ namespace CREA2014
             if (Version == 0)
             {
                 for (int i = 0; i < txInputs.Length; i++)
-                    if (!new Sha256Ripemd160Hash(txInputs[i].Ecdsa256PubKey.pubKey).Equals(prevTxOutputs[i].ReceiverPubKeyHash))
+                    if (!new Sha256Ripemd160Hash(txInputs[i].Ecdsa256PubKey.pubKey).Equals(prevTxOutputs[i].Address))
                         return false;
             }
             else if (Version == 1)
             {
                 byte[] bytesToSign = GetBytesToSign(prevTxOutputs);
 
+                //<未改良>予め公開鍵を復元しておく？
                 for (int i = 0; i < txInputs.Length; i++)
-                    if (!new Sha256Ripemd160Hash(Secp256k1Utility.Recover<Sha256Hash>(bytesToSign, txInputs[i].Secp256k1Signature.signature).pubKey).Equals(prevTxOutputs[i].ReceiverPubKeyHash))
+                    if (!new Sha256Ripemd160Hash(Secp256k1Utility.Recover<Sha256Hash>(bytesToSign, txInputs[i].Secp256k1Signature.signature).pubKey).Equals(prevTxOutputs[i].Address))
                         return false;
             }
             else
@@ -2531,6 +2564,7 @@ namespace CREA2014
         public virtual bool Verify() { return true; }
     }
 
+    //2014/12/02 試験済
     public class GenesisBlock : Block
     {
         public GenesisBlock() : base(null) { }
@@ -2542,17 +2576,35 @@ namespace CREA2014
         public override Difficulty<Creahash> Difficulty { get { return new Difficulty<Creahash>(HASHBASE.FromHash<Creahash>(new byte[] { 0, 127, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255 })); } }
         public override Transaction[] Transactions { get { return new Transaction[] { }; } }
 
+        private const string guidString = "86080fc3b48032489cf8c19e275fc185";
+        private Guid guid;
+        public override Guid Guid
+        {
+            get
+            {
+                if (guid == Guid.Empty)
+                    guid = new Guid(guidString);
+
+                return guid;
+            }
+        }
+
         protected override Func<ReaderWriter, IEnumerable<MainDataInfomation>> StreamInfo
         {
             get
             {
                 return (msrw) => new MainDataInfomation[]{
-                    new MainDataInfomation(typeof(string), () => genesisWord, (o) => { throw new NotSupportedException("genesis_block_cant_read"); }),
+                    new MainDataInfomation(typeof(string), () => genesisWord, (o) => 
+                    {
+                        if((string)o != genesisWord)
+                            throw new NotSupportedException("genesis_word_mismatch");;
+                    }),
                 };
             }
         }
     }
 
+    //2014/12/02 試験済
     public class BlockHeader : SHAREDDATA
     {
         public BlockHeader() : base(0) { }
@@ -2611,6 +2663,7 @@ namespace CREA2014
         }
     }
 
+    //2014/12/03 試験済
     //<未実装>再度行う必要のない検証は行わない
     public abstract class TransactionalBlock : Block
     {
@@ -2676,10 +2729,11 @@ namespace CREA2014
         private static readonly CurrencyUnit initialReward = new Creacoin(1.0m); //[CREA/sec]
         private static readonly CurrencyUnit[] rewards; //[CREA/sec]
         private static readonly decimal foundationShare = 0.1m;
-        private static readonly long foundationInterval = 60 * 60 * 24; //[block]
+        private static readonly long foundationInterval = 60 * 60 * 24 / blockGenerationInterval; //[block]
 
         private static readonly long numberOfTimestamps = 11;
-        private static readonly long targetTimespan = blockGenerationInterval * 1; //[sec]
+        private static readonly long targetTimespan = blockGenerationInterval * 1; //[sec]=60[sec]
+        private static readonly long retargetInterval = targetTimespan / blockGenerationInterval; //[block]=1[block]
 
         private static readonly Difficulty<Creahash> minDifficulty = new Difficulty<Creahash>(HASHBASE.FromHash<Creahash>(new byte[] { 0, 127, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255 }));
 
@@ -2838,10 +2892,16 @@ namespace CREA2014
 
         public override bool Verify() { throw new NotSupportedException(); }
 
+        //2014/12/03
+        //prevTxOutssは全ての取引に対するものを含んでいなければならないことに注意
+        //貨幣移動取引のみならず貨幣生成取引に対するもの（貨幣生成取引の場合取引入力は0個であるため空になる筈）も含んでいなければならない
         public virtual bool Verify(TransactionOutput[][] prevTxOutputss, Func<long, TransactionalBlock> indexToTxBlock)
         {
-            if (prevTxOutputss.Length != transferTxs.Length)
-                throw new ArgumentException("transfet_txs_and_prev_outputs");
+            if (prevTxOutputss.Length != Transactions.Length)
+                throw new ArgumentException("txs_and_prev_outputs");
+
+            //if (prevTxOutputss.Length != transferTxs.Length)
+            //    throw new ArgumentException("transfet_txs_and_prev_outputs");
 
             if (Version != 0 && Version != 1)
                 throw new NotSupportedException();
@@ -2881,24 +2941,44 @@ namespace CREA2014
             return Transactions.Length <= maxTxs;
         }
 
+        //2014/12/03
+        //prevTxOutssは全ての取引に対するものを含んでいなければならないことに注意
+        //貨幣移動取引のみならず貨幣生成取引に対するもの（貨幣生成取引の場合取引入力は0個であるため空になる筈）も含んでいなければならない
         public bool VerifyTransferTransaction(TransactionOutput[][] prevTxOutputss)
         {
-            if (prevTxOutputss.Length != transferTxs.Length)
-                throw new ArgumentException("transfet_txs_and_prev_outputs");
+            if (prevTxOutputss.Length != Transactions.Length)
+                throw new ArgumentException("txs_and_prev_outputs");
 
             if (Version != 0 && Version != 1)
                 throw new NotSupportedException();
 
-            for (int i = 0; i < transferTxs.Length; i++)
-                if (!transferTxs[i].Verify(prevTxOutputss[i]))
+            for (int i = 0; i < Transactions.Length; i++)
+                if (Transactions[i] is TransferTransaction && !(Transactions[i] as TransferTransaction).Verify(prevTxOutputss[i]))
                     return false;
             return true;
+
+            //if (prevTxOutputss.Length != transferTxs.Length)
+            //    throw new ArgumentException("transfet_txs_and_prev_outputs");
+
+            //if (Version != 0 && Version != 1)
+            //    throw new NotSupportedException();
+
+            //for (int i = 0; i < transferTxs.Length; i++)
+            //    if (!transferTxs[i].Verify(prevTxOutputss[i]))
+            //        return false;
+            //return true;
         }
 
+        //2014/12/03
+        //prevTxOutssは全ての取引に対するものを含んでいなければならないことに注意
+        //貨幣移動取引のみならず貨幣生成取引に対するもの（貨幣生成取引の場合取引入力は0個であるため空になる筈）も含んでいなければならない
         public virtual bool VerifyRewardAndTxFee(TransactionOutput[][] prevTxOutputss)
         {
-            if (prevTxOutputss.Length != transferTxs.Length)
-                throw new ArgumentException("transfet_txs_and_prev_outputs");
+            if (prevTxOutputss.Length != Transactions.Length)
+                throw new ArgumentException("txs_and_prev_outputs");
+
+            //if (prevTxOutputss.Length != transferTxs.Length)
+            //    throw new ArgumentException("transfet_txs_and_prev_outputs");
 
             if (Version != 0 && Version != 1)
                 throw new NotSupportedException();
@@ -2932,21 +3012,39 @@ namespace CREA2014
 
         public CurrencyUnit GetValidRewardToMiner() { return GetRewardToMiner(header.index, Version); }
 
+        //2014/12/03
+        //prevTxOutssは全ての取引に対するものを含んでいなければならないことに注意
+        //貨幣移動取引のみならず貨幣生成取引に対するもの（貨幣生成取引の場合取引入力は0個であるため空になる筈）も含んでいなければならない
         public CurrencyUnit GetValidTxFee(TransactionOutput[][] prevTxOutputss)
         {
-            if (prevTxOutputss.Length != transferTxs.Length)
-                throw new ArgumentException("transfet_txs_and_prev_outputs");
+            if (prevTxOutputss.Length != Transactions.Length)
+                throw new ArgumentException("txs_and_prev_outputs");
 
             long rawTxFee = 0;
-            for (int i = 0; i < transferTxs.Length; i++)
-                rawTxFee += transferTxs[i].GetFee(prevTxOutputss[i]).rawAmount;
+            for (int i = 0; i < Transactions.Length; i++)
+                if (Transactions[i] is TransferTransaction)
+                    rawTxFee += (Transactions[i] as TransferTransaction).GetFee(prevTxOutputss[i]).rawAmount;
             return new CurrencyUnit(rawTxFee);
+
+            //if (prevTxOutputss.Length != transferTxs.Length)
+            //    throw new ArgumentException("transfet_txs_and_prev_outputs");
+
+            //long rawTxFee = 0;
+            //for (int i = 0; i < transferTxs.Length; i++)
+            //    rawTxFee += transferTxs[i].GetFee(prevTxOutputss[i]).rawAmount;
+            //return new CurrencyUnit(rawTxFee);
         }
 
+        //2014/12/03
+        //prevTxOutssは全ての取引に対するものを含んでいなければならないことに注意
+        //貨幣移動取引のみならず貨幣生成取引に対するもの（貨幣生成取引の場合取引入力は0個であるため空になる筈）も含んでいなければならない
         public CurrencyUnit GetValidRewardToMinerAndTxFee(TransactionOutput[][] prevTxOutputss)
         {
-            if (prevTxOutputss.Length != transferTxs.Length)
-                throw new ArgumentException("transfet_txs_and_prev_outputs");
+            if (prevTxOutputss.Length != Transactions.Length)
+                throw new ArgumentException("txs_and_prev_outputs");
+
+            //if (prevTxOutputss.Length != transferTxs.Length)
+            //    throw new ArgumentException("transfet_txs_and_prev_outputs");
 
             return new CurrencyUnit(GetValidRewardToMiner().rawAmount + GetValidTxFee(prevTxOutputss).rawAmount);
         }
@@ -3013,6 +3111,8 @@ namespace CREA2014
         {
             if (index < 1)
                 throw new ArgumentOutOfRangeException("index_out");
+            if (GetBlockType(index, version) != typeof(FoundationalBlock))
+                throw new ArgumentException("index_invalid");
 
             if (version == 0 || version == 1)
                 return new Creacoin(GetRewardToFoundation(index, version).AmountInCreacoin.Amount * foundationInterval);
@@ -3030,23 +3130,28 @@ namespace CREA2014
                 if (index == 1)
                     return minDifficulty;
 
-                long retargetInterval = targetTimespan / blockGenerationInterval;
                 long lastIndex = index - 1;
 
+                //常にfalseになる筈
                 if (index % retargetInterval != 0)
                     return indexToTxBlock(lastIndex).header.difficulty;
                 else
                 {
+                    //常に1になる筈
                     long blocksToGoBack = index != retargetInterval ? retargetInterval : retargetInterval - 1;
+                    //ブロック2のとき1、ブロック3のとき1、ブロック4のとき2、・・・
                     long firstIndex = lastIndex - blocksToGoBack > 0 ? lastIndex - blocksToGoBack : 1;
 
                     TimeSpan actualTimespan = indexToTxBlock(lastIndex).header.timestamp - indexToTxBlock(firstIndex).header.timestamp;
 
+                    //最少で75%
                     if (actualTimespan.TotalSeconds < targetTimespan - (targetTimespan / 4.0))
                         actualTimespan = TimeSpan.FromSeconds(targetTimespan - (targetTimespan / 4.0));
+                    //最大で150%
                     else if (actualTimespan.TotalSeconds > targetTimespan + (targetTimespan / 2.0))
                         actualTimespan = TimeSpan.FromSeconds(targetTimespan + (targetTimespan / 2.0));
 
+                    //最少で0.75、最大で1.5
                     double ratio = (double)actualTimespan.TotalSeconds / (double)targetTimespan;
 
                     byte[] prevTargetBytes = indexToTxBlock(lastIndex).header.difficulty.Target.hash;
@@ -3186,8 +3291,24 @@ namespace CREA2014
         }
     }
 
-    public class NormalBlock : TransactionalBlock { }
+    //2014/12/03 試験済
+    public class NormalBlock : TransactionalBlock
+    {
+        private const string guidString = "6bf78c27e25fe843bf354952848edd52";
+        private Guid guid;
+        public override Guid Guid
+        {
+            get
+            {
+                if (guid == Guid.Empty)
+                    guid = new Guid(guidString);
 
+                return guid;
+            }
+        }
+    }
+
+    //2014/12/03 試験済
     //<未実装>再度行う必要のない検証は行わない
     public class FoundationalBlock : TransactionalBlock
     {
@@ -3249,6 +3370,19 @@ namespace CREA2014
             }
         }
 
+        private const string guidString = "1a3fbbf05e672d41ba52ace089710fc1";
+        private Guid guid;
+        public override Guid Guid
+        {
+            get
+            {
+                if (guid == Guid.Empty)
+                    guid = new Guid(guidString);
+
+                return guid;
+            }
+        }
+
         protected override Func<ReaderWriter, IEnumerable<MainDataInfomation>> StreamInfo
         {
             get
@@ -3276,6 +3410,9 @@ namespace CREA2014
             }
         }
 
+        //2014/12/03
+        //prevTxOutssは全ての取引に対するものを含んでいなければならないことに注意
+        //貨幣移動取引のみならず貨幣生成取引に対するもの（貨幣生成取引の場合取引入力は0個であるため空になる筈）も含んでいなければならない
         public override bool Verify(TransactionOutput[][] prevTxOutputss, Func<long, TransactionalBlock> indexToTxBlock)
         {
             if (Version != 0 && Version != 1)
@@ -3289,9 +3426,12 @@ namespace CREA2014
             if (Version != 0 && Version != 1)
                 throw new NotSupportedException();
 
-            return coinbaseTxToFoundation.TxOutputs.All((e) => e.ReceiverPubKeyHash.Equals(foundationPubKeyHash));
+            return coinbaseTxToFoundation.TxOutputs.All((e) => e.Address.Equals(foundationPubKeyHash));
         }
 
+        //2014/12/03
+        //prevTxOutssは全ての取引に対するものを含んでいなければならないことに注意
+        //貨幣移動取引のみならず貨幣生成取引に対するもの（貨幣生成取引の場合取引入力は0個であるため空になる筈）も含んでいなければならない
         public override bool VerifyRewardAndTxFee(TransactionOutput[][] prevTxOutputss)
         {
             if (!base.VerifyRewardAndTxFee(prevTxOutputss))
@@ -4202,7 +4342,7 @@ namespace CREA2014
                 for (int i = 0; i < txi.tx.TxInputs.Length; i++)
                     addressEventDatas.Remove(new Sha256Ripemd160Hash(txi.tx.TxInputs[i].SenderPubKey.pubKey), txi.tx.TxInputs[i].PrevTxBlockIndex, txi.tx.TxInputs[i].PrevTxIndex, txi.tx.TxInputs[i].PrevTxOutputIndex);
                 for (int i = 0; i < txi.tx.TxOutputs.Length; i++)
-                    addressEventDatas.Add(txi.tx.TxOutputs[i].ReceiverPubKeyHash, new AddressEventData(txBlock.header.index, txi.i, i, txi.tx.TxOutputs[i].Amount));
+                    addressEventDatas.Add(txi.tx.TxOutputs[i].Address, new AddressEventData(txBlock.header.index, txi.i, i, txi.tx.TxOutputs[i].Amount));
             }
         }
 
@@ -4213,7 +4353,7 @@ namespace CREA2014
                 for (int i = 0; i < txi.tx.TxInputs.Length; i++)
                     addressEventDatas.Add(new Sha256Ripemd160Hash(txi.tx.TxInputs[i].SenderPubKey.pubKey), new AddressEventData(txi.tx.TxInputs[i].PrevTxBlockIndex, txi.tx.TxInputs[i].PrevTxIndex, txi.tx.TxInputs[i].PrevTxOutputIndex, GetMainBlock(txi.tx.TxInputs[i].PrevTxBlockIndex).Transactions[txi.tx.TxInputs[i].PrevTxIndex].TxOutputs[txi.tx.TxInputs[i].PrevTxOutputIndex].Amount));
                 for (int i = 0; i < txi.tx.TxOutputs.Length; i++)
-                    addressEventDatas.Remove(txi.tx.TxOutputs[i].ReceiverPubKeyHash, txBlock.header.index, txi.i, i);
+                    addressEventDatas.Remove(txi.tx.TxOutputs[i].Address, txBlock.header.index, txi.i, i);
             }
         }
 
@@ -4414,7 +4554,7 @@ namespace CREA2014
                 for (int i = 0; i < txi.tx.TxInputs.Length; i++)
                     UpdateUtxosTemp(addedUtxos, removedUtxos, new Sha256Ripemd160Hash(txi.tx.TxInputs[i].SenderPubKey.pubKey), txi.tx.TxInputs[i].PrevTxBlockIndex, txi.tx.TxInputs[i].PrevTxIndex, txi.tx.TxInputs[i].PrevTxOutputIndex);
                 for (int i = 0; i < txi.tx.TxOutputs.Length; i++)
-                    UpdateUtxosTemp(removedUtxos, addedUtxos, txi.tx.TxOutputs[i].ReceiverPubKeyHash, txBlock.header.index, txi.i, i);
+                    UpdateUtxosTemp(removedUtxos, addedUtxos, txi.tx.TxOutputs[i].Address, txBlock.header.index, txi.i, i);
             }
         }
 
@@ -4425,7 +4565,7 @@ namespace CREA2014
                 for (int i = 0; i < txi.tx.TxInputs.Length; i++)
                     UpdateUtxosTemp(removedUtxos, addedUtxos, new Sha256Ripemd160Hash(txi.tx.TxInputs[i].SenderPubKey.pubKey), txi.tx.TxInputs[i].PrevTxBlockIndex, txi.tx.TxInputs[i].PrevTxIndex, txi.tx.TxInputs[i].PrevTxOutputIndex);
                 for (int i = 0; i < txi.tx.TxOutputs.Length; i++)
-                    UpdateUtxosTemp(addedUtxos, removedUtxos, txi.tx.TxOutputs[i].ReceiverPubKeyHash, txBlock.header.index, txi.i, i);
+                    UpdateUtxosTemp(addedUtxos, removedUtxos, txi.tx.TxOutputs[i].Address, txBlock.header.index, txi.i, i);
             }
         }
 
