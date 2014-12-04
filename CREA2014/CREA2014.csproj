@@ -270,10 +270,6 @@
   <ItemGroup>
     <EmbeddedResource Include="WebResources\jquery-2.1.1.js" />
   </ItemGroup>
-  <ItemGroup>
-    <EmbeddedResource Include="Component\vtortola.WebSockets.dll" />
-    <EmbeddedResource Include="Component\vtortola.WebSockets.Rfc6455.dll" />
-  </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
   <!-- To modify your build process, add your task inside one of the targets below and uncomment it. 
        Other similar extension points exist, see Microsoft.Common.targets.

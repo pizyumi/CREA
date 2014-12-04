@@ -91,7 +91,7 @@ namespace CREA2014
             if (ahDataBytes.Length != 0)
                 accountHolders.FromBinary(ahDataBytes);
             else
-                accountHolders.LoadVersion1();
+                accountHolders.LoadVersion0();
 
             usableBalanceCache = new CachedData<CurrencyUnit>(() =>
             {
@@ -212,7 +212,7 @@ namespace CREA2014
 
             Action _Mine = () =>
             {
-                mining.NewMiningBlock(TransactionalBlock.GetBlockTemplate(blockChain.head + 1, account.Address.Hash, (index) => blockChain.GetMainBlock(index)));
+                mining.NewMiningBlock(TransactionalBlock.GetBlockTemplate(blockChain.head + 1, account.Address.Hash, new TransferTransaction[] { }, (index) => blockChain.GetMainBlock(index), 0));
             };
 
             _ContinueMine = (sender, e) =>

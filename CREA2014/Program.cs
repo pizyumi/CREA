@@ -407,7 +407,7 @@ namespace CREA2014
         {
             int index = 0;
             foreach (var i in ienumerable)
-                action(index, i);
+                action(index++, i);
         }
 
         //UIスレッドで処理を同期的に実行する（拡張：操作型）
@@ -2646,7 +2646,7 @@ namespace CREA2014
             }
 
             public enum LogKind { test, notification, result, warning, error }
-            public enum LogGround { foundation, core, common, networkBase, creaNetworkBase, cremlia, creaNetwork, data, ui, other }
+            public enum LogGround { foundation, core, common, networkBase, creaNetworkBase, cremlia, creaNetwork, data, ui, other, none }
 
             public LogGround Ground
             {
@@ -3454,27 +3454,27 @@ namespace CREA2014
 
         public static string GetTaskName(string rawName)
         {
-            return taskNames.GetValue(rawName, () => rawName)();
+            return taskNames == null ? string.Empty : taskNames.GetValue(rawName, () => rawName)();
         }
 
         public static string GetTaskDescription(string rawDescription)
         {
-            return taskDescriptions.GetValue(rawDescription, () => rawDescription)();
+            return taskDescriptions == null ? string.Empty : taskDescriptions.GetValue(rawDescription, () => rawDescription)();
         }
 
         public static LogData.LogGround GetLogGround(string rawMessage)
         {
-            return logGrounds.GetValue(rawMessage, LogData.LogGround.other);
+            return logGrounds == null ? LogData.LogGround.none : logGrounds.GetValue(rawMessage, LogData.LogGround.other);
         }
 
         public static string GetLogMessage(string rawMessage, string[] arguments)
         {
-            return logMessages.GetValue(rawMessage, (arg) => rawMessage)(arguments);
+            return logMessages == null ? string.Empty : logMessages.GetValue(rawMessage, (arg) => rawMessage)(arguments);
         }
 
         public static string GetExceptionMessage(string rawMessage)
         {
-            return exceptionMessages.GetValue(rawMessage, () => rawMessage)();
+            return exceptionMessages == null ? string.Empty : exceptionMessages.GetValue(rawMessage, () => rawMessage)();
         }
 
         private static Assembly entryAssembly = Assembly.GetEntryAssembly();
@@ -3514,7 +3514,12 @@ namespace CREA2014
             //New.BlockChainTest.Test9();
             //New.BlockChainTest.Test10();
             //New.BlockChainTest.Test11();
-            New.BlockChainTest.Test12();
+            //New.BlockChainTest.Test12();
+            //New.BlockChainTest.Test13();
+            //New.BlockChainTest.Test14();
+            //New.BlockChainTest.Test15();
+            //New.BlockChainTest.Test16();
+            New.BlockChainTest.Test17();
 
 
             string argExtract = "extract";
@@ -3599,8 +3604,6 @@ namespace CREA2014
                         "SuperSocket.SocketBase.dll", 
                         "SuperSocket.SocketEngine.dll", 
                         "SuperWebSocket.dll", 
-                        "vtortola.WebSockets.dll", 
-                        "vtortola.WebSockets.Rfc6455.dll", 
                     };
 
                     foreach (var filename in filenames)
@@ -3775,6 +3778,7 @@ namespace CREA2014
                 {"fatal:http_listener_not_supported", () => "HTTP Listenerに対応していません。".Multilanguage(191)},
                 {"fatal:utxos_access", () => "データベースが破損した可能性があります。".Multilanguage(227)},
                 {"fatal:bfpdb", () => "データベースが破損した可能性があります。".Multilanguage(227)},
+                {"fatal:blkchain_access", () => "データベースが破損した可能性があります。".Multilanguage(227)},
             };
 
             Extension.Tasked += (sender, e) => tasker.New(new TaskData(e, taskNumber++));

@@ -875,8 +875,9 @@ namespace New
 
     public class BlockChain
     {
-        public BlockChain(BlockManagerDB _bmdb, BlockDB _bdb, BlockFilePointersDB _bfpdb, UtxoFileAccessDB _ufadb, UtxoFilePointersDB _ufpdb, UtxoFilePointersTempDB _ufptempdb, UtxoDB _udb)
+        public BlockChain(BlockchainAccessDB _bcadb, BlockManagerDB _bmdb, BlockDB _bdb, BlockFilePointersDB _bfpdb, UtxoFileAccessDB _ufadb, UtxoFilePointersDB _ufpdb, UtxoFilePointersTempDB _ufptempdb, UtxoDB _udb)
         {
+            bcadb = _bcadb;
             bmdb = _bmdb;
             bdb = _bdb;
             bfpdb = _bfpdb;
@@ -900,6 +901,7 @@ namespace New
         private static readonly int mainBlocksRetain = 1000;
         private static readonly int oldBlocksRetain = 1000;
 
+        private readonly BlockchainAccessDB bcadb;
         private readonly BlockManagerDB bmdb;
         private readonly BlockDB bdb;
         private readonly BlockFilePointersDB bfpdb;
@@ -921,7 +923,7 @@ namespace New
         {
             public UpdateChainInnerReturn(UpdateChainInnerReturnType _type)
             {
-                if (type == UpdateChainInnerReturnType.rejected || type == UpdateChainInnerReturnType.pending)
+                if (_type == UpdateChainInnerReturnType.rejected || _type == UpdateChainInnerReturnType.pending)
                     throw new ArgumentException();
 
                 type = _type;
@@ -929,7 +931,7 @@ namespace New
 
             public UpdateChainInnerReturn(UpdateChainInnerReturnType _type, int _position)
             {
-                if (type != UpdateChainInnerReturnType.pending)
+                if (_type != UpdateChainInnerReturnType.pending)
                     throw new ArgumentException();
 
                 type = _type;
@@ -938,7 +940,7 @@ namespace New
 
             public UpdateChainInnerReturn(UpdateChainInnerReturnType _type, int _position, List<Block> _rejectedBlocks)
             {
-                if (type != UpdateChainInnerReturnType.rejected)
+                if (_type != UpdateChainInnerReturnType.rejected)
                     throw new ArgumentException();
 
                 type = _type;
@@ -989,21 +991,37 @@ namespace New
             long maxBlockIndex = blockManager.headBlockIndex + maxBlockIndexMargin;
 
             //確定されたブロックのブロック番号以下のブロック番号を有するブロックは認められない
-            if (block.Index > maxBlockIndex)
+            if (block.Index <= minBlockIndex)
                 throw new InvalidOperationException();
             //現在のブロックのブロック番号より大き過ぎるブロック番号を有するブロックは認められない
-            if (block.Index <= minBlockIndex)
+            if (block.Index > maxBlockIndex)
                 throw new InvalidOperationException();
 
             int position = blocksCurrent.GetForward((int)(block.Index - blockManager.headBlockIndex));
+            //既に阻却されているブロックの場合は何も変わらない
             if (rejectedBlocks[position] != null && rejectedBlocks[position].Keys.Contains(block.Id))
                 return new UpdateChainInnerReturn(UpdateChainInnerReturnType.invariable);
 
+            //先頭ブロックの番号より丁度1大きい番号のブロックの場合
+            //即ち、先頭ブロックの直後のブロックである可能性がある場合
             if (block.Index == blockManager.headBlockIndex + 1)
             {
-                if (!block.PrevId.Equals(blockManager.GetHeadBlock().Id))
-                    return new UpdateChainInnerReturn(UpdateChainInnerReturnType.pending, position);
+                //ブロックに格納されている直前ブロック識別子が先頭ブロックの識別子と異なる場合は先頭ブロックの直後のブロックではない
+                //しかし、ブロック鎖分岐が発生して別の分岐が正当なブロック鎖の一部となった場合には有効なブロックとなる可能性があるので留保ブロックとする
+                if (block is GenesisBlock)
+                {
+                    if (block.PrevId != null)
+                        return new UpdateChainInnerReturn(UpdateChainInnerReturnType.rejected, position, new List<Block>() { block });
+                }
+                else if (block is TransactionalBlock)
+                {
+                    if (!block.PrevId.Equals(blockManager.GetHeadBlock().Id))
+                        return new UpdateChainInnerReturn(UpdateChainInnerReturnType.pending, position);
+                }
+                else
+                    throw new NotSupportedException();
 
+                //ブロックの被参照取引出力を取得する
                 TransactionOutput[][] prevTxOutputss = new TransactionOutput[block.Transactions.Length][];
                 block.Transactions.ForEach((i, tx) =>
                 {
@@ -1011,11 +1029,43 @@ namespace New
                     tx.TxInputs.ForEach((j, txIn) => prevTxOutputss[i][j] = blockManager.GetMainBlock(txIn.PrevTxBlockIndex).Transactions[txIn.PrevTxIndex].TxOutputs[txIn.PrevTxOutputIndex]);
                 });
 
-                if (!VerifyBlock(block, prevTxOutputss, new Dictionary<Sha256Ripemd160Hash, List<Utxo>>(), new Dictionary<Sha256Ripemd160Hash, List<Utxo>>()))
-                    return new UpdateChainInnerReturn(UpdateChainInnerReturnType.pending, position);
+                //ブロック自体の検証を実行する
+                //ブロックが無効である場合は阻却ブロックとする
+                if (block is GenesisBlock)
+                {
+                    if (!(block as GenesisBlock).Verify())
+                        return new UpdateChainInnerReturn(UpdateChainInnerReturnType.rejected, position, new List<Block>() { block });
+                }
+                else if (block is TransactionalBlock)
+                {
+                    if (!(block as TransactionalBlock).Verify(prevTxOutputss, (index) => blockManager.GetMainBlock(index) as TransactionalBlock))
+                    {
+                        (block as TransactionalBlock).Verify(prevTxOutputss, (index) => blockManager.GetMainBlock(index) as TransactionalBlock);
+                        return new UpdateChainInnerReturn(UpdateChainInnerReturnType.rejected, position, new List<Block>() { block });
+                    }
+                }
+                else
+                    throw new NotSupportedException();
 
+                udb.Open();
+
+                //ブロック鎖の状態（＝未使用の取引出力の存否）と矛盾がないか検証する
+                //矛盾がある場合は阻却ブロックとする
+                if (!VerifyUtxo(block, prevTxOutputss, new Dictionary<Sha256Ripemd160Hash, List<Utxo>>(), new Dictionary<Sha256Ripemd160Hash, List<Utxo>>()))
+                    return new UpdateChainInnerReturn(UpdateChainInnerReturnType.rejected, position, new List<Block>() { block });
+
+                bcadb.Create();
+
+                //2つの検証に通った場合は有効ブロックであるのでブロック鎖の新しいブロックとして登録し、ブロック鎖の状態を更新する
                 blockManager.AddMainBlock(block);
                 utxoManager.ApplyBlock(block, prevTxOutputss);
+                utxoManager.SaveUFPTemp();
+
+                bcadb.Delete();
+
+                udb.Close();
+
+                blocksCurrent.Next();
 
                 return new UpdateChainInnerReturn(UpdateChainInnerReturnType.updated);
             }
@@ -1149,12 +1199,37 @@ namespace New
 
 
 
-        private bool VerifyBlock(Block block, TransactionOutput[][] prevTxOutss, Dictionary<Sha256Ripemd160Hash, List<Utxo>> addedUtxos, Dictionary<Sha256Ripemd160Hash, List<Utxo>> removedUtxos)
+        private bool VerifyUtxo(Block block, TransactionOutput[][] prevTxOutss, Dictionary<Sha256Ripemd160Hash, List<Utxo>> addedUtxos, Dictionary<Sha256Ripemd160Hash, List<Utxo>> removedUtxos)
         {
-            throw new NotImplementedException();
+            Dictionary<Sha256Ripemd160Hash, List<Utxo>> removedUtxos2 = new Dictionary<Sha256Ripemd160Hash, List<Utxo>>();
+
+            for (int i = 0; i < block.Transactions.Length; i++)
+                for (int j = 0; j < block.Transactions[i].TxInputs.Length; j++)
+                {
+                    if (removedUtxos2.Keys.Contains(prevTxOutss[i][j].Address) && removedUtxos2[prevTxOutss[i][j].Address].Where((elem) => elem.IsMatch(block.Transactions[i].TxInputs[j].PrevTxBlockIndex, block.Transactions[i].TxInputs[j].PrevTxIndex, block.Transactions[i].TxInputs[j].PrevTxOutputIndex)).FirstOrDefault() != null)
+                        return false;
+                    if (removedUtxos.Keys.Contains(prevTxOutss[i][j].Address) && removedUtxos[prevTxOutss[i][j].Address].Where((elem) => elem.IsMatch(block.Transactions[i].TxInputs[j].PrevTxBlockIndex, block.Transactions[i].TxInputs[j].PrevTxIndex, block.Transactions[i].TxInputs[j].PrevTxOutputIndex)).FirstOrDefault() != null)
+                        return false;
+
+                    List<Utxo> utxos;
+                    if (!removedUtxos2.Keys.Contains(prevTxOutss[i][j].Address))
+                        removedUtxos2.Add(prevTxOutss[i][j].Address, utxos = new List<Utxo>());
+                    else
+                        utxos = removedUtxos2[prevTxOutss[i][j].Address];
+                    utxos.Add(new Utxo(block.Transactions[i].TxInputs[j].PrevTxBlockIndex, block.Transactions[i].TxInputs[j].PrevTxIndex, block.Transactions[i].TxInputs[j].PrevTxOutputIndex, prevTxOutss[i][j].Amount));
+
+                    if (addedUtxos.Keys.Contains(prevTxOutss[i][j].Address) && addedUtxos[prevTxOutss[i][j].Address].Where((elem) => elem.IsMatch(block.Transactions[i].TxInputs[j].PrevTxBlockIndex, block.Transactions[i].TxInputs[j].PrevTxIndex, block.Transactions[i].TxInputs[j].PrevTxOutputIndex)).FirstOrDefault() != null)
+                        continue;
+
+                    if (utxoManager.FindUtxo(prevTxOutss[i][j].Address, block.Transactions[i].TxInputs[j].PrevTxBlockIndex, block.Transactions[i].TxInputs[j].PrevTxIndex, block.Transactions[i].TxInputs[j].PrevTxOutputIndex) == null)
+                        return false;
+                }
+
+            return true;
         }
     }
 
+    //2014/12/04 試験済
     public class BlockManager
     {
         public BlockManager(BlockManagerDB _bmdb, BlockDB _bdb, BlockFilePointersDB _bfpdb, int _mainBlocksRetain, int _oldBlocksRetain, long _mainBlockFinalization)
@@ -1177,9 +1252,6 @@ namespace New
             mainBlocksCurrent = new CirculatedInteger(mainBlocksRetain);
 
             oldBlocks = new Dictionary<long, Block>();
-
-            if (bmd.headBlockIndex == -1)
-                AddMainBlock(new GenesisBlock());
         }
 
         private static readonly long blockFileCapacity = 100000;
@@ -1316,6 +1388,7 @@ namespace New
         }
     }
 
+    //2014/12/04 試験済
     public class UtxoManager
     {
         public UtxoManager(UtxoFileAccessDB _ufadb, UtxoFilePointersDB _ufpdb, UtxoFilePointersTempDB _ufptempdb, UtxoDB _udb)
@@ -1781,6 +1854,55 @@ namespace New
             catch (Exception ex)
             {
                 throw new ApplicationException("fatal:utxos_access", ex);
+            }
+        }
+
+        public string GetPath() { return System.IO.Path.Combine(pathBase, filenameBase); }
+    }
+
+    public class BlockchainAccessDB : DATABASEBASE
+    {
+        public BlockchainAccessDB(string _pathBase) : base(_pathBase) { }
+
+        protected override int version { get { return 0; } }
+
+#if TEST
+        protected override string filenameBase { get { return "blkchain_access_test" + version.ToString(); } }
+#else
+        protected override string filenameBase { get { return "utxos" + version.ToString(); } }
+#endif
+
+        public void Create()
+        {
+            try
+            {
+                string path = GetPath();
+
+                if (File.Exists(path))
+                    throw new InvalidOperationException("blkchain_access_file_exist");
+
+                File.WriteAllText(path, string.Empty);
+            }
+            catch (Exception ex)
+            {
+                throw new ApplicationException("fatal:blkchain_access", ex);
+            }
+        }
+
+        public void Delete()
+        {
+            try
+            {
+                string path = GetPath();
+
+                if (!File.Exists(path))
+                    throw new InvalidOperationException("blkchain_access_file_not_exist");
+
+                File.Delete(path);
+            }
+            catch (Exception ex)
+            {
+                throw new ApplicationException("fatal:blkchain_access", ex);
             }
         }
 
@@ -2874,16 +2996,14 @@ namespace New
 
             BlockManager blkmanager = new BlockManager(bmdb, bdb, bfpdb, 10, 10, 3);
 
-            if (blkmanager.headBlockIndex != 0)
+            if (blkmanager.headBlockIndex != -1)
                 throw new InvalidOperationException("test9_1");
-            if (blkmanager.finalizedBlockIndex != 0)
+            if (blkmanager.finalizedBlockIndex != -1)
                 throw new InvalidOperationException("test9_2");
-            if (blkmanager.mainBlocksCurrent.value != 1)
+            if (blkmanager.mainBlocksCurrent.value != 0)
                 throw new InvalidOperationException("test9_16");
-            if (blkmanager.mainBlocks[blkmanager.mainBlocksCurrent.value] == null)
+            if (blkmanager.mainBlocks[blkmanager.mainBlocksCurrent.value] != null)
                 throw new InvalidOperationException("test9_3");
-            if (!(blkmanager.mainBlocks[blkmanager.mainBlocksCurrent.value] is GenesisBlock))
-                throw new InvalidOperationException("test9_4");
 
             bool flag = false;
             try
@@ -2908,6 +3028,31 @@ namespace New
             }
             if (!flag2)
                 throw new Exception("test9_6");
+
+            bool flag9 = false;
+            try
+            {
+                blkmanager.GetMainBlock(0);
+            }
+            catch (InvalidOperationException)
+            {
+                flag9 = true;
+            }
+            if (!flag9)
+                throw new Exception("test9_28");
+
+            blkmanager.AddMainBlock(new GenesisBlock());
+
+            if (blkmanager.headBlockIndex != 0)
+                throw new InvalidOperationException("test9_29");
+            if (blkmanager.finalizedBlockIndex != 0)
+                throw new InvalidOperationException("test9_30");
+            if (blkmanager.mainBlocksCurrent.value != 1)
+                throw new InvalidOperationException("test9_31");
+            if (blkmanager.mainBlocks[blkmanager.mainBlocksCurrent.value] == null)
+                throw new InvalidOperationException("test9_32");
+            if (!(blkmanager.mainBlocks[blkmanager.mainBlocksCurrent.value] is GenesisBlock))
+                throw new InvalidOperationException("test9_33");
 
             Block block1 = blkmanager.GetMainBlock(0);
             Block block2 = blkmanager.GetHeadBlock();
@@ -3043,7 +3188,7 @@ namespace New
                         flag8 = true;
                     }
                     if (!flag8)
-                        throw new Exception("test9_24");
+                        throw new Exception("test9_26");
 
                     continue;
                 }
@@ -3051,7 +3196,7 @@ namespace New
                 Block block4 = blkmanager.GetMainBlock(i);
 
                 if (block4.Index != i)
-                    throw new Exception("test9_25");
+                    throw new Exception("test9_27");
             }
 
             Console.WriteLine("test9_succeeded");
@@ -3877,17 +4022,415 @@ namespace New
         //BlockManagerのテスト2
         public static void Test13()
         {
+            BlockGenerator bg = new BlockGenerator();
 
+            Block[] blks = new Block[100];
+            BlockContext[] blkCons = new BlockContext[blks.Length];
+            for (int i = 0; i < blks.Length; i++)
+            {
+                blkCons[i] = bg.CreateNextValidBlock();
+                blks[i] = blkCons[i].block;
+            }
+
+            string basepath = System.IO.Path.GetDirectoryName(Assembly.GetEntryAssembly().Location);
+
+            BlockManagerDB bmdb = new BlockManagerDB(basepath);
+            string bmdbPath = bmdb.GetPath();
+
+            if (File.Exists(bmdbPath))
+                File.Delete(bmdbPath);
+
+            BlockDB bdb = new BlockDB(basepath);
+            string bdbPath = bdb.GetPath(0);
+
+            if (File.Exists(bdbPath))
+                File.Delete(bdbPath);
+
+            BlockFilePointersDB bfpdb = new BlockFilePointersDB(basepath);
+            string bfpPath = bfpdb.GetPath();
+
+            if (File.Exists(bfpPath))
+                File.Delete(bfpPath);
+
+            BlockManager blkmanager = new BlockManager(bmdb, bdb, bfpdb, 1000, 1000, 300);
+
+            Stopwatch stopwatch = new Stopwatch();
+            stopwatch.Start();
+
+            for (int i = 0; i < blks.Length; i++)
+                blkmanager.AddMainBlock(blks[i]);
+
+            stopwatch.Stop();
+
+            Console.WriteLine(string.Join(":", "test13_1", stopwatch.ElapsedMilliseconds.ToString() + "ms"));
+
+            FileInfo fi = new FileInfo(bdbPath);
+
+            Console.WriteLine(string.Join(":", "test13_1", fi.Length.ToString() + "bytes"));
+
+            Block[] blks2 = new Block[blks.Length];
+
+            stopwatch.Reset();
+            stopwatch.Start();
+
+            for (int i = 0; i < blks.Length; i++)
+                blks2[i] = blkmanager.GetMainBlock(i);
+
+            stopwatch.Stop();
+
+            Console.WriteLine(string.Join(":", "test13_2", stopwatch.ElapsedMilliseconds.ToString() + "ms"));
+
+            for (int i = 0; i < blks.Length; i++)
+                if (!blks2[i].Id.Equals(blks[i].Id))
+                    throw new Exception("test13_3");
+
+            Console.WriteLine("test13_succeeded");
         }
 
-        //BlockChainのテスト（分岐がない場合）
+        //BlockManagerのテスト3
         public static void Test14()
         {
+            BlockGenerator bg = new BlockGenerator();
 
+            Block[] blks = new Block[100];
+            BlockContext[] blkCons = new BlockContext[blks.Length];
+            for (int i = 0; i < blks.Length; i++)
+            {
+                blkCons[i] = bg.CreateNextValidBlock();
+                blks[i] = blkCons[i].block;
+            }
+
+            string basepath = System.IO.Path.GetDirectoryName(Assembly.GetEntryAssembly().Location);
+
+            BlockManagerDB bmdb = new BlockManagerDB(basepath);
+            string bmdbPath = bmdb.GetPath();
+
+            if (File.Exists(bmdbPath))
+                File.Delete(bmdbPath);
+
+            BlockDB bdb = new BlockDB(basepath);
+            string bdbPath = bdb.GetPath(0);
+
+            if (File.Exists(bdbPath))
+                File.Delete(bdbPath);
+
+            BlockFilePointersDB bfpdb = new BlockFilePointersDB(basepath);
+            string bfpPath = bfpdb.GetPath();
+
+            if (File.Exists(bfpPath))
+                File.Delete(bfpPath);
+
+            BlockManager blkmanager = new BlockManager(bmdb, bdb, bfpdb, 10, 10, 3);
+
+            for (int i = 0; i < blks.Length; i++)
+                blkmanager.AddMainBlock(blks[i]);
+
+            Block[] blks2 = new Block[blks.Length];
+
+            Stopwatch stopwatch = new Stopwatch();
+            stopwatch.Start();
+
+            for (int i = 0; i < blks.Length; i++)
+                blks2[i] = blkmanager.GetMainBlock(i);
+
+            stopwatch.Stop();
+
+            Console.WriteLine(string.Join(":", "test14_1", stopwatch.ElapsedMilliseconds.ToString() + "ms"));
+
+            for (int i = 0; i < blks.Length; i++)
+                if (!blks2[i].Id.Equals(blks[i].Id))
+                    throw new Exception("test14_2");
+
+            Console.WriteLine("test14_succeeded");
+        }
+
+        //UtxoManagerのテスト4
+        public static void Test15()
+        {
+            string basepath = System.IO.Path.GetDirectoryName(Assembly.GetEntryAssembly().Location);
+
+            UtxoFileAccessDB ufadb = new UtxoFileAccessDB(basepath);
+            string ufadbPath = ufadb.GetPath();
+
+            if (File.Exists(ufadbPath))
+                File.Delete(ufadbPath);
+
+            UtxoFilePointersDB ufpdb = new UtxoFilePointersDB(basepath);
+            string ufpdbPath = ufpdb.GetPath();
+
+            if (File.Exists(ufpdbPath))
+                File.Delete(ufpdbPath);
+
+            UtxoFilePointersTempDB ufptempdb = new UtxoFilePointersTempDB(basepath);
+            string ufptempdbPath = ufptempdb.GetPath();
+
+            if (File.Exists(ufptempdbPath))
+                File.Delete(ufptempdbPath);
+
+            UtxoDB utxodb = new UtxoDB(basepath);
+            string utxodbPath = utxodb.GetPath();
+
+            if (File.Exists(utxodbPath))
+                File.Delete(utxodbPath);
+
+            UtxoManager utxom = new UtxoManager(ufadb, ufpdb, ufptempdb, utxodb);
+
+            BlockGenerator bg = new BlockGenerator();
+
+            Block[] blks = new Block[100];
+            BlockContext[] blkCons = new BlockContext[blks.Length];
+            for (int i = 0; i < blks.Length; i++)
+            {
+                blkCons[i] = bg.CreateNextValidBlock();
+                blks[i] = blkCons[i].block;
+
+                Console.WriteLine("block" + i.ToString() + " created.");
+            }
+
+            for (int i = 0; i < blks.Length; i++)
+            {
+                utxodb.Open();
+
+                utxom.ApplyBlock(blks[i], blkCons[i].prevTxOutss);
+
+                utxom.SaveUFPTemp();
+
+                utxodb.Close();
+
+                utxodb.Open();
+
+                foreach (var address in blkCons[i].unspentTxOuts.Keys)
+                    foreach (var toc in blkCons[i].unspentTxOuts[address])
+                        if (utxom.FindUtxo(address, toc.bIndex, toc.txIndex, toc.txOutIndex) == null)
+                            throw new Exception("test15_1");
+
+                foreach (var address in blkCons[i].spentTxOuts.Keys)
+                    foreach (var toc in blkCons[i].spentTxOuts[address])
+                        if (utxom.FindUtxo(address, toc.bIndex, toc.txIndex, toc.txOutIndex) != null)
+                            throw new Exception("test15_2");
+
+                utxodb.Close();
+
+                Console.WriteLine("block" + i.ToString() + " apply tested.");
+            }
+
+            for (int i = blks.Length - 1; i > 0; i--)
+            {
+                utxodb.Open();
+
+                utxom.RevertBlock(blks[i], blkCons[i].prevTxOutss);
+
+                utxom.SaveUFPTemp();
+
+                utxodb.Close();
+
+                utxodb.Open();
+
+                foreach (var address in blkCons[i - 1].unspentTxOuts.Keys)
+                    foreach (var toc in blkCons[i - 1].unspentTxOuts[address])
+                        if (utxom.FindUtxo(address, toc.bIndex, toc.txIndex, toc.txOutIndex) == null)
+                            throw new Exception("test15_3");
+
+                foreach (var address in blkCons[i - 1].spentTxOuts.Keys)
+                    foreach (var toc in blkCons[i - 1].spentTxOuts[address])
+                        if (utxom.FindUtxo(address, toc.bIndex, toc.txIndex, toc.txOutIndex) != null)
+                            throw new Exception("test15_4");
+
+                utxodb.Close();
+
+                Console.WriteLine("block" + i.ToString() + " revert tested.");
+            }
+
+            Console.WriteLine("test15_succeeded");
+        }
+
+        //UtxoManagerのテスト5
+        public static void Test16()
+        {
+            string basepath = System.IO.Path.GetDirectoryName(Assembly.GetEntryAssembly().Location);
+
+            UtxoFileAccessDB ufadb = new UtxoFileAccessDB(basepath);
+            string ufadbPath = ufadb.GetPath();
+
+            if (File.Exists(ufadbPath))
+                File.Delete(ufadbPath);
+
+            UtxoFilePointersDB ufpdb = new UtxoFilePointersDB(basepath);
+            string ufpdbPath = ufpdb.GetPath();
+
+            if (File.Exists(ufpdbPath))
+                File.Delete(ufpdbPath);
+
+            UtxoFilePointersTempDB ufptempdb = new UtxoFilePointersTempDB(basepath);
+            string ufptempdbPath = ufptempdb.GetPath();
+
+            if (File.Exists(ufptempdbPath))
+                File.Delete(ufptempdbPath);
+
+            UtxoDB utxodb = new UtxoDB(basepath);
+            string utxodbPath = utxodb.GetPath();
+
+            if (File.Exists(utxodbPath))
+                File.Delete(utxodbPath);
+
+            UtxoManager utxom = new UtxoManager(ufadb, ufpdb, ufptempdb, utxodb);
+
+            BlockGenerator bg = new BlockGenerator();
+
+            Block[] blks = new Block[100];
+            BlockContext[] blkCons = new BlockContext[blks.Length];
+            for (int i = 0; i < blks.Length; i++)
+            {
+                blkCons[i] = bg.CreateNextValidBlock();
+                blks[i] = blkCons[i].block;
+
+                Console.WriteLine("block" + i.ToString() + " created.");
+            }
+
+            Stopwatch stopwatch = new Stopwatch();
+            stopwatch.Start();
+
+            for (int i = 0; i < blks.Length; i++)
+            {
+                utxodb.Open();
+
+                utxom.ApplyBlock(blks[i], blkCons[i].prevTxOutss);
+
+                utxom.SaveUFPTemp();
+
+                utxodb.Close();
+            }
+
+            stopwatch.Stop();
+
+            Console.WriteLine(string.Join(":", "test16_1", stopwatch.ElapsedMilliseconds.ToString() + "ms"));
+
+            Console.WriteLine("test16_succeeded");
         }
 
         //BlockChainのテスト（分岐がない場合・採掘）
-        public static void Test15()
+        public static void Test17()
+        {
+            string basepath = System.IO.Path.GetDirectoryName(Assembly.GetEntryAssembly().Location);
+
+            BlockchainAccessDB bcadb = new BlockchainAccessDB(basepath);
+            string bcadbPath = bcadb.GetPath();
+
+            if (File.Exists(bcadbPath))
+                File.Delete(bcadbPath);
+
+            BlockManagerDB bmdb = new BlockManagerDB(basepath);
+            string bmdbPath = bmdb.GetPath();
+
+            if (File.Exists(bmdbPath))
+                File.Delete(bmdbPath);
+
+            BlockDB bdb = new BlockDB(basepath);
+            string bdbPath = bdb.GetPath(0);
+
+            if (File.Exists(bdbPath))
+                File.Delete(bdbPath);
+
+            BlockFilePointersDB bfpdb = new BlockFilePointersDB(basepath);
+            string bfpPath = bfpdb.GetPath();
+
+            if (File.Exists(bfpPath))
+                File.Delete(bfpPath);
+
+            UtxoFileAccessDB ufadb = new UtxoFileAccessDB(basepath);
+            string ufadbPath = ufadb.GetPath();
+
+            if (File.Exists(ufadbPath))
+                File.Delete(ufadbPath);
+
+            UtxoFilePointersDB ufpdb = new UtxoFilePointersDB(basepath);
+            string ufpdbPath = ufpdb.GetPath();
+
+            if (File.Exists(ufpdbPath))
+                File.Delete(ufpdbPath);
+
+            UtxoFilePointersTempDB ufptempdb = new UtxoFilePointersTempDB(basepath);
+            string ufptempdbPath = ufptempdb.GetPath();
+
+            if (File.Exists(ufptempdbPath))
+                File.Delete(ufptempdbPath);
+
+            UtxoDB utxodb = new UtxoDB(basepath);
+            string utxodbPath = utxodb.GetPath();
+
+            if (File.Exists(utxodbPath))
+                File.Delete(utxodbPath);
+
+            BlockChain blockchain = new BlockChain(bcadb, bmdb, bdb, bfpdb, ufadb, ufpdb, ufptempdb, utxodb);
+
+            BlockGenerator bg = new BlockGenerator();
+
+            Block[] blks = new Block[100];
+            BlockContext[] blkCons = new BlockContext[blks.Length];
+            for (int i = 0; i < blks.Length; i++)
+            {
+                blkCons[i] = bg.CreateNextValidBlock();
+                blks[i] = blkCons[i].block;
+
+                Console.WriteLine("block" + i.ToString() + " created.");
+            }
+
+            Block[] blks2 = new Block[blks.Length];
+            byte[] nonce = null;
+
+            Func<long, TransactionalBlock> _indexToBlock = (index) => blks2[index] as TransactionalBlock;
+
+            for (int i = 0; i < 10; i++)
+            {
+                if (i == 0)
+                {
+                    blks2[i] = blks[i];
+
+                    continue;
+                }
+
+                TransactionalBlock tblk = blks[i] as TransactionalBlock;
+
+                TransactionalBlock tblk2 = TransactionalBlock.GetBlockTemplate(tblk.Index, tblk.coinbaseTxToMiner, tblk.transferTxs, _indexToBlock, 0);
+
+                nonce = new byte[10];
+
+                while (true)
+                {
+                    tblk2.UpdateTimestamp(DateTime.Now);
+                    tblk2.UpdateNonce(nonce);
+
+                    if (tblk2.Id.CompareTo(tblk2.header.difficulty.Target) <= 0)
+                    {
+                        blks2[i] = tblk2;
+
+                        Console.WriteLine("block" + i.ToString() + " mined.");
+
+                        break;
+                    }
+
+                    int index = nonce.Length.RandomNum();
+                    int value = 256.RandomNum();
+
+                    nonce[index] = (byte)value;
+                }
+            }
+
+            Stopwatch stopwatch = new Stopwatch();
+            stopwatch.Start();
+
+            for (int i = 0; i < 10; i++)
+                blockchain.UpdateChain(blks2[i]);
+
+            stopwatch.Stop();
+
+            Console.WriteLine(string.Join(":", "test17_1", stopwatch.ElapsedMilliseconds.ToString() + "ms"));
+
+            Console.WriteLine("test17_succeeded");
+        }
+
+        //BlockChainのテスト（分岐がない場合・無効ブロックなどを追加しようとした場合）
+        public static void Test18()
         {
 
         }
@@ -3929,16 +4472,20 @@ namespace New
 
     public class BlockContext
     {
-        public BlockContext(Block _block, TransactionOutput[][] _prevTxOutss, long _feesRawAmount)
+        public BlockContext(Block _block, TransactionOutput[][] _prevTxOutss, long _feesRawAmount, Dictionary<Sha256Ripemd160Hash, List<TransactionOutputContext>> _unspentTxOuts, Dictionary<Sha256Ripemd160Hash, List<TransactionOutputContext>> _spentTxOuts)
         {
             block = _block;
             prevTxOutss = _prevTxOutss;
             feeRawAmount = _feesRawAmount;
+            unspentTxOuts = _unspentTxOuts;
+            spentTxOuts = _spentTxOuts;
         }
 
         public Block block { get; set; }
         public TransactionOutput[][] prevTxOutss { get; set; }
         public long feeRawAmount { get; set; }
+        public Dictionary<Sha256Ripemd160Hash, List<TransactionOutputContext>> unspentTxOuts { get; set; }
+        public Dictionary<Sha256Ripemd160Hash, List<TransactionOutputContext>> spentTxOuts { get; set; }
     }
 
     public class BlockGenerator
@@ -3964,6 +4511,14 @@ namespace New
             unspentTxOuts = new List<TransactionOutputContext>();
             spentTxOuts = new List<TransactionOutputContext>();
             blks = new List<Block>();
+
+            unspentTxOutsDict = new Dictionary<Sha256Ripemd160Hash, List<TransactionOutputContext>>();
+            spentTxOutsDict = new Dictionary<Sha256Ripemd160Hash, List<TransactionOutputContext>>();
+            for (int i = 0; i < keyPairs.Length; i++)
+            {
+                unspentTxOutsDict.Add(addresses[i], new List<TransactionOutputContext>());
+                spentTxOutsDict.Add(addresses[i], new List<TransactionOutputContext>());
+            }
         }
 
         private readonly int numOfKeyPairs;
@@ -3978,6 +4533,8 @@ namespace New
         private List<TransactionOutputContext> unspentTxOuts;
         private List<TransactionOutputContext> spentTxOuts;
         private List<Block> blks;
+        private Dictionary<Sha256Ripemd160Hash, List<TransactionOutputContext>> unspentTxOutsDict;
+        private Dictionary<Sha256Ripemd160Hash, List<TransactionOutputContext>> spentTxOutsDict;
 
         public BlockContext CreateNextValidBlock()
         {
@@ -3989,7 +4546,20 @@ namespace New
 
                 blks.Add(blk);
 
-                return new BlockContext(blk, new TransactionOutput[][] { }, 0);
+                Dictionary<Sha256Ripemd160Hash, List<TransactionOutputContext>> unspentTxOutsDictClone2 = new Dictionary<Sha256Ripemd160Hash, List<TransactionOutputContext>>();
+                Dictionary<Sha256Ripemd160Hash, List<TransactionOutputContext>> spentTxOutsDictClone2 = new Dictionary<Sha256Ripemd160Hash, List<TransactionOutputContext>>();
+
+                for (int i = 0; i < keyPairs.Length; i++)
+                {
+                    unspentTxOutsDictClone2.Add(addresses[i], new List<TransactionOutputContext>());
+                    foreach (var toc in unspentTxOutsDict[addresses[i]])
+                        unspentTxOutsDictClone2[addresses[i]].Add(toc);
+                    spentTxOutsDictClone2.Add(addresses[i], new List<TransactionOutputContext>());
+                    foreach (var toc in spentTxOutsDict[addresses[i]])
+                        spentTxOutsDictClone2[addresses[i]].Add(toc);
+                }
+
+                return new BlockContext(blk, new TransactionOutput[][] { }, 0, unspentTxOutsDictClone2, spentTxOutsDictClone2);
             }
 
             int numOfSpendTxs = maxNumOfSpendTxs.RandomNum() + 1;
@@ -4010,6 +4580,9 @@ namespace New
                     int index = unspentTxOuts.Count.RandomNum();
 
                     spendTxOutss[i][j] = unspentTxOuts[index];
+
+                    spentTxOutsDict[unspentTxOuts[index].address].Add(unspentTxOuts[index]);
+                    unspentTxOutsDict[unspentTxOuts[index].address].Remove(unspentTxOuts[index]);
 
                     spentTxOuts.Add(unspentTxOuts[index]);
                     unspentTxOuts.RemoveAt(index);
@@ -4065,7 +4638,11 @@ namespace New
                 fee += sumRawAmount;
 
                 for (int j = 0; j < txOutsCon.Length; j++)
+                {
+                    unspentTxOutsDict[txOutsCon[j].address].Add(txOutsCon[j]);
+
                     unspentTxOuts.Add(txOutsCon[j]);
+                }
 
                 TransactionOutput[] prevTxOuts = new TransactionOutput[txIns.Length];
                 Ecdsa256PrivKey[] privKeys = new Ecdsa256PrivKey[txIns.Length];
@@ -4113,7 +4690,11 @@ namespace New
             coinbaseTx.LoadVersion0(coinbaseTxOuts);
 
             for (int i = 0; i < coinbaseTxOutsCon.Length; i++)
+            {
+                unspentTxOutsDict[coinbaseTxOutsCon[i].address].Add(coinbaseTxOutsCon[i]);
+
                 unspentTxOuts.Add(coinbaseTxOutsCon[i]);
+            }
 
             prevTxOutsList.Insert(0, new TransactionOutput[] { });
 
@@ -4129,7 +4710,20 @@ namespace New
 
             blks.Add(nblk);
 
-            BlockContext blkCon = new BlockContext(nblk, prevTxOutsList.ToArray(), fee);
+            Dictionary<Sha256Ripemd160Hash, List<TransactionOutputContext>> unspentTxOutsDictClone = new Dictionary<Sha256Ripemd160Hash, List<TransactionOutputContext>>();
+            Dictionary<Sha256Ripemd160Hash, List<TransactionOutputContext>> spentTxOutsDictClone = new Dictionary<Sha256Ripemd160Hash, List<TransactionOutputContext>>();
+
+            for (int i = 0; i < keyPairs.Length; i++)
+            {
+                unspentTxOutsDictClone.Add(addresses[i], new List<TransactionOutputContext>());
+                foreach (var toc in unspentTxOutsDict[addresses[i]])
+                    unspentTxOutsDictClone[addresses[i]].Add(toc);
+                spentTxOutsDictClone.Add(addresses[i], new List<TransactionOutputContext>());
+                foreach (var toc in spentTxOutsDict[addresses[i]])
+                    spentTxOutsDictClone[addresses[i]].Add(toc);
+            }
+
+            BlockContext blkCon = new BlockContext(nblk, prevTxOutsList.ToArray(), fee, unspentTxOutsDictClone, spentTxOutsDictClone);
 
             return blkCon;
         }

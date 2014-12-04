@@ -1591,12 +1591,12 @@ namespace CREA2014
     {
         public IAccount CreateAccount(string name, string description)
         {
-            return new Account().Pipe((account) => account.LoadVersion1(name, description));
+            return new Account().Pipe((account) => account.LoadVersion0(name, description));
         }
 
         public IPseudonymousAccountHolder CreatePseudonymousAccountHolder(string name)
         {
-            return new PseudonymousAccountHolder().Pipe((pseudonymousAccountHolder) => pseudonymousAccountHolder.LoadVersion1(name));
+            return new PseudonymousAccountHolder().Pipe((pseudonymousAccountHolder) => pseudonymousAccountHolder.LoadVersion0(name));
         }
     }
 
@@ -2721,7 +2721,7 @@ namespace CREA2014
 
         private static readonly int maxTxs = 100;
 
-        private static readonly long blockGenerationInterval = 60; //[sec]
+        private static readonly long blockGenerationInterval = 1; //[sec]
         private static readonly long cycle = 60 * 60 * 24 * 365; //[sec]=1[year]
         private static readonly int numberOfCycles = 8;
         private static readonly long rewardlessStart = cycle * numberOfCycles; //[sec]=8[year]
@@ -3222,24 +3222,29 @@ namespace CREA2014
                 throw new NotSupportedException("tx_block_not_supported");
         }
 
-        private static TransactionalBlock GetBlockTemplate(long index, Sha256Ripemd160Hash minerPubKeyHash, Func<long, TransactionalBlock> indexToTxBlock, int version)
+        public static BlockHeader GetBlockHeaderTemplate(long index, Func<long, TransactionalBlock> indexToTxBlock, int version)
+        {
+            if (index < 1)
+                throw new ArgumentOutOfRangeException("index_out");
+
+            if (version == 0 || version == 1)
+                return new BlockHeader().Pipe((bh) => bh.LoadVersion0(index, index - 1 == 0 ? new GenesisBlock().Id : indexToTxBlock(index - 1).Id, DateTime.Now, GetWorkRequired(index, indexToTxBlock, version), new byte[10]));
+            else
+                throw new NotSupportedException("tx_block_not_supported");
+        }
+
+        public static TransactionalBlock GetBlockTemplate(long index, CoinbaseTransaction coinbaseTxToMiner, TransferTransaction[] transferTxs, Func<long, TransactionalBlock> indexToTxBlock, int version)
         {
             if (index < 1)
                 throw new ArgumentOutOfRangeException("index_out");
 
             if (version == 0)
             {
-                TransactionOutput coinbaseTxOutToMiner = new TransactionOutput();
-                coinbaseTxOutToMiner.LoadVersion0(minerPubKeyHash, GetRewardToMiner(index, version));
-                CoinbaseTransaction coinbaseTxToMiner = new CoinbaseTransaction();
-                coinbaseTxToMiner.LoadVersion0(new TransactionOutput[] { coinbaseTxOutToMiner });
-
-                BlockHeader header = new BlockHeader();
-                header.LoadVersion0(index, index == 1 ? new GenesisBlock().Id : indexToTxBlock(index - 1).Id, DateTime.Now, GetWorkRequired(index, indexToTxBlock, version), new byte[] { });
+                BlockHeader header = GetBlockHeaderTemplate(index, indexToTxBlock, version);
 
                 TransactionalBlock txBlock;
                 if (GetBlockType(index, version) == typeof(NormalBlock))
-                    txBlock = new NormalBlock().Pipe((normalBlock) => normalBlock.LoadVersion0(header, coinbaseTxToMiner, new TransferTransaction[] { }));
+                    txBlock = new NormalBlock().Pipe((normalBlock) => normalBlock.LoadVersion0(header, coinbaseTxToMiner, transferTxs));
                 else
                 {
                     TransactionOutput coinbaseTxOutToFoundation = new TransactionOutput();
@@ -3247,7 +3252,7 @@ namespace CREA2014
                     CoinbaseTransaction coinbaseTxToFoundation = new CoinbaseTransaction();
                     coinbaseTxToFoundation.LoadVersion0(new TransactionOutput[] { coinbaseTxOutToFoundation });
 
-                    txBlock = new FoundationalBlock().Pipe((foundationalBlock) => foundationalBlock.LoadVersion0(header, coinbaseTxToMiner, coinbaseTxToFoundation, new TransferTransaction[] { }));
+                    txBlock = new FoundationalBlock().Pipe((foundationalBlock) => foundationalBlock.LoadVersion0(header, coinbaseTxToMiner, coinbaseTxToFoundation, transferTxs));
                 }
 
                 txBlock.UpdateMerkleRootHash();
@@ -3256,17 +3261,11 @@ namespace CREA2014
             }
             else if (version == 1)
             {
-                TransactionOutput coinbaseTxOutToMiner = new TransactionOutput();
-                coinbaseTxOutToMiner.LoadVersion0(minerPubKeyHash, GetRewardToMiner(index, version));
-                CoinbaseTransaction coinbaseTxToMiner = new CoinbaseTransaction();
-                coinbaseTxToMiner.LoadVersion0(new TransactionOutput[] { coinbaseTxOutToMiner });
-
-                BlockHeader header = new BlockHeader();
-                header.LoadVersion0(index, index == 1 ? new GenesisBlock().Id : indexToTxBlock(index - 1).Id, DateTime.Now, GetWorkRequired(index, indexToTxBlock, version), new byte[] { });
+                BlockHeader header = GetBlockHeaderTemplate(index, indexToTxBlock, version);
 
                 TransactionalBlock txBlock;
                 if (GetBlockType(index, version) == typeof(NormalBlock))
-                    txBlock = new NormalBlock().Pipe((normalBlock) => normalBlock.LoadVersion1(header, coinbaseTxToMiner, new TransferTransaction[] { }));
+                    txBlock = new NormalBlock().Pipe((normalBlock) => normalBlock.LoadVersion1(header, coinbaseTxToMiner, transferTxs));
                 else
                 {
                     TransactionOutput coinbaseTxOutToFoundation = new TransactionOutput();
@@ -3274,7 +3273,7 @@ namespace CREA2014
                     CoinbaseTransaction coinbaseTxToFoundation = new CoinbaseTransaction();
                     coinbaseTxToFoundation.LoadVersion0(new TransactionOutput[] { coinbaseTxOutToFoundation });
 
-                    txBlock = new FoundationalBlock().Pipe((foundationalBlock) => foundationalBlock.LoadVersion1(header, coinbaseTxToMiner, coinbaseTxToFoundation, new TransferTransaction[] { }));
+                    txBlock = new FoundationalBlock().Pipe((foundationalBlock) => foundationalBlock.LoadVersion1(header, coinbaseTxToMiner, coinbaseTxToFoundation, transferTxs));
                 }
 
                 txBlock.UpdateMerkleRootHash();
@@ -3285,9 +3284,22 @@ namespace CREA2014
                 throw new NotSupportedException("tx_block_not_supported");
         }
 
-        public static TransactionalBlock GetBlockTemplate(long index, Sha256Ripemd160Hash minerPubKeyHash, Func<long, TransactionalBlock> indexToTxBlock)
+        public static TransactionalBlock GetBlockTemplate(long index, Sha256Ripemd160Hash minerPubKeyHash, TransferTransaction[] transferTxs, Func<long, TransactionalBlock> indexToTxBlock, int version)
         {
-            return GetBlockTemplate(index, minerPubKeyHash, indexToTxBlock, 1);
+            if (index < 1)
+                throw new ArgumentOutOfRangeException("index_out");
+
+            if (version == 0 || version == 1)
+            {
+                TransactionOutput coinbaseTxOutToMiner = new TransactionOutput();
+                coinbaseTxOutToMiner.LoadVersion0(minerPubKeyHash, GetRewardToMiner(index, version));
+                CoinbaseTransaction coinbaseTxToMiner = new CoinbaseTransaction();
+                coinbaseTxToMiner.LoadVersion0(new TransactionOutput[] { coinbaseTxOutToMiner });
+
+                return GetBlockTemplate(index, coinbaseTxToMiner, transferTxs, indexToTxBlock, version);
+            }
+            else
+                throw new NotSupportedException("tx_block_not_supported");
         }
     }
 
