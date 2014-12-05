@@ -2721,7 +2721,11 @@ namespace CREA2014
 
         private static readonly int maxTxs = 100;
 
+#if TEST
         private static readonly long blockGenerationInterval = 1; //[sec]
+#else
+        private static readonly long blockGenerationInterval = 60; //[sec]
+#endif
         private static readonly long cycle = 60 * 60 * 24 * 365; //[sec]=1[year]
         private static readonly int numberOfCycles = 8;
         private static readonly long rewardlessStart = cycle * numberOfCycles; //[sec]=8[year]

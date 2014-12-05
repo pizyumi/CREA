@@ -873,6 +873,7 @@ namespace New
 #endif
     }
 
+    //2014/12/05 分岐が発生しない場合 試験済
     public class BlockChain
     {
         public BlockChain(BlockchainAccessDB _bcadb, BlockManagerDB _bmdb, BlockDB _bdb, BlockFilePointersDB _bfpdb, UtxoFileAccessDB _ufadb, UtxoFilePointersDB _ufpdb, UtxoFilePointersTempDB _ufptempdb, UtxoDB _udb)
@@ -913,34 +914,34 @@ namespace New
         private readonly BlockManager blockManager;
         private readonly UtxoManager utxoManager;
 
-        private readonly Dictionary<Creahash, Block>[] pendingBlocks;
-        private readonly Dictionary<Creahash, Block>[] rejectedBlocks;
-        private readonly CirculatedInteger blocksCurrent;
+        public readonly Dictionary<Creahash, Block>[] pendingBlocks;
+        public readonly Dictionary<Creahash, Block>[] rejectedBlocks;
+        public readonly CirculatedInteger blocksCurrent;
 
-        public enum UpdateChainInnerReturnType { updated, invariable, pending, rejected }
+        public enum UpdateChainReturnType { updated, invariable, pending, rejected }
 
         public class UpdateChainInnerReturn
         {
-            public UpdateChainInnerReturn(UpdateChainInnerReturnType _type)
+            public UpdateChainInnerReturn(UpdateChainReturnType _type)
             {
-                if (_type == UpdateChainInnerReturnType.rejected || _type == UpdateChainInnerReturnType.pending)
+                if (_type == UpdateChainReturnType.rejected || _type == UpdateChainReturnType.pending)
                     throw new ArgumentException();
 
                 type = _type;
             }
 
-            public UpdateChainInnerReturn(UpdateChainInnerReturnType _type, int _position)
+            public UpdateChainInnerReturn(UpdateChainReturnType _type, int _position)
             {
-                if (_type != UpdateChainInnerReturnType.pending)
+                if (_type != UpdateChainReturnType.pending)
                     throw new ArgumentException();
 
                 type = _type;
                 position = _position;
             }
 
-            public UpdateChainInnerReturn(UpdateChainInnerReturnType _type, int _position, List<Block> _rejectedBlocks)
+            public UpdateChainInnerReturn(UpdateChainReturnType _type, int _position, List<Block> _rejectedBlocks)
             {
-                if (_type != UpdateChainInnerReturnType.rejected)
+                if (_type != UpdateChainReturnType.rejected)
                     throw new ArgumentException();
 
                 type = _type;
@@ -948,16 +949,16 @@ namespace New
                 rejectedBlocks = _rejectedBlocks;
             }
 
-            public UpdateChainInnerReturnType type { get; set; }
+            public UpdateChainReturnType type { get; set; }
             public int position { get; set; }
             public List<Block> rejectedBlocks { get; set; }
         }
 
-        public void UpdateChain(Block block)
+        public UpdateChainReturnType UpdateChain(Block block)
         {
             UpdateChainInnerReturn ret = UpdateChainInner(block);
 
-            if (ret.type == UpdateChainInnerReturnType.pending)
+            if (ret.type == UpdateChainReturnType.pending)
             {
                 if (pendingBlocks[ret.position] == null)
                 {
@@ -967,7 +968,7 @@ namespace New
                 else if (!pendingBlocks[ret.position].Keys.Contains(block.Id))
                     pendingBlocks[ret.position].Add(block.Id, block);
             }
-            else if (ret.type == UpdateChainInnerReturnType.rejected)
+            else if (ret.type == UpdateChainReturnType.rejected)
             {
                 CirculatedInteger ci = new CirculatedInteger(ret.position, (int)capacity);
                 for (int i = 0; i < ret.rejectedBlocks.Count; i++, ci.Previous())
@@ -983,6 +984,8 @@ namespace New
                         rejectedBlocks[ci.value].Add(ret.rejectedBlocks[i].Id, ret.rejectedBlocks[i]);
                 }
             }
+
+            return ret.type;
         }
 
         private UpdateChainInnerReturn UpdateChainInner(Block block)
@@ -1000,49 +1003,88 @@ namespace New
             int position = blocksCurrent.GetForward((int)(block.Index - blockManager.headBlockIndex));
             //既に阻却されているブロックの場合は何も変わらない
             if (rejectedBlocks[position] != null && rejectedBlocks[position].Keys.Contains(block.Id))
-                return new UpdateChainInnerReturn(UpdateChainInnerReturnType.invariable);
+                return new UpdateChainInnerReturn(UpdateChainReturnType.invariable);
 
             //先頭ブロックの番号より丁度1大きい番号のブロックの場合
             //即ち、先頭ブロックの直後のブロックである可能性がある場合
             if (block.Index == blockManager.headBlockIndex + 1)
             {
-                //ブロックに格納されている直前ブロック識別子が先頭ブロックの識別子と異なる場合は先頭ブロックの直後のブロックではない
-                //しかし、ブロック鎖分岐が発生して別の分岐が正当なブロック鎖の一部となった場合には有効なブロックとなる可能性があるので留保ブロックとする
                 if (block is GenesisBlock)
                 {
                     if (block.PrevId != null)
-                        return new UpdateChainInnerReturn(UpdateChainInnerReturnType.rejected, position, new List<Block>() { block });
+                        return new UpdateChainInnerReturn(UpdateChainReturnType.rejected, position, new List<Block>() { block });
                 }
                 else if (block is TransactionalBlock)
                 {
+                    //ブロックに格納されている直前ブロック識別子が先頭ブロックの識別子と異なる場合は先頭ブロックの直後のブロックではない
                     if (!block.PrevId.Equals(blockManager.GetHeadBlock().Id))
-                        return new UpdateChainInnerReturn(UpdateChainInnerReturnType.pending, position);
+                    {
+                        //ブロックに格納されている直前ブロック識別子が阻却ブロックの識別子である場合は阻却ブロックとする
+                        if (rejectedBlocks[blocksCurrent.value] != null && rejectedBlocks[blocksCurrent.value].Keys.Contains(block.PrevId))
+                            return new UpdateChainInnerReturn(UpdateChainReturnType.rejected, position, new List<Block>() { block });
+                        //そうでない場合はブロック鎖分岐が発生して別の分岐が正当なブロック鎖の一部となった場合には有効ブロックとなる可能性があるので留保ブロックとする
+                        else
+                            return new UpdateChainInnerReturn(UpdateChainReturnType.pending, position);
+                    }
                 }
                 else
                     throw new NotSupportedException();
 
+                bool existPrevTxOutput = true;
+
                 //ブロックの被参照取引出力を取得する
                 TransactionOutput[][] prevTxOutputss = new TransactionOutput[block.Transactions.Length][];
-                block.Transactions.ForEach((i, tx) =>
+                for (int i = 0; i < block.Transactions.Length; i++)
                 {
-                    prevTxOutputss[i] = new TransactionOutput[tx.TxInputs.Length];
-                    tx.TxInputs.ForEach((j, txIn) => prevTxOutputss[i][j] = blockManager.GetMainBlock(txIn.PrevTxBlockIndex).Transactions[txIn.PrevTxIndex].TxOutputs[txIn.PrevTxOutputIndex]);
-                });
+                    prevTxOutputss[i] = new TransactionOutput[block.Transactions[i].TxInputs.Length];
+                    for (int j = 0; j < block.Transactions[i].TxInputs.Length; j++)
+                    {
+                        if (block.Transactions[i].TxInputs[j].PrevTxBlockIndex > blockManager.headBlockIndex)
+                        {
+                            existPrevTxOutput = false;
+
+                            break;
+                        }
+
+                        Block prevBlock = blockManager.GetMainBlock(block.Transactions[i].TxInputs[j].PrevTxBlockIndex);
+
+                        if (block.Transactions[i].TxInputs[j].PrevTxIndex >= prevBlock.Transactions.Length)
+                        {
+                            existPrevTxOutput = false;
+
+                            break;
+                        }
+
+                        Transaction prevTx = prevBlock.Transactions[block.Transactions[i].TxInputs[j].PrevTxIndex];
+
+                        if (block.Transactions[i].TxInputs[j].PrevTxOutputIndex >= prevTx.TxOutputs.Length)
+                        {
+                            existPrevTxOutput = false;
+
+                            break;
+                        }
+
+                        prevTxOutputss[i][j] = prevTx.TxOutputs[block.Transactions[i].TxInputs[j].PrevTxOutputIndex];
+                    }
+
+                    if (!existPrevTxOutput)
+                        break;
+                }
+
+                if (!existPrevTxOutput)
+                    return new UpdateChainInnerReturn(UpdateChainReturnType.rejected, position, new List<Block>() { block });
 
                 //ブロック自体の検証を実行する
-                //ブロックが無効である場合は阻却ブロックとする
+                //無効ブロックである場合は阻却ブロックとする
                 if (block is GenesisBlock)
                 {
                     if (!(block as GenesisBlock).Verify())
-                        return new UpdateChainInnerReturn(UpdateChainInnerReturnType.rejected, position, new List<Block>() { block });
+                        return new UpdateChainInnerReturn(UpdateChainReturnType.rejected, position, new List<Block>() { block });
                 }
                 else if (block is TransactionalBlock)
                 {
                     if (!(block as TransactionalBlock).Verify(prevTxOutputss, (index) => blockManager.GetMainBlock(index) as TransactionalBlock))
-                    {
-                        (block as TransactionalBlock).Verify(prevTxOutputss, (index) => blockManager.GetMainBlock(index) as TransactionalBlock);
-                        return new UpdateChainInnerReturn(UpdateChainInnerReturnType.rejected, position, new List<Block>() { block });
-                    }
+                        return new UpdateChainInnerReturn(UpdateChainReturnType.rejected, position, new List<Block>() { block });
                 }
                 else
                     throw new NotSupportedException();
@@ -1050,9 +1092,13 @@ namespace New
                 udb.Open();
 
                 //ブロック鎖の状態（＝未使用の取引出力の存否）と矛盾がないか検証する
-                //矛盾がある場合は阻却ブロックとする
+                //矛盾がある場合は無効ブロックとなり、阻却ブロックとする
                 if (!VerifyUtxo(block, prevTxOutputss, new Dictionary<Sha256Ripemd160Hash, List<Utxo>>(), new Dictionary<Sha256Ripemd160Hash, List<Utxo>>()))
-                    return new UpdateChainInnerReturn(UpdateChainInnerReturnType.rejected, position, new List<Block>() { block });
+                {
+                    udb.Close();
+
+                    return new UpdateChainInnerReturn(UpdateChainReturnType.rejected, position, new List<Block>() { block });
+                }
 
                 bcadb.Create();
 
@@ -1067,14 +1113,49 @@ namespace New
 
                 blocksCurrent.Next();
 
-                return new UpdateChainInnerReturn(UpdateChainInnerReturnType.updated);
+                int nextMaxPosition = blocksCurrent.GetForward((int)maxBlockIndexMargin);
+
+                rejectedBlocks[nextMaxPosition] = null;
+                pendingBlocks[nextMaxPosition] = null;
+
+                return new UpdateChainInnerReturn(UpdateChainReturnType.updated);
             }
+
+            //先頭ブロックの番号より丁度1大きい番号のブロック以外の場合
+
+            int prevPosition = blocksCurrent.GetForward((int)(block.Index - blockManager.headBlockIndex - 1));
+
+            //ブロックに格納されている直前ブロック識別子が阻却ブロックの識別子である場合は阻却ブロックとする
+            if (rejectedBlocks[prevPosition] != null && rejectedBlocks[prevPosition].Keys.Contains(block.PrevId))
+                return new UpdateChainInnerReturn(UpdateChainReturnType.rejected, position, new List<Block>() { block });
+
+            return new UpdateChainInnerReturn(UpdateChainReturnType.pending, position);
+
+
+            Block brunchCurrent = block;
+            Block mainCurrent = block.Index > blockManager.headBlockIndex ? null : blockManager.GetMainBlock(block.Index);
+
+            if (brunchCurrent.Id.Equals(mainCurrent.Id))
+                return new UpdateChainInnerReturn(UpdateChainReturnType.invariable);
+
+            double brunchDiff = 0.0;
+            double mainDiff = 0.0;
+
+            List<Block> brunches = new List<Block>();
+            List<Block> mains = new List<Block>();
+            while (true)
+            {
+                if (mainCurrent != null && mainCurrent.Id.Equals(brunchCurrent.Id))
+                    break;
+            }
+
+
 
             Block currentBrunchBlock = block;
             Block currentMainBlock = blockManager.GetMainBlock(currentBrunchBlock.Index);
 
             if (currentBrunchBlock.Id.Equals(currentMainBlock.Id))
-                return new UpdateChainInnerReturn(UpdateChainInnerReturnType.invariable);
+                return new UpdateChainInnerReturn(UpdateChainReturnType.invariable);
 
             double brunchDiff = 0.0;
             double mainDiff = 0.0;
@@ -1094,22 +1175,22 @@ namespace New
                 long prevIndex = currentBrunchBlock.Index - 1;
 
                 if (prevIndex <= minBlockIndex)
-                    return new UpdateChainInnerReturn(UpdateChainInnerReturnType.rejected, position, brunches);
+                    return new UpdateChainInnerReturn(UpdateChainReturnType.rejected, position, brunches);
 
                 ci.Previous();
 
                 if (pendingBlocks[ci.value] == null || !pendingBlocks[ci.value].Keys.Contains(currentBrunchBlock.PrevId))
                     if (rejectedBlocks[ci.value] != null && rejectedBlocks[ci.value].Keys.Contains(currentBrunchBlock.PrevId))
-                        return new UpdateChainInnerReturn(UpdateChainInnerReturnType.rejected, position, brunches);
+                        return new UpdateChainInnerReturn(UpdateChainReturnType.rejected, position, brunches);
                     else
-                        return new UpdateChainInnerReturn(UpdateChainInnerReturnType.pending, position);
+                        return new UpdateChainInnerReturn(UpdateChainReturnType.pending, position);
 
                 currentBrunchBlock = pendingBlocks[ci.value][currentBrunchBlock.PrevId];
                 currentMainBlock = blockManager.GetMainBlock(prevIndex);
             }
 
             if (brunchDiff <= mainDiff)
-                return new UpdateChainInnerReturn(UpdateChainInnerReturnType.pending, position);
+                return new UpdateChainInnerReturn(UpdateChainReturnType.pending, position);
 
             Block currentBrunchBlock2 = block;
             ci = new CirculatedInteger(position, (int)capacity);
@@ -1138,7 +1219,7 @@ namespace New
             }
 
             if (brunchDiff <= mainDiff)
-                return new UpdateChainInnerReturn(UpdateChainInnerReturnType.pending, position);
+                return new UpdateChainInnerReturn(UpdateChainReturnType.pending, position);
 
             //検証
 
@@ -4380,7 +4461,7 @@ namespace New
 
             Func<long, TransactionalBlock> _indexToBlock = (index) => blks2[index] as TransactionalBlock;
 
-            for (int i = 0; i < 10; i++)
+            for (int i = 0; i < blks.Length; i++)
             {
                 if (i == 0)
                 {
@@ -4419,7 +4500,7 @@ namespace New
             Stopwatch stopwatch = new Stopwatch();
             stopwatch.Start();
 
-            for (int i = 0; i < 10; i++)
+            for (int i = 0; i < blks.Length; i++)
                 blockchain.UpdateChain(blks2[i]);
 
             stopwatch.Stop();
@@ -4432,7 +4513,538 @@ namespace New
         //BlockChainのテスト（分岐がない場合・無効ブロックなどを追加しようとした場合）
         public static void Test18()
         {
+            string basepath = System.IO.Path.GetDirectoryName(Assembly.GetEntryAssembly().Location);
 
+            BlockchainAccessDB bcadb = new BlockchainAccessDB(basepath);
+            string bcadbPath = bcadb.GetPath();
+
+            if (File.Exists(bcadbPath))
+                File.Delete(bcadbPath);
+
+            BlockManagerDB bmdb = new BlockManagerDB(basepath);
+            string bmdbPath = bmdb.GetPath();
+
+            if (File.Exists(bmdbPath))
+                File.Delete(bmdbPath);
+
+            BlockDB bdb = new BlockDB(basepath);
+            string bdbPath = bdb.GetPath(0);
+
+            if (File.Exists(bdbPath))
+                File.Delete(bdbPath);
+
+            BlockFilePointersDB bfpdb = new BlockFilePointersDB(basepath);
+            string bfpPath = bfpdb.GetPath();
+
+            if (File.Exists(bfpPath))
+                File.Delete(bfpPath);
+
+            UtxoFileAccessDB ufadb = new UtxoFileAccessDB(basepath);
+            string ufadbPath = ufadb.GetPath();
+
+            if (File.Exists(ufadbPath))
+                File.Delete(ufadbPath);
+
+            UtxoFilePointersDB ufpdb = new UtxoFilePointersDB(basepath);
+            string ufpdbPath = ufpdb.GetPath();
+
+            if (File.Exists(ufpdbPath))
+                File.Delete(ufpdbPath);
+
+            UtxoFilePointersTempDB ufptempdb = new UtxoFilePointersTempDB(basepath);
+            string ufptempdbPath = ufptempdb.GetPath();
+
+            if (File.Exists(ufptempdbPath))
+                File.Delete(ufptempdbPath);
+
+            UtxoDB utxodb = new UtxoDB(basepath);
+            string utxodbPath = utxodb.GetPath();
+
+            if (File.Exists(utxodbPath))
+                File.Delete(utxodbPath);
+
+            BlockChain blockchain = new BlockChain(bcadb, bmdb, bdb, bfpdb, ufadb, ufpdb, ufptempdb, utxodb);
+
+            BlockGenerator bg = new BlockGenerator();
+
+            Block[] blks = new Block[10];
+            BlockContext[] blkCons = new BlockContext[blks.Length];
+            for (int i = 0; i < blks.Length; i++)
+            {
+                blkCons[i] = bg.CreateNextValidBlock();
+                blks[i] = blkCons[i].block;
+
+                Console.WriteLine("block" + i.ToString() + " created.");
+            }
+
+            Block[] blks2 = new Block[blks.Length];
+            byte[] nonce = null;
+
+            Func<long, TransactionalBlock> _indexToBlock = (index) => blks2[index] as TransactionalBlock;
+
+            for (int i = 0; i < blks.Length; i++)
+            {
+                if (i == 0)
+                {
+                    blks2[i] = blks[i];
+
+                    continue;
+                }
+
+                TransactionalBlock tblk = blks[i] as TransactionalBlock;
+
+                TransactionalBlock tblk2 = TransactionalBlock.GetBlockTemplate(tblk.Index, tblk.coinbaseTxToMiner, tblk.transferTxs, _indexToBlock, 0);
+
+                nonce = new byte[10];
+
+                while (true)
+                {
+                    tblk2.UpdateTimestamp(DateTime.Now);
+                    tblk2.UpdateNonce(nonce);
+
+                    if (tblk2.Id.CompareTo(tblk2.header.difficulty.Target) <= 0)
+                    {
+                        blks2[i] = tblk2;
+
+                        Console.WriteLine("block" + i.ToString() + " mined.");
+
+                        break;
+                    }
+
+                    int index = nonce.Length.RandomNum();
+                    int value = 256.RandomNum();
+
+                    nonce[index] = (byte)value;
+                }
+            }
+
+            if (blockchain.blocksCurrent.value != 0)
+                throw new Exception("test18_1");
+            for (int i = 0; i < blockchain.pendingBlocks.Length; i++)
+            {
+                if (blockchain.pendingBlocks[i] != null)
+                    throw new Exception("test18_2");
+                if (blockchain.rejectedBlocks[i] != null)
+                    throw new Exception("test18_3");
+            }
+
+            TransactionalBlock blk1 = blks2[1] as TransactionalBlock;
+            TransactionalBlock blk2 = blks2[2] as TransactionalBlock;
+
+            Creahash hashzero = new Creahash();
+
+            BlockHeader bh5 = new BlockHeader();
+            bh5.LoadVersion0(100, hashzero, DateTime.Now, blk1.Difficulty, new byte[10]);
+
+            BlockHeader bh6 = new BlockHeader();
+            bh6.LoadVersion0(101, hashzero, DateTime.Now, blk1.Difficulty, new byte[10]);
+
+            TransactionalBlock blk100 = new NormalBlock();
+            blk100.LoadVersion0(bh5, blk1.coinbaseTxToMiner, blk1.transferTxs);
+            blk100.UpdateMerkleRootHash();
+
+            TransactionalBlock blk101 = new NormalBlock();
+            blk101.LoadVersion0(bh6, blk1.coinbaseTxToMiner, blk1.transferTxs);
+            blk101.UpdateMerkleRootHash();
+
+            blockchain.pendingBlocks[101] = new Dictionary<Creahash, Block>();
+            blockchain.rejectedBlocks[101] = new Dictionary<Creahash, Block>();
+
+            BlockChain.UpdateChainReturnType type1 = blockchain.UpdateChain(blks[0]);
+
+            if (type1 != BlockChain.UpdateChainReturnType.updated)
+                throw new Exception("test18_5");
+
+            if (blockchain.blocksCurrent.value != 1)
+                throw new Exception("test18_6");
+            for (int i = 0; i < blockchain.pendingBlocks.Length; i++)
+            {
+                if (blockchain.pendingBlocks[i] != null)
+                    throw new Exception("test18_7");
+                if (blockchain.rejectedBlocks[i] != null)
+                    throw new Exception("test18_8");
+            }
+
+            bool flag2 = false;
+            try
+            {
+                blockchain.UpdateChain(blk101);
+            }
+            catch (InvalidOperationException)
+            {
+                flag2 = true;
+            }
+            if (!flag2)
+                throw new Exception("test18_9");
+
+            BlockChain.UpdateChainReturnType type2 = blockchain.UpdateChain(blk100);
+
+            if (type2 != BlockChain.UpdateChainReturnType.pending)
+                throw new Exception("test18_10");
+
+            if (blockchain.blocksCurrent.value != 1)
+                throw new Exception("test18_11");
+            for (int i = 0; i < blockchain.pendingBlocks.Length; i++)
+            {
+                if (i == 101)
+                {
+                    if (blockchain.pendingBlocks[i] == null)
+                        throw new Exception("test18_12");
+                    if (blockchain.pendingBlocks[i].Count != 1)
+                        throw new Exception("test18_13");
+                    if (!blockchain.pendingBlocks[i].Keys.Contains(blk100.Id))
+                        throw new Exception("test18_14");
+                }
+                else
+                {
+                    if (blockchain.pendingBlocks[i] != null)
+                        throw new Exception("test18_15");
+                }
+
+                if (blockchain.rejectedBlocks[i] != null)
+                    throw new Exception("test18_16");
+            }
+
+            BlockHeader bh1 = new BlockHeader();
+            bh1.LoadVersion0(1, hashzero, DateTime.Now, blk1.Difficulty, new byte[10]);
+
+            TransactionalBlock blk1_2 = new NormalBlock();
+            blk1_2.LoadVersion0(bh1, blk1.coinbaseTxToMiner, blk1.transferTxs);
+            blk1_2.UpdateMerkleRootHash();
+
+            BlockChain.UpdateChainReturnType type3 = blockchain.UpdateChain(blk1_2);
+
+            if (type3 != BlockChain.UpdateChainReturnType.pending)
+                throw new Exception("test18_17");
+
+            if (blockchain.blocksCurrent.value != 1)
+                throw new Exception("test18_18");
+            for (int i = 0; i < blockchain.pendingBlocks.Length; i++)
+            {
+                if (i == 2)
+                {
+                    if (blockchain.pendingBlocks[i] == null)
+                        throw new Exception("test18_19");
+                    if (blockchain.pendingBlocks[i].Count != 1)
+                        throw new Exception("test18_20");
+                    if (!blockchain.pendingBlocks[i].Keys.Contains(blk1_2.Id))
+                        throw new Exception("test18_21");
+                }
+                else if (i == 101)
+                {
+                    if (blockchain.pendingBlocks[i] == null)
+                        throw new Exception("test18_22");
+                    if (blockchain.pendingBlocks[i].Count != 1)
+                        throw new Exception("test18_23");
+                    if (!blockchain.pendingBlocks[i].Keys.Contains(blk100.Id))
+                        throw new Exception("test18_24");
+                }
+                else
+                {
+                    if (blockchain.pendingBlocks[i] != null)
+                        throw new Exception("test18_25");
+                }
+
+                if (blockchain.rejectedBlocks[i] != null)
+                    throw new Exception("test18_26");
+            }
+
+            BlockHeader bh2 = new BlockHeader();
+            bh2.LoadVersion0(1, blks[0].Id, DateTime.Now, blk1.Difficulty, new byte[10]);
+
+            TransactionalBlock blk1_3 = new NormalBlock();
+            blk1_3.LoadVersion0(bh2, blk1.coinbaseTxToMiner, blk1.transferTxs);
+            blk1_3.UpdateMerkleRootHash();
+
+            BlockChain.UpdateChainReturnType type4 = blockchain.UpdateChain(blk1_3);
+
+            if (type4 != BlockChain.UpdateChainReturnType.rejected)
+                throw new Exception("test18_27");
+
+            if (blockchain.blocksCurrent.value != 1)
+                throw new Exception("test18_28");
+            for (int i = 0; i < blockchain.pendingBlocks.Length; i++)
+            {
+                if (i == 2)
+                {
+                    if (blockchain.pendingBlocks[i] == null)
+                        throw new Exception("test18_29");
+                    if (blockchain.pendingBlocks[i].Count != 1)
+                        throw new Exception("test18_30");
+                    if (!blockchain.pendingBlocks[i].Keys.Contains(blk1_2.Id))
+                        throw new Exception("test18_31");
+
+                    if (blockchain.rejectedBlocks[i] == null)
+                        throw new Exception("test18_32");
+                    if (blockchain.rejectedBlocks[i].Count != 1)
+                        throw new Exception("test18_33");
+                    if (!blockchain.rejectedBlocks[i].Keys.Contains(blk1_3.Id))
+                        throw new Exception("test18_34");
+                }
+                else if (i == 101)
+                {
+                    if (blockchain.pendingBlocks[i] == null)
+                        throw new Exception("test18_35");
+                    if (blockchain.pendingBlocks[i].Count != 1)
+                        throw new Exception("test18_36");
+                    if (!blockchain.pendingBlocks[i].Keys.Contains(blk100.Id))
+                        throw new Exception("test18_37");
+
+                    if (blockchain.rejectedBlocks[i] != null)
+                        throw new Exception("test18_38");
+                }
+                else
+                {
+                    if (blockchain.pendingBlocks[i] != null)
+                        throw new Exception("test18_39");
+
+                    if (blockchain.rejectedBlocks[i] != null)
+                        throw new Exception("test18_40");
+                }
+            }
+
+            TransactionalBlock blk1_4 = TransactionalBlock.GetBlockTemplate(1, blk1.coinbaseTxToMiner, blk2.transferTxs, _indexToBlock, 0);
+
+            while (true)
+            {
+                blk1_4.UpdateTimestamp(DateTime.Now);
+                blk1_4.UpdateNonce(nonce);
+
+                if (blk1_4.Id.CompareTo(blk1_4.header.difficulty.Target) <= 0)
+                {
+                    Console.WriteLine("block1_4 mined.");
+
+                    break;
+                }
+
+                int index = nonce.Length.RandomNum();
+                int value = 256.RandomNum();
+
+                nonce[index] = (byte)value;
+            }
+
+            BlockChain.UpdateChainReturnType type5 = blockchain.UpdateChain(blk1_4);
+
+            if (type5 != BlockChain.UpdateChainReturnType.rejected)
+                throw new Exception("test18_41");
+
+            if (blockchain.blocksCurrent.value != 1)
+                throw new Exception("test18_42");
+            for (int i = 0; i < blockchain.pendingBlocks.Length; i++)
+            {
+                if (i == 2)
+                {
+                    if (blockchain.pendingBlocks[i] == null)
+                        throw new Exception("test18_43");
+                    if (blockchain.pendingBlocks[i].Count != 1)
+                        throw new Exception("test18_44");
+                    if (!blockchain.pendingBlocks[i].Keys.Contains(blk1_2.Id))
+                        throw new Exception("test18_45");
+
+                    if (blockchain.rejectedBlocks[i] == null)
+                        throw new Exception("test18_46");
+                    if (blockchain.rejectedBlocks[i].Count != 2)
+                        throw new Exception("test18_47");
+                    if (!blockchain.rejectedBlocks[i].Keys.Contains(blk1_3.Id))
+                        throw new Exception("test18_48");
+                    if (!blockchain.rejectedBlocks[i].Keys.Contains(blk1_4.Id))
+                        throw new Exception("test18_49");
+                }
+                else if (i == 101)
+                {
+                    if (blockchain.pendingBlocks[i] == null)
+                        throw new Exception("test18_50");
+                    if (blockchain.pendingBlocks[i].Count != 1)
+                        throw new Exception("test18_51");
+                    if (!blockchain.pendingBlocks[i].Keys.Contains(blk100.Id))
+                        throw new Exception("test18_52");
+
+                    if (blockchain.rejectedBlocks[i] != null)
+                        throw new Exception("test18_53");
+                }
+                else
+                {
+                    if (blockchain.pendingBlocks[i] != null)
+                        throw new Exception("test18_54");
+
+                    if (blockchain.rejectedBlocks[i] != null)
+                        throw new Exception("test18_55");
+                }
+            }
+
+            BlockChain.UpdateChainReturnType type8 = blockchain.UpdateChain(blk1_3);
+
+            if (type8 != BlockChain.UpdateChainReturnType.invariable)
+                throw new Exception("test18_56");
+
+            if (blockchain.blocksCurrent.value != 1)
+                throw new Exception("test18_57");
+            for (int i = 0; i < blockchain.pendingBlocks.Length; i++)
+            {
+                if (i == 2)
+                {
+                    if (blockchain.pendingBlocks[i] == null)
+                        throw new Exception("test18_58");
+                    if (blockchain.pendingBlocks[i].Count != 1)
+                        throw new Exception("test18_59");
+                    if (!blockchain.pendingBlocks[i].Keys.Contains(blk1_2.Id))
+                        throw new Exception("test18_60");
+
+                    if (blockchain.rejectedBlocks[i] == null)
+                        throw new Exception("test18_61");
+                    if (blockchain.rejectedBlocks[i].Count != 2)
+                        throw new Exception("test18_62");
+                    if (!blockchain.rejectedBlocks[i].Keys.Contains(blk1_3.Id))
+                        throw new Exception("test18_63");
+                    if (!blockchain.rejectedBlocks[i].Keys.Contains(blk1_4.Id))
+                        throw new Exception("test18_64");
+                }
+                else if (i == 101)
+                {
+                    if (blockchain.pendingBlocks[i] == null)
+                        throw new Exception("test18_65");
+                    if (blockchain.pendingBlocks[i].Count != 1)
+                        throw new Exception("test18_66");
+                    if (!blockchain.pendingBlocks[i].Keys.Contains(blk100.Id))
+                        throw new Exception("test18_67");
+
+                    if (blockchain.rejectedBlocks[i] != null)
+                        throw new Exception("test18_68");
+                }
+                else
+                {
+                    if (blockchain.pendingBlocks[i] != null)
+                        throw new Exception("test18_69");
+
+                    if (blockchain.rejectedBlocks[i] != null)
+                        throw new Exception("test18_70");
+                }
+            }
+
+            BlockChain.UpdateChainReturnType type6 = blockchain.UpdateChain(blk1);
+
+            if (type6 != BlockChain.UpdateChainReturnType.updated)
+                throw new Exception("test18_71");
+
+            BlockChain.UpdateChainReturnType type7 = blockchain.UpdateChain(blk1_3);
+
+            if (type7 != BlockChain.UpdateChainReturnType.invariable)
+                throw new Exception("test18_72");
+
+            if (blockchain.blocksCurrent.value != 2)
+                throw new Exception("test18_73");
+            for (int i = 0; i < blockchain.pendingBlocks.Length; i++)
+            {
+                if (i == 2)
+                {
+                    if (blockchain.pendingBlocks[i] == null)
+                        throw new Exception("test18_74");
+                    if (blockchain.pendingBlocks[i].Count != 1)
+                        throw new Exception("test18_75");
+                    if (!blockchain.pendingBlocks[i].Keys.Contains(blk1_2.Id))
+                        throw new Exception("test18_76");
+
+                    if (blockchain.rejectedBlocks[i] == null)
+                        throw new Exception("test18_77");
+                    if (blockchain.rejectedBlocks[i].Count != 2)
+                        throw new Exception("test18_78");
+                    if (!blockchain.rejectedBlocks[i].Keys.Contains(blk1_3.Id))
+                        throw new Exception("test18_79");
+                    if (!blockchain.rejectedBlocks[i].Keys.Contains(blk1_4.Id))
+                        throw new Exception("test18_80");
+                }
+                else if (i == 101)
+                {
+                    if (blockchain.pendingBlocks[i] == null)
+                        throw new Exception("test18_81");
+                    if (blockchain.pendingBlocks[i].Count != 1)
+                        throw new Exception("test18_82");
+                    if (!blockchain.pendingBlocks[i].Keys.Contains(blk100.Id))
+                        throw new Exception("test18_83");
+
+                    if (blockchain.rejectedBlocks[i] != null)
+                        throw new Exception("test18_84");
+                }
+                else
+                {
+                    if (blockchain.pendingBlocks[i] != null)
+                        throw new Exception("test18_85");
+
+                    if (blockchain.rejectedBlocks[i] != null)
+                        throw new Exception("test18_86");
+                }
+            }
+
+            BlockHeader bh3 = new BlockHeader();
+            bh3.LoadVersion0(2, hashzero, DateTime.Now, blk2.Difficulty, new byte[10]);
+
+            TransactionalBlock blk2_2 = new NormalBlock();
+            blk2_2.LoadVersion0(bh3, blk2.coinbaseTxToMiner, blk2.transferTxs);
+            blk2_2.UpdateMerkleRootHash();
+
+            BlockChain.UpdateChainReturnType type9 = blockchain.UpdateChain(blk2_2);
+
+            if (type9 != BlockChain.UpdateChainReturnType.pending)
+                throw new Exception("test18_87");
+
+            BlockHeader bh4 = new BlockHeader();
+            bh4.LoadVersion0(2, blk1_2.Id, DateTime.Now, blk2.Difficulty, new byte[10]);
+
+            TransactionalBlock blk2_3 = new NormalBlock();
+            blk2_3.LoadVersion0(bh4, blk2.coinbaseTxToMiner, blk2.transferTxs);
+            blk2_3.UpdateMerkleRootHash();
+
+            BlockChain.UpdateChainReturnType type10 = blockchain.UpdateChain(blk2_3);
+
+            if (type10 != BlockChain.UpdateChainReturnType.pending)
+                throw new Exception("test18_88");
+
+            BlockHeader bh7 = new BlockHeader();
+            bh7.LoadVersion0(2, blk1_3.Id, DateTime.Now, blk2.Difficulty, new byte[10]);
+
+            TransactionalBlock blk2_4 = new NormalBlock();
+            blk2_4.LoadVersion0(bh7, blk2.coinbaseTxToMiner, blk2.transferTxs);
+            blk2_4.UpdateMerkleRootHash();
+
+            BlockChain.UpdateChainReturnType type13 = blockchain.UpdateChain(blk2_4);
+
+            if (type13 != BlockChain.UpdateChainReturnType.rejected)
+                throw new Exception("test18_91");
+
+            for (int i = 2; i < blks2.Length; i++)
+            {
+                BlockChain.UpdateChainReturnType type11 = blockchain.UpdateChain(blks2[i]);
+
+                if (type11 != BlockChain.UpdateChainReturnType.updated)
+                    throw new Exception("test18_89");
+            }
+
+            TransactionalBlock blk10 = TransactionalBlock.GetBlockTemplate(10, blk2.coinbaseTxToMiner, blk2.transferTxs, _indexToBlock, 0);
+
+            while (true)
+            {
+                blk10.UpdateTimestamp(DateTime.Now);
+                blk10.UpdateNonce(nonce);
+
+                if (blk10.Id.CompareTo(blk10.header.difficulty.Target) <= 0)
+                {
+                    Console.WriteLine("block10 mined.");
+
+                    break;
+                }
+
+                int index = nonce.Length.RandomNum();
+                int value = 256.RandomNum();
+
+                nonce[index] = (byte)value;
+            }
+
+            BlockChain.UpdateChainReturnType type12 = blockchain.UpdateChain(blk10);
+
+            if (type12 != BlockChain.UpdateChainReturnType.rejected)
+                throw new Exception("test18_90");
+
+            Console.WriteLine("test18_succeeded");
         }
     }
 
@@ -4615,17 +5227,23 @@ namespace New
 
                 TransactionInput[] txIns = txInputsList.ToArray();
 
-                int num = (int)Math.Ceiling(((avgIORatio - 1) * 2) * 1.RandomDouble() * txIns.Length);
+                int num = sumRawAmount > 1000000 ? (int)Math.Ceiling(((avgIORatio - 1) * 2) * 1.RandomDouble() * txIns.Length) : 1;
 
                 TransactionOutputContext[] txOutsCon = new TransactionOutputContext[num];
                 TransactionOutput[] txOuts = new TransactionOutput[num];
                 for (int j = 0; j < txOutsCon.Length; j++)
                 {
-                    long sumRawAmountDivided = sumRawAmount / 1000000;
+                    long outAmount = 0;
+                    if (sumRawAmount > 1000000)
+                    {
+                        long sumRawAmountDivided = sumRawAmount / 1000000;
 
-                    int subtract = ((int)sumRawAmountDivided / 2).RandomNum();
+                        int subtract = ((int)sumRawAmountDivided / 2).RandomNum() + 1;
 
-                    long outAmount = (long)subtract * 1000000;
+                        outAmount = (long)subtract * 1000000;
+                    }
+                    else
+                        outAmount = sumRawAmount;
 
                     sumRawAmount -= outAmount;
 
@@ -4671,7 +5289,7 @@ namespace New
                 {
                     long rewardAndFeeDevided = rewardAndFee / 1000000;
 
-                    int subtract2 = ((int)rewardAndFeeDevided / 2).RandomNum();
+                    int subtract2 = ((int)rewardAndFeeDevided / 2).RandomNum() + 1;
 
                     outAmount2 = (long)subtract2 * 1000000;
 
