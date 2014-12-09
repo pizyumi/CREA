@@ -918,6 +918,14 @@ namespace New
         public readonly Dictionary<Creahash, Block>[] rejectedBlocks;
         public readonly CirculatedInteger blocksCurrent;
 
+        public long headBlockIndex { get { return blockManager.headBlockIndex; } }
+        public long finalizedBlockIndex { get { return blockManager.finalizedBlockIndex; } }
+
+        public Utxo FindUtxo(Sha256Ripemd160Hash address, long blockIndex, int txIndex, int txOutIndex)
+        {
+            return utxoManager.FindUtxo(address, blockIndex, txIndex, txOutIndex);
+        }
+
         public enum UpdateChainReturnType { updated, invariable, pending, rejected, updatedAndRejected }
 
         public class UpdateChainInnerReturn
@@ -988,15 +996,89 @@ namespace New
             return ret.type;
         }
 
+        private double VerifyBlockChain(List<Block> blocksList, Dictionary<Sha256Ripemd160Hash, List<Utxo>> addedUtxos, Dictionary<Sha256Ripemd160Hash, List<Utxo>> removedUtxos, List<TransactionOutput[][]> prevTxOutputssList)
+        {
+            Func<long, TransactionalBlock> _bindexToTxBlock = (bindex) =>
+            {
+                if (bindex < blocksList[0].Index)
+                    return blockManager.GetMainBlock(bindex) as TransactionalBlock;
+                else if (bindex < blocksList[0].Index + blocksList.Count)
+                    return blocksList[(int)(bindex - blocksList[0].Index)] as TransactionalBlock;
+                else
+                    return null;
+            };
+
+            double cumulativeDiff = 0.0;
+
+            udb.Open();
+
+            for (int i = 0; i < blocksList.Count; i++)
+            {
+                //ブロックの被参照取引出力を取得する
+                TransactionOutput[][] prevTxOutputss = GetPrevTxOutputss(blocksList[i], _bindexToTxBlock);
+
+                if (prevTxOutputss == null)
+                {
+                    udb.Close();
+
+                    return cumulativeDiff;
+                }
+
+                //ブロック自体の検証を実行する
+                //無効ブロックである場合は阻却ブロックとする
+                if (blocksList[i] is GenesisBlock)
+                {
+                    if (!(blocksList[i] as GenesisBlock).Verify())
+                    {
+                        udb.Close();
+
+                        return cumulativeDiff;
+                    }
+                }
+                else if (blocksList[i] is TransactionalBlock)
+                {
+                    if (!(blocksList[i] as TransactionalBlock).Verify(prevTxOutputss, _bindexToTxBlock))
+                    {
+                        udb.Close();
+
+                        return cumulativeDiff;
+                    }
+                }
+                else
+                    throw new NotSupportedException();
+
+                //ブロック鎖の状態（＝未使用の取引出力の存否）と矛盾がないか検証する
+                //矛盾がある場合は無効ブロックとなり、阻却ブロックとする
+                if (!VerifyUtxo(blocksList[i], prevTxOutputss, addedUtxos, removedUtxos))
+                {
+                    udb.Close();
+
+                    return cumulativeDiff;
+                }
+
+                prevTxOutputssList.Add(prevTxOutputss);
+
+                RetrieveTransactionTransitionForward(blocksList[i], prevTxOutputss, addedUtxos, removedUtxos);
+
+                cumulativeDiff += blocksList[i].Difficulty.Diff;
+            }
+
+            udb.Close();
+
+            return cumulativeDiff;
+        }
+
         private UpdateChainInnerReturn UpdateChainInner(Block block)
         {
+            //最後に確定されたブロックのブロック番号が最小ブロック番号である
             long minBlockIndex = blockManager.finalizedBlockIndex;
+            //先頭ブロックのブロック番号に余裕を加えたものが最大ブロック番号である
             long maxBlockIndex = blockManager.headBlockIndex + maxBlockIndexMargin;
 
-            //確定されたブロックのブロック番号以下のブロック番号を有するブロックは認められない
+            //最小ブロック番号以下のブロック番号を有するブロックは認められない
             if (block.Index <= minBlockIndex)
                 throw new InvalidOperationException();
-            //現在のブロックのブロック番号より大き過ぎるブロック番号を有するブロックは認められない
+            //現在のブロックのブロック番号より大き過ぎるブロック番号（最大ブロック番号を超えるブロック番号）を有するブロックは認められない
             if (block.Index > maxBlockIndex)
                 throw new InvalidOperationException();
 
@@ -1005,228 +1087,177 @@ namespace New
             if (rejectedBlocks[position] != null && rejectedBlocks[position].Keys.Contains(block.Id))
                 return new UpdateChainInnerReturn(UpdateChainReturnType.invariable);
 
-            //先頭ブロックの番号より丁度1大きい番号のブロックの場合
-            //即ち、先頭ブロックの直後のブロックである可能性がある場合
-            if (block.Index == blockManager.headBlockIndex + 1)
+            //既にブロック鎖の一部である場合は何も変わらない
+            Block mainBlock = block.Index > blockManager.headBlockIndex ? null : blockManager.GetMainBlock(block.Index);
+            if (mainBlock != null && mainBlock.Id.Equals(block.Id))
+                return new UpdateChainInnerReturn(UpdateChainReturnType.invariable);
+
+            //ブロック以後のブロックを格納する
+            //ブロックが分岐ブロック鎖のブロックの一部である場合は、ブロックの直前のブロックからブロック鎖から分岐するまでのブロックも格納する
+            List<Block> blocksList = new List<Block>();
+            //ブロック以後のブロックの被参照取引出力を格納する
+            //ブロックが分岐ブロック鎖のブロックの一部である場合は、ブロックの直前のブロックからブロック鎖から分岐するまでのブロックの被参照取引出力も格納する
+            List<TransactionOutput[][]> prevTxOutputssList = new List<TransactionOutput[][]>();
+
+            //ブロックが分岐ブロック鎖のブロックの一部である場合は、先頭ブロックから分岐が始まっているブロックと同一のブロック番号のブロックまでを格納する
+            List<Block> mainBlocksList = new List<Block>();
+            //ブロックが分岐ブロック鎖のブロックの一部である場合は、先頭ブロックから分岐が始まっているブロックと同一のブロック番号のブロックまでの被参照取引出力を格納する
+            List<TransactionOutput[][]> mainsPrevTxOutputssList = new List<TransactionOutput[][]>();
+
+            double cumulativeDiff = 0.0;
+
+            //ブロック以後のブロックを走査する
+            Block nextBlock = block;
+            CirculatedInteger ci = new CirculatedInteger(position, (int)capacity);
+            //先頭ブロックのブロック番号より大き過ぎるブロック番号（最大ブロック番号を超えるブロック番号）を有するブロックは認められない
+            while (nextBlock.Index <= maxBlockIndex)
             {
-                if (block is GenesisBlock)
+                blocksList.Add(nextBlock);
+
+                cumulativeDiff += nextBlock.Difficulty.Diff;
+
+                ci.Next();
+
+                //留保ブロックの中にブロックの直後のブロックがない場合はそのブロックが最後のブロック
+                if (pendingBlocks[ci.value] == null)
+                    break;
+                if ((nextBlock = pendingBlocks[ci.value].Values.Where((elem) => elem.PrevId.Equals(nextBlock.Id)).FirstOrDefault()) == null)
+                    break;
+            }
+
+            //ブロックが起源ブロックである場合と先頭ブロックの直後のブロックである場合
+            if (block.Index == blockManager.headBlockIndex + 1 && (blockManager.headBlockIndex == -1 || block.PrevId.Equals(blockManager.GetHeadBlock().Id)))
+            {
+                VerifyBlockChain(blocksList, new Dictionary<Sha256Ripemd160Hash, List<Utxo>>(), new Dictionary<Sha256Ripemd160Hash, List<Utxo>>(), prevTxOutputssList);
+
+                UpdateBlockChainInnerInner(blocksList, prevTxOutputssList, mainBlocksList, mainsPrevTxOutputssList);
+            }
+            else
+            {
+                double mainCumulativeDiff = 0.0;
+
+                for (long i = block.Index; i <= blockManager.headBlockIndex; i++)
                 {
-                    if (block.PrevId != null)
-                        return new UpdateChainInnerReturn(UpdateChainReturnType.rejected, position, new List<Block>() { block });
+                    nextBlock = blockManager.GetMainBlock(i);
+
+                    mainCumulativeDiff += nextBlock.Difficulty.Diff;
+
+                    mainBlocksList.Add(nextBlock);
                 }
-                else if (block is TransactionalBlock)
+
+                Block prevBlockBrunch = block;
+                Block prevBlockMain = block.Index > blockManager.headBlockIndex ? null : blockManager.GetMainBlock(block.Index);
+
+                ci = new CirculatedInteger(position, (int)capacity);
+
+                while (true)
                 {
-                    //ブロックに格納されている直前ブロック識別子が先頭ブロックの識別子と異なる場合は先頭ブロックの直後のブロックではない
-                    if (!block.PrevId.Equals(blockManager.GetHeadBlock().Id))
-                    {
-                        //ブロックに格納されている直前ブロック識別子が阻却ブロックの識別子である場合は阻却ブロックとする
-                        if (rejectedBlocks[blocksCurrent.value] != null && rejectedBlocks[blocksCurrent.value].Keys.Contains(block.PrevId))
-                            return new UpdateChainInnerReturn(UpdateChainReturnType.rejected, position, new List<Block>() { block });
-                        //そうでない場合はブロック鎖分岐が発生して別の分岐が正当なブロック鎖の一部となった場合には有効ブロックとなる可能性があるので留保ブロックとする
+                    if (prevBlockBrunch.Index == 0)
+                        break;
+                    if (prevBlockMain != null && prevBlockMain.PrevId.Equals(prevBlockBrunch.PrevId))
+                        break;
+
+                    long prevIndex = prevBlockBrunch.Index - 1;
+
+                    if (prevIndex <= minBlockIndex)
+                        return new UpdateChainInnerReturn(UpdateChainReturnType.rejected, ci.value, blocksList);
+
+                    ci.Previous();
+
+                    if (pendingBlocks[ci.value] == null || !pendingBlocks[ci.value].Keys.Contains(prevBlockBrunch.PrevId))
+                        if (rejectedBlocks[ci.value] != null && rejectedBlocks[ci.value].Keys.Contains(prevBlockBrunch.PrevId))
+                            return new UpdateChainInnerReturn(UpdateChainReturnType.rejected, ci.value, blocksList);
                         else
                             return new UpdateChainInnerReturn(UpdateChainReturnType.pending, position);
-                    }
+
+                    prevBlockBrunch = pendingBlocks[ci.value][prevBlockBrunch.PrevId];
+                    prevBlockMain = prevIndex > blockManager.headBlockIndex ? null : blockManager.GetMainBlock(prevIndex);
+
+                    blocksList.Insert(0, prevBlockBrunch);
+                    if (prevBlockMain != null)
+                        mainBlocksList.Add(prevBlockMain);
+
+                    cumulativeDiff += prevBlockBrunch.Difficulty.Diff;
+                    if (prevBlockMain != null)
+                        mainCumulativeDiff += prevBlockMain.Difficulty.Diff;
                 }
-                else
-                    throw new NotSupportedException();
 
-                //ブロックの被参照取引出力を取得する
-                TransactionOutput[][] prevTxOutputss = GetPrevTxOutputss(block);
+                if (cumulativeDiff <= mainCumulativeDiff)
+                    return new UpdateChainInnerReturn(UpdateChainReturnType.pending, position);
 
-                if (prevTxOutputss == null)
-                    return new UpdateChainInnerReturn(UpdateChainReturnType.rejected, position, new List<Block>() { block });
-
-                //ブロック自体の検証を実行する
-                //無効ブロックである場合は阻却ブロックとする
-                if (block is GenesisBlock)
+                Func<long, TransactionalBlock> _bindexToTxBlock = (bindex) =>
                 {
-                    if (!(block as GenesisBlock).Verify())
-                        return new UpdateChainInnerReturn(UpdateChainReturnType.rejected, position, new List<Block>() { block });
-                }
-                else if (block is TransactionalBlock)
+                    if (bindex <= blockManager.headBlockIndex)
+                        return blockManager.GetMainBlock(bindex) as TransactionalBlock;
+                    else
+                        return null;
+                };
+
+                Dictionary<Sha256Ripemd160Hash, List<Utxo>> addedUtxos = new Dictionary<Sha256Ripemd160Hash, List<Utxo>>();
+                Dictionary<Sha256Ripemd160Hash, List<Utxo>> removedUtxos = new Dictionary<Sha256Ripemd160Hash, List<Utxo>>();
+
+                for (int i = mainBlocksList.Count - 1; i >= 0; i--)
                 {
-                    if (!(block as TransactionalBlock).Verify(prevTxOutputss, (index) => blockManager.GetMainBlock(index) as TransactionalBlock))
-                        return new UpdateChainInnerReturn(UpdateChainReturnType.rejected, position, new List<Block>() { block });
-                }
-                else
-                    throw new NotSupportedException();
+                    TransactionOutput[][] prevTxOutputss = GetPrevTxOutputss(mainBlocksList[i], _bindexToTxBlock);
 
-                udb.Open();
+                    if (prevTxOutputss == null)
+                        throw new InvalidOperationException("blockchain_fork_main_backward");
 
-                //ブロック鎖の状態（＝未使用の取引出力の存否）と矛盾がないか検証する
-                //矛盾がある場合は無効ブロックとなり、阻却ブロックとする
-                if (!VerifyUtxo(block, prevTxOutputss, new Dictionary<Sha256Ripemd160Hash, List<Utxo>>(), new Dictionary<Sha256Ripemd160Hash, List<Utxo>>()))
-                {
-                    udb.Close();
+                    mainsPrevTxOutputssList.Add(prevTxOutputss);
 
-                    return new UpdateChainInnerReturn(UpdateChainReturnType.rejected, position, new List<Block>() { block });
+                    RetrieveTransactionTransitionBackward(mainBlocksList[i], prevTxOutputss, addedUtxos, removedUtxos);
                 }
 
-                bcadb.Create();
+                cumulativeDiff = VerifyBlockChain(blocksList, addedUtxos, removedUtxos, prevTxOutputssList);
 
-                //2つの検証に通った場合は有効ブロックであるのでブロック鎖の新しいブロックとして登録し、ブロック鎖の状態を更新する
-                blockManager.AddMainBlock(block);
-                utxoManager.ApplyBlock(block, prevTxOutputss);
-                utxoManager.SaveUFPTemp();
+                if (cumulativeDiff > mainCumulativeDiff)
+                    UpdateBlockChainInnerInner(blocksList, prevTxOutputssList, mainBlocksList, mainsPrevTxOutputssList);
+            }
 
-                bcadb.Delete();
+            if (blocksList.Count != prevTxOutputssList.Count)
+            {
+                List<Block> rejecteds = new List<Block>();
+                for (int i = prevTxOutputssList.Count; i < blocksList.Count; i++)
+                    rejecteds.Add(blocksList[i]);
 
-                udb.Close();
+                return new UpdateChainInnerReturn(UpdateChainReturnType.updatedAndRejected, blocksCurrent.GetForward(1), rejecteds);
+            }
+
+            return new UpdateChainInnerReturn(UpdateChainReturnType.updated);
+        }
+
+        private void UpdateBlockChainInnerInner(List<Block> blocksList, List<TransactionOutput[][]> prevTxOutputssList, List<Block> mainBlocksList, List<TransactionOutput[][]> mainPrevTxOutputssList)
+        {
+            udb.Open();
+
+            bcadb.Create();
+
+            for (int i = mainBlocksList.Count - 1; i >= 0; i--)
+            {
+                blockManager.DeleteMainBlock(mainBlocksList[i].Index);
+                utxoManager.RevertBlock(mainBlocksList[i], mainPrevTxOutputssList[i]);
+
+                if (pendingBlocks[blocksCurrent.value] == null)
+                    pendingBlocks[blocksCurrent.value] = new Dictionary<Creahash, Block>();
+                pendingBlocks[blocksCurrent.value].Add(mainBlocksList[i].Id, mainBlocksList[i]);
+
+                blocksCurrent.Previous();
+            }
+
+            for (int i = 0; i < prevTxOutputssList.Count; i++)
+            {
+                blockManager.AddMainBlock(blocksList[i]);
+                utxoManager.ApplyBlock(blocksList[i], prevTxOutputssList[i]);
 
                 blocksCurrent.Next();
+
+                if (pendingBlocks[blocksCurrent.value] != null && pendingBlocks[blocksCurrent.value].Keys.Contains(blocksList[i].Id))
+                    pendingBlocks[blocksCurrent.value].Remove(blocksList[i].Id);
 
                 int nextMaxPosition = blocksCurrent.GetForward((int)maxBlockIndexMargin);
 
                 rejectedBlocks[nextMaxPosition] = null;
                 pendingBlocks[nextMaxPosition] = null;
-
-                return new UpdateChainInnerReturn(UpdateChainReturnType.updated);
-            }
-
-            //先頭ブロックの番号より丁度1大きい番号のブロック以外の場合
-
-            Block brunchCurrent = block;
-            Block mainCurrent = block.Index > blockManager.headBlockIndex ? null : blockManager.GetMainBlock(block.Index);
-
-            if (brunchCurrent.Id.Equals(mainCurrent.Id))
-                return new UpdateChainInnerReturn(UpdateChainReturnType.invariable);
-
-            double brunchDiff = 0.0;
-            double mainDiff = 0.0;
-
-            List<Block> brunches = new List<Block>();
-            List<Block> mains = new List<Block>();
-
-            CirculatedInteger ci = new CirculatedInteger(position, (int)capacity);
-
-            while (true)
-            {
-                brunches.Add(brunchCurrent);
-                if (mainCurrent != null)
-                    mains.Add(mainCurrent);
-
-                brunchDiff += brunchCurrent.Difficulty.Diff;
-                if (mainCurrent != null)
-                    mainDiff += mainCurrent.Difficulty.Diff;
-
-                if (mainCurrent != null && mainCurrent.PrevId.Equals(brunchCurrent.PrevId))
-                    break;
-
-                long prevIndex = brunchCurrent.Index - 1;
-
-                if (prevIndex <= minBlockIndex)
-                    return new UpdateChainInnerReturn(UpdateChainReturnType.rejected, position, brunches);
-
-                ci.Previous();
-
-                if (pendingBlocks[ci.value] == null || !pendingBlocks[ci.value].Keys.Contains(brunchCurrent.PrevId))
-                    if (rejectedBlocks[ci.value] != null && rejectedBlocks[ci.value].Keys.Contains(brunchCurrent.PrevId))
-                        return new UpdateChainInnerReturn(UpdateChainReturnType.rejected, position, brunches);
-                    else
-                        return new UpdateChainInnerReturn(UpdateChainReturnType.pending, position);
-
-                brunchCurrent = pendingBlocks[ci.value][brunchCurrent.PrevId];
-                mainCurrent = prevIndex > blockManager.headBlockIndex ? null : blockManager.GetMainBlock(prevIndex);
-            }
-
-            brunchCurrent = block;
-            ci = new CirculatedInteger(position, (int)capacity);
-
-            while (true)
-            {
-                ci.Next();
-
-                if (pendingBlocks[ci.value] == null)
-                    break;
-
-                if ((brunchCurrent = pendingBlocks[ci.value].Values.Where((elem) => elem.PrevId.Equals(brunchCurrent.Id)).FirstOrDefault()) == null)
-                    break;
-
-                brunches.Insert(0, brunchCurrent);
-
-                brunchDiff += brunchCurrent.Difficulty.Diff;
-            }
-
-            mainCurrent = block.Index + 1 > blockManager.headBlockIndex ? null : blockManager.GetMainBlock(block.Index + 1);
-
-            while (mainCurrent != null)
-            {
-                mains.Insert(0, mainCurrent);
-
-                mainDiff += mainCurrent.Difficulty.Diff;
-            }
-
-            if (brunchDiff <= mainDiff)
-                return new UpdateChainInnerReturn(UpdateChainReturnType.pending, position);
-
-            Dictionary<Sha256Ripemd160Hash, List<Utxo>> addedUtxos = new Dictionary<Sha256Ripemd160Hash, List<Utxo>>();
-            Dictionary<Sha256Ripemd160Hash, List<Utxo>> removedUtxos = new Dictionary<Sha256Ripemd160Hash, List<Utxo>>();
-
-            List<TransactionOutput[][]> mainsPrevTxOutputss = new List<TransactionOutput[][]>();
-
-            for (int i = 0; i < mains.Count; i++)
-            {
-                TransactionOutput[][] prevTxOutputss = GetPrevTxOutputss(mains[i]);
-
-                if (prevTxOutputss == null)
-                    throw new InvalidOperationException("blockchain_fork_main_backward");
-
-                mainsPrevTxOutputss.Add(prevTxOutputss);
-
-                RetrieveTransactionTransitionBackward(mains[i], prevTxOutputss, addedUtxos, removedUtxos);
-            }
-
-            udb.Open();
-
-            brunchDiff = 0.0;
-
-            List<TransactionOutput[][]> brunchesPrevTxOutputss = new List<TransactionOutput[][]>();
-
-            int rejectedsBeginPosition = 0;
-            List<Block> rejecteds = null;
-            for (int i = brunches.Count - 1; i >= 0; i--)
-            {
-                TransactionOutput[][] prevTxOutputss = GetPrevTxOutputss(brunches[i]);
-
-                if (prevTxOutputss == null || !(block as TransactionalBlock).Verify(prevTxOutputss, (index) => blockManager.GetMainBlock(index) as TransactionalBlock) || !VerifyUtxo(brunches[i], prevTxOutputss, addedUtxos, removedUtxos))
-                {
-                    rejectedsBeginPosition = blocksCurrent.GetForward((int)(brunches[i].Index - blockManager.headBlockIndex));
-
-                    rejecteds = new List<Block>();
-                    for (int j = i; j >= 0; j--)
-                        rejecteds.Add(brunches[j]);
-
-                    break;
-                }
-
-                brunchesPrevTxOutputss.Add(prevTxOutputss);
-
-                RetrieveTransactionTransitionForward(brunches[i], prevTxOutputss, addedUtxos, removedUtxos);
-            }
-
-            if (brunchDiff <= mainDiff)
-            {
-                udb.Close();
-
-                return new UpdateChainInnerReturn(UpdateChainReturnType.rejected, rejectedsBeginPosition, rejecteds);
-            }
-
-            bcadb.Create();
-
-            for (int i = 0; i < mains.Count; i++)
-            {
-                blockManager.DeleteMainBlock(mains[i].Index);
-                utxoManager.RevertBlock(mains[i], mainsPrevTxOutputss[i]);
-
-                blocksCurrent.Previous();
-            }
-
-            for (int i = 0; i < brunchesPrevTxOutputss.Count; i++)
-            {
-                blockManager.AddMainBlock(brunches[brunches.Count - 1 - i]);
-                utxoManager.ApplyBlock(brunches[brunches.Count - 1 - i], brunchesPrevTxOutputss[i]);
-
-                blocksCurrent.Next();
             }
 
             utxoManager.SaveUFPTemp();
@@ -1234,16 +1265,6 @@ namespace New
             bcadb.Delete();
 
             udb.Close();
-
-            int nextMaxPosition2 = blocksCurrent.GetForward((int)maxBlockIndexMargin);
-
-            rejectedBlocks[nextMaxPosition2] = null;
-            pendingBlocks[nextMaxPosition2] = null;
-
-            if (rejecteds != null)
-                return new UpdateChainInnerReturn(UpdateChainReturnType.updatedAndRejected, rejectedsBeginPosition, rejecteds);
-
-            return new UpdateChainInnerReturn(UpdateChainReturnType.updated);
         }
 
         private void RetrieveTransactionTransitionForward(Block block, TransactionOutput[][] prevTxOutss, Dictionary<Sha256Ripemd160Hash, List<Utxo>> addedUtxos, Dictionary<Sha256Ripemd160Hash, List<Utxo>> removedUtxos)
@@ -1314,7 +1335,7 @@ namespace New
             utxos.Add(new Utxo(bindex, txindex, txoutindex, amount));
         }
 
-        private TransactionOutput[][] GetPrevTxOutputss(Block block)
+        private TransactionOutput[][] GetPrevTxOutputss(Block block, Func<long, TransactionalBlock> _bindexToBlock)
         {
             TransactionOutput[][] prevTxOutputss = new TransactionOutput[block.Transactions.Length][];
             for (int i = 0; i < block.Transactions.Length; i++)
@@ -1322,11 +1343,10 @@ namespace New
                 prevTxOutputss[i] = new TransactionOutput[block.Transactions[i].TxInputs.Length];
                 for (int j = 0; j < block.Transactions[i].TxInputs.Length; j++)
                 {
-                    if (block.Transactions[i].TxInputs[j].PrevTxBlockIndex > blockManager.headBlockIndex)
+                    Block prevBlock = _bindexToBlock(block.Transactions[i].TxInputs[j].PrevTxBlockIndex);
+
+                    if (prevBlock == null)
                         return null;
-
-                    Block prevBlock = blockManager.GetMainBlock(block.Transactions[i].TxInputs[j].PrevTxBlockIndex);
-
                     if (block.Transactions[i].TxInputs[j].PrevTxIndex >= prevBlock.Transactions.Length)
                         return null;
 
@@ -5107,6 +5127,264 @@ namespace New
 
             Console.WriteLine("test18_succeeded");
         }
+
+        //BlockChainのテスト（分岐がない場合・採掘・順番通りに追加されなかった場合）
+        public static void Test19()
+        {
+            string basepath = System.IO.Path.GetDirectoryName(Assembly.GetEntryAssembly().Location);
+
+            BlockchainAccessDB bcadb = new BlockchainAccessDB(basepath);
+            string bcadbPath = bcadb.GetPath();
+
+            if (File.Exists(bcadbPath))
+                File.Delete(bcadbPath);
+
+            BlockManagerDB bmdb = new BlockManagerDB(basepath);
+            string bmdbPath = bmdb.GetPath();
+
+            if (File.Exists(bmdbPath))
+                File.Delete(bmdbPath);
+
+            BlockDB bdb = new BlockDB(basepath);
+            string bdbPath = bdb.GetPath(0);
+
+            if (File.Exists(bdbPath))
+                File.Delete(bdbPath);
+
+            BlockFilePointersDB bfpdb = new BlockFilePointersDB(basepath);
+            string bfpPath = bfpdb.GetPath();
+
+            if (File.Exists(bfpPath))
+                File.Delete(bfpPath);
+
+            UtxoFileAccessDB ufadb = new UtxoFileAccessDB(basepath);
+            string ufadbPath = ufadb.GetPath();
+
+            if (File.Exists(ufadbPath))
+                File.Delete(ufadbPath);
+
+            UtxoFilePointersDB ufpdb = new UtxoFilePointersDB(basepath);
+            string ufpdbPath = ufpdb.GetPath();
+
+            if (File.Exists(ufpdbPath))
+                File.Delete(ufpdbPath);
+
+            UtxoFilePointersTempDB ufptempdb = new UtxoFilePointersTempDB(basepath);
+            string ufptempdbPath = ufptempdb.GetPath();
+
+            if (File.Exists(ufptempdbPath))
+                File.Delete(ufptempdbPath);
+
+            UtxoDB utxodb = new UtxoDB(basepath);
+            string utxodbPath = utxodb.GetPath();
+
+            if (File.Exists(utxodbPath))
+                File.Delete(utxodbPath);
+
+            BlockChain blockchain = new BlockChain(bcadb, bmdb, bdb, bfpdb, ufadb, ufpdb, ufptempdb, utxodb);
+
+            BlockGenerator bg = new BlockGenerator();
+
+            Block[] blks = new Block[8];
+            BlockContext[] blkCons = new BlockContext[blks.Length];
+            for (int i = 0; i < blks.Length; i++)
+            {
+                blkCons[i] = bg.CreateNextValidBlock();
+                blks[i] = blkCons[i].block;
+
+                Console.WriteLine("block" + i.ToString() + " created.");
+            }
+
+            Block[] blks2 = new Block[blks.Length];
+            byte[] nonce = null;
+
+            Func<long, TransactionalBlock> _indexToBlock = (index) => blks2[index] as TransactionalBlock;
+
+            for (int i = 0; i < blks.Length; i++)
+            {
+                if (i == 0)
+                {
+                    blks2[i] = blks[i];
+
+                    continue;
+                }
+
+                TransactionalBlock tblk = blks[i] as TransactionalBlock;
+
+                TransactionalBlock tblk2 = TransactionalBlock.GetBlockTemplate(tblk.Index, tblk.coinbaseTxToMiner, tblk.transferTxs, _indexToBlock, 0);
+
+                nonce = new byte[10];
+
+                while (true)
+                {
+                    tblk2.UpdateTimestamp(DateTime.Now);
+                    tblk2.UpdateNonce(nonce);
+
+                    if (tblk2.Id.CompareTo(tblk2.header.difficulty.Target) <= 0)
+                    {
+                        blks2[i] = tblk2;
+
+                        Console.WriteLine("block" + i.ToString() + " mined.");
+
+                        break;
+                    }
+
+                    int index = nonce.Length.RandomNum();
+                    int value = 256.RandomNum();
+
+                    nonce[index] = (byte)value;
+                }
+            }
+
+            BlockChain.UpdateChainReturnType type = blockchain.UpdateChain(blks2[2]);
+
+            if (type != BlockChain.UpdateChainReturnType.pending)
+                throw new Exception("test19_1");
+
+            if (blockchain.blocksCurrent.value != 0)
+                throw new Exception("test19_2");
+            for (int i = 0; i < blockchain.pendingBlocks.Length; i++)
+            {
+                if (i == 3)
+                {
+                    if (blockchain.pendingBlocks[i] == null)
+                        throw new Exception("test19_3");
+                    if (blockchain.pendingBlocks[i].Count != 1)
+                        throw new Exception("test19_4");
+                    if (!blockchain.pendingBlocks[i].Keys.Contains(blks2[2].Id))
+                        throw new Exception("test19_5");
+                }
+                else
+                {
+                    if (blockchain.pendingBlocks[i] != null)
+                        throw new Exception("test19_6");
+                }
+
+                if (blockchain.rejectedBlocks[i] != null)
+                    throw new Exception("test19_7");
+            }
+
+            BlockChain.UpdateChainReturnType type2 = blockchain.UpdateChain(blks2[1]);
+
+            if (type2 != BlockChain.UpdateChainReturnType.pending)
+                throw new Exception("test19_8");
+
+            if (blockchain.blocksCurrent.value != 0)
+                throw new Exception("test19_9");
+            for (int i = 0; i < blockchain.pendingBlocks.Length; i++)
+            {
+                if (i == 2)
+                {
+                    if (blockchain.pendingBlocks[i] == null)
+                        throw new Exception("test19_10");
+                    if (blockchain.pendingBlocks[i].Count != 1)
+                        throw new Exception("test19_11");
+                    if (!blockchain.pendingBlocks[i].Keys.Contains(blks2[1].Id))
+                        throw new Exception("test19_12");
+                }
+                else if (i == 3)
+                {
+                    if (blockchain.pendingBlocks[i] == null)
+                        throw new Exception("test19_13");
+                    if (blockchain.pendingBlocks[i].Count != 1)
+                        throw new Exception("test19_14");
+                    if (!blockchain.pendingBlocks[i].Keys.Contains(blks2[2].Id))
+                        throw new Exception("test19_15");
+                }
+                else
+                {
+                    if (blockchain.pendingBlocks[i] != null)
+                        throw new Exception("test19_16");
+                }
+
+                if (blockchain.rejectedBlocks[i] != null)
+                    throw new Exception("test19_17");
+            }
+
+            BlockChain.UpdateChainReturnType type3 = blockchain.UpdateChain(blks2[0]);
+
+            if (type3 != BlockChain.UpdateChainReturnType.updated)
+                throw new Exception("test19_18");
+            if (blockchain.headBlockIndex != 2)
+                throw new Exception("test19_19");
+
+            if (blockchain.blocksCurrent.value != 3)
+                throw new Exception("test19_20");
+            for (int i = 0; i < blockchain.pendingBlocks.Length; i++)
+            {
+                if (i == 2 || i == 3)
+                {
+                    if (blockchain.pendingBlocks[i] == null)
+                        throw new Exception("test19_21");
+                    if (blockchain.pendingBlocks[i].Count != 0)
+                        throw new Exception("test19_22");
+                }
+                else
+                {
+                    if (blockchain.pendingBlocks[i] != null)
+                        throw new Exception("test19_23");
+                }
+
+                if (blockchain.rejectedBlocks[i] != null)
+                    throw new Exception("test19_24");
+            }
+
+            BlockChain.UpdateChainReturnType type4 = blockchain.UpdateChain(blks2[6]);
+            BlockChain.UpdateChainReturnType type5 = blockchain.UpdateChain(blks2[7]);
+            BlockChain.UpdateChainReturnType type6 = blockchain.UpdateChain(blks2[4]);
+            BlockChain.UpdateChainReturnType type7 = blockchain.UpdateChain(blks2[5]);
+            BlockChain.UpdateChainReturnType type8 = blockchain.UpdateChain(blks2[3]);
+
+            if (type4 != BlockChain.UpdateChainReturnType.pending)
+                throw new Exception("test19_25");
+            if (type5 != BlockChain.UpdateChainReturnType.pending)
+                throw new Exception("test19_26");
+            if (type6 != BlockChain.UpdateChainReturnType.pending)
+                throw new Exception("test19_27");
+            if (type7 != BlockChain.UpdateChainReturnType.pending)
+                throw new Exception("test19_28");
+            if (type8 != BlockChain.UpdateChainReturnType.updated)
+                throw new Exception("test19_29");
+            if (blockchain.headBlockIndex != 7)
+                throw new Exception("test19_30");
+
+            utxodb.Open();
+
+            foreach (var address in blkCons[7].unspentTxOuts.Keys)
+                foreach (var toc in blkCons[7].unspentTxOuts[address])
+                    if (blockchain.FindUtxo(address, toc.bIndex, toc.txIndex, toc.txOutIndex) == null)
+                        throw new Exception("test19_31");
+
+            foreach (var address in blkCons[7].spentTxOuts.Keys)
+                foreach (var toc in blkCons[7].spentTxOuts[address])
+                    if (blockchain.FindUtxo(address, toc.bIndex, toc.txIndex, toc.txOutIndex) != null)
+                        throw new Exception("test19_32");
+
+            utxodb.Close();
+
+            Console.WriteLine("test19_succeeded");
+        }
+
+        //BlockChainのテスト（分岐がある場合・採掘・分岐が長過ぎる場合）
+        public static void Test20()
+        {
+
+
+            Console.WriteLine("test20_succeeded");
+        }
+
+        //BlockChainのテスト（分岐がある場合・採掘）
+        public static void Test21()
+        {
+            Console.WriteLine("test21_succeeded");
+        }
+
+        //BlockChainのテスト（分岐がある場合・採掘・順番通りに追加されなかった場合）
+        public static void Test22()
+        {
+            Console.WriteLine("test22_succeeded");
+        }
+
     }
 
     public class TransactionOutputContext
