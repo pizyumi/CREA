@@ -979,7 +979,7 @@ namespace New
             else if (ret.type == UpdateChainReturnType.rejected || ret.type == UpdateChainReturnType.updatedAndRejected)
             {
                 CirculatedInteger ci = new CirculatedInteger(ret.position, (int)capacity);
-                for (int i = 0; i < ret.rejectedBlocks.Count; i++, ci.Previous())
+                for (int i = 0; i < ret.rejectedBlocks.Count; i++, ci.Next())
                 {
                     if (pendingBlocks[ci.value] != null && pendingBlocks[ci.value].Keys.Contains(ret.rejectedBlocks[i].Id))
                         pendingBlocks[ci.value].Remove(ret.rejectedBlocks[i].Id);
@@ -1175,7 +1175,7 @@ namespace New
 
                     blocksList.Insert(0, prevBlockBrunch);
                     if (prevBlockMain != null)
-                        mainBlocksList.Add(prevBlockMain);
+                        mainBlocksList.Insert(0, prevBlockMain);
 
                     cumulativeDiff += prevBlockBrunch.Difficulty.Diff;
                     if (prevBlockMain != null)
@@ -1203,7 +1203,7 @@ namespace New
                     if (prevTxOutputss == null)
                         throw new InvalidOperationException("blockchain_fork_main_backward");
 
-                    mainsPrevTxOutputssList.Add(prevTxOutputss);
+                    mainsPrevTxOutputssList.Insert(0, prevTxOutputss);
 
                     RetrieveTransactionTransitionBackward(mainBlocksList[i], prevTxOutputss, addedUtxos, removedUtxos);
                 }
@@ -5365,26 +5365,827 @@ namespace New
             Console.WriteLine("test19_succeeded");
         }
 
-        //BlockChainのテスト（分岐がある場合・採掘・分岐が長過ぎる場合）
+        //BlockChainのテスト（分岐がある場合・採掘）
         public static void Test20()
         {
+            string basepath = System.IO.Path.GetDirectoryName(Assembly.GetEntryAssembly().Location);
 
+            BlockchainAccessDB bcadb = new BlockchainAccessDB(basepath);
+            string bcadbPath = bcadb.GetPath();
+
+            if (File.Exists(bcadbPath))
+                File.Delete(bcadbPath);
+
+            BlockManagerDB bmdb = new BlockManagerDB(basepath);
+            string bmdbPath = bmdb.GetPath();
+
+            if (File.Exists(bmdbPath))
+                File.Delete(bmdbPath);
+
+            BlockDB bdb = new BlockDB(basepath);
+            string bdbPath = bdb.GetPath(0);
+
+            if (File.Exists(bdbPath))
+                File.Delete(bdbPath);
+
+            BlockFilePointersDB bfpdb = new BlockFilePointersDB(basepath);
+            string bfpPath = bfpdb.GetPath();
+
+            if (File.Exists(bfpPath))
+                File.Delete(bfpPath);
+
+            UtxoFileAccessDB ufadb = new UtxoFileAccessDB(basepath);
+            string ufadbPath = ufadb.GetPath();
+
+            if (File.Exists(ufadbPath))
+                File.Delete(ufadbPath);
+
+            UtxoFilePointersDB ufpdb = new UtxoFilePointersDB(basepath);
+            string ufpdbPath = ufpdb.GetPath();
+
+            if (File.Exists(ufpdbPath))
+                File.Delete(ufpdbPath);
+
+            UtxoFilePointersTempDB ufptempdb = new UtxoFilePointersTempDB(basepath);
+            string ufptempdbPath = ufptempdb.GetPath();
+
+            if (File.Exists(ufptempdbPath))
+                File.Delete(ufptempdbPath);
+
+            UtxoDB utxodb = new UtxoDB(basepath);
+            string utxodbPath = utxodb.GetPath();
+
+            if (File.Exists(utxodbPath))
+                File.Delete(utxodbPath);
+
+            BlockChain blockchain = new BlockChain(bcadb, bmdb, bdb, bfpdb, ufadb, ufpdb, ufptempdb, utxodb);
+
+            BlockGenerator bg = new BlockGenerator();
+
+            Block[] blks = new Block[10];
+            BlockContext[] blkCons = new BlockContext[blks.Length];
+            for (int i = 0; i < blks.Length; i++)
+            {
+                blkCons[i] = bg.CreateNextValidBlock();
+                blks[i] = blkCons[i].block;
+
+                Console.WriteLine("block" + i.ToString() + " created.");
+            }
+
+            Block[] blks2 = new Block[blks.Length];
+            double cumulativeDiff1 = 0.0;
+            byte[] nonce = null;
+
+            Func<long, TransactionalBlock> _indexToBlock = (index) => blks2[index] as TransactionalBlock;
+
+            for (int i = 0; i < blks.Length; i++)
+            {
+                if (i == 0)
+                {
+                    blks2[i] = blks[i];
+                    cumulativeDiff1 += blks2[i].Difficulty.Diff;
+
+                    Console.WriteLine("block" + i.ToString() + "_1 " + blks2[i].Difficulty.Diff.ToString() + " " + cumulativeDiff1.ToString());
+
+                    continue;
+                }
+
+                TransactionalBlock tblk = blks[i] as TransactionalBlock;
+
+                TransactionalBlock tblk2 = TransactionalBlock.GetBlockTemplate(tblk.Index, tblk.coinbaseTxToMiner, tblk.transferTxs, _indexToBlock, 0);
+
+                nonce = new byte[10];
+
+                while (true)
+                {
+                    tblk2.UpdateTimestamp(DateTime.Now);
+                    tblk2.UpdateNonce(nonce);
+
+                    if (tblk2.Id.CompareTo(tblk2.header.difficulty.Target) <= 0)
+                    {
+                        blks2[i] = tblk2;
+                        cumulativeDiff1 += blks2[i].Difficulty.Diff;
+
+                        Console.WriteLine("block" + i.ToString() + "_1 mined. " + blks2[i].Difficulty.Diff.ToString() + " " + cumulativeDiff1.ToString());
+
+                        break;
+                    }
+
+                    int index = nonce.Length.RandomNum();
+                    int value = 256.RandomNum();
+
+                    nonce[index] = (byte)value;
+                }
+            }
+
+            Console.WriteLine();
+
+            Block[] blks3 = new Block[blks.Length];
+            double cumulativeDiff2 = 0.0;
+
+            Func<long, TransactionalBlock> _indexToBlock2 = (index) => blks3[index] as TransactionalBlock;
+
+            for (int i = 0; i < blks.Length; i++)
+            {
+                if (i == 0)
+                {
+                    blks3[i] = blks[i];
+                    cumulativeDiff2 += blks3[i].Difficulty.Diff;
+
+                    Console.WriteLine("block" + i.ToString() + "_2 " + blks3[i].Difficulty.Diff.ToString() + " " + cumulativeDiff2.ToString());
+
+                    continue;
+                }
+
+                TransactionalBlock tblk = blks[i] as TransactionalBlock;
+
+                TransactionalBlock tblk3 = TransactionalBlock.GetBlockTemplate(tblk.Index, tblk.coinbaseTxToMiner, tblk.transferTxs, _indexToBlock2, 0);
+
+                nonce = new byte[10];
+
+                while (true)
+                {
+                    tblk3.UpdateTimestamp(DateTime.Now);
+                    tblk3.UpdateNonce(nonce);
+
+                    if (tblk3.Id.CompareTo(tblk3.header.difficulty.Target) <= 0)
+                    {
+                        blks3[i] = tblk3;
+                        cumulativeDiff2 += blks3[i].Difficulty.Diff;
+
+                        Console.WriteLine("block" + i.ToString() + "_2 mined. " + blks3[i].Difficulty.Diff.ToString() + " " + cumulativeDiff2.ToString());
+
+                        break;
+                    }
+
+                    int index = nonce.Length.RandomNum();
+                    int value = 256.RandomNum();
+
+                    nonce[index] = (byte)value;
+
+                    Thread.Sleep(1);
+                }
+            }
+
+            if (cumulativeDiff2 >= cumulativeDiff1)
+            {
+                Console.WriteLine("test20_not_tested.");
+
+                return;
+            }
+
+            cumulativeDiff1 = 0.0;
+
+            int minIndex = 0;
+            for (int i = 0; i < blks.Length; i++)
+            {
+                cumulativeDiff1 += blks2[i].Difficulty.Diff;
+
+                if (cumulativeDiff1 > cumulativeDiff2)
+                {
+                    minIndex = i;
+
+                    break;
+                }
+            }
+
+            for (int i = 0; i < blks.Length; i++)
+            {
+                BlockChain.UpdateChainReturnType type = blockchain.UpdateChain(blks3[i]);
+
+                if (type != BlockChain.UpdateChainReturnType.updated)
+                    throw new Exception("test20_1");
+            }
+
+            for (int i = 1; i < minIndex; i++)
+            {
+                BlockChain.UpdateChainReturnType type = blockchain.UpdateChain(blks2[i]);
+
+                if (type != BlockChain.UpdateChainReturnType.pending)
+                    throw new Exception("test20_2");
+            }
+
+            BlockChain.UpdateChainReturnType type2 = blockchain.UpdateChain(blks2[minIndex]);
+
+            if (type2 != BlockChain.UpdateChainReturnType.updated)
+                throw new Exception("test20_3");
+
+            utxodb.Open();
+
+            foreach (var address in blkCons[minIndex].unspentTxOuts.Keys)
+                foreach (var toc in blkCons[minIndex].unspentTxOuts[address])
+                    if (blockchain.FindUtxo(address, toc.bIndex, toc.txIndex, toc.txOutIndex) == null)
+                        throw new Exception("test20_4");
+
+            foreach (var address in blkCons[minIndex].spentTxOuts.Keys)
+                foreach (var toc in blkCons[minIndex].spentTxOuts[address])
+                    if (blockchain.FindUtxo(address, toc.bIndex, toc.txIndex, toc.txOutIndex) != null)
+                        throw new Exception("test20_5");
+
+            utxodb.Close();
 
             Console.WriteLine("test20_succeeded");
         }
 
-        //BlockChainのテスト（分岐がある場合・採掘）
+        //BlockChainのテスト（分岐がある場合・採掘・交互に追加していく場合）
         public static void Test21()
         {
+            string basepath = System.IO.Path.GetDirectoryName(Assembly.GetEntryAssembly().Location);
+
+            BlockchainAccessDB bcadb = new BlockchainAccessDB(basepath);
+            string bcadbPath = bcadb.GetPath();
+
+            if (File.Exists(bcadbPath))
+                File.Delete(bcadbPath);
+
+            BlockManagerDB bmdb = new BlockManagerDB(basepath);
+            string bmdbPath = bmdb.GetPath();
+
+            if (File.Exists(bmdbPath))
+                File.Delete(bmdbPath);
+
+            BlockDB bdb = new BlockDB(basepath);
+            string bdbPath = bdb.GetPath(0);
+
+            if (File.Exists(bdbPath))
+                File.Delete(bdbPath);
+
+            BlockFilePointersDB bfpdb = new BlockFilePointersDB(basepath);
+            string bfpPath = bfpdb.GetPath();
+
+            if (File.Exists(bfpPath))
+                File.Delete(bfpPath);
+
+            UtxoFileAccessDB ufadb = new UtxoFileAccessDB(basepath);
+            string ufadbPath = ufadb.GetPath();
+
+            if (File.Exists(ufadbPath))
+                File.Delete(ufadbPath);
+
+            UtxoFilePointersDB ufpdb = new UtxoFilePointersDB(basepath);
+            string ufpdbPath = ufpdb.GetPath();
+
+            if (File.Exists(ufpdbPath))
+                File.Delete(ufpdbPath);
+
+            UtxoFilePointersTempDB ufptempdb = new UtxoFilePointersTempDB(basepath);
+            string ufptempdbPath = ufptempdb.GetPath();
+
+            if (File.Exists(ufptempdbPath))
+                File.Delete(ufptempdbPath);
+
+            UtxoDB utxodb = new UtxoDB(basepath);
+            string utxodbPath = utxodb.GetPath();
+
+            if (File.Exists(utxodbPath))
+                File.Delete(utxodbPath);
+
+            BlockChain blockchain = new BlockChain(bcadb, bmdb, bdb, bfpdb, ufadb, ufpdb, ufptempdb, utxodb);
+
+            BlockGenerator bg = new BlockGenerator();
+
+            Block[] blks = new Block[10];
+            BlockContext[] blkCons = new BlockContext[blks.Length];
+            for (int i = 0; i < blks.Length; i++)
+            {
+                blkCons[i] = bg.CreateNextValidBlock();
+                blks[i] = blkCons[i].block;
+
+                Console.WriteLine("block" + i.ToString() + " created.");
+            }
+
+            Block[] blks2 = new Block[blks.Length];
+            double cumulativeDiff1 = 0.0;
+            byte[] nonce = null;
+
+            Func<long, TransactionalBlock> _indexToBlock = (index) => blks2[index] as TransactionalBlock;
+
+            for (int i = 0; i < blks.Length; i++)
+            {
+                if (i == 0)
+                {
+                    blks2[i] = blks[i];
+                    cumulativeDiff1 += blks2[i].Difficulty.Diff;
+
+                    Console.WriteLine("block" + i.ToString() + "_1 " + blks2[i].Difficulty.Diff.ToString() + " " + cumulativeDiff1.ToString());
+
+                    continue;
+                }
+
+                TransactionalBlock tblk = blks[i] as TransactionalBlock;
+
+                TransactionalBlock tblk2 = TransactionalBlock.GetBlockTemplate(tblk.Index, tblk.coinbaseTxToMiner, tblk.transferTxs, _indexToBlock, 0);
+
+                nonce = new byte[10];
+
+                while (true)
+                {
+                    tblk2.UpdateTimestamp(DateTime.Now);
+                    tblk2.UpdateNonce(nonce);
+
+                    if (tblk2.Id.CompareTo(tblk2.header.difficulty.Target) <= 0)
+                    {
+                        blks2[i] = tblk2;
+                        cumulativeDiff1 += blks2[i].Difficulty.Diff;
+
+                        Console.WriteLine("block" + i.ToString() + "_1 mined. " + blks2[i].Difficulty.Diff.ToString() + " " + cumulativeDiff1.ToString());
+
+                        break;
+                    }
+
+                    int index = nonce.Length.RandomNum();
+                    int value = 256.RandomNum();
+
+                    nonce[index] = (byte)value;
+                }
+            }
+
+            Console.WriteLine();
+
+            Block[] blks3 = new Block[blks.Length];
+            double cumulativeDiff2 = 0.0;
+
+            Func<long, TransactionalBlock> _indexToBlock2 = (index) => blks3[index] as TransactionalBlock;
+
+            for (int i = 0; i < blks.Length; i++)
+            {
+                if (i == 0)
+                {
+                    blks3[i] = blks[i];
+                    cumulativeDiff2 += blks3[i].Difficulty.Diff;
+
+                    Console.WriteLine("block" + i.ToString() + "_2 " + blks3[i].Difficulty.Diff.ToString() + " " + cumulativeDiff2.ToString());
+
+                    continue;
+                }
+
+                TransactionalBlock tblk = blks[i] as TransactionalBlock;
+
+                TransactionalBlock tblk3 = TransactionalBlock.GetBlockTemplate(tblk.Index, tblk.coinbaseTxToMiner, tblk.transferTxs, _indexToBlock2, 0);
+
+                nonce = new byte[10];
+
+                while (true)
+                {
+                    tblk3.UpdateTimestamp(DateTime.Now);
+                    tblk3.UpdateNonce(nonce);
+
+                    if (tblk3.Id.CompareTo(tblk3.header.difficulty.Target) <= 0)
+                    {
+                        blks3[i] = tblk3;
+                        cumulativeDiff2 += blks3[i].Difficulty.Diff;
+
+                        Console.WriteLine("block" + i.ToString() + "_2 mined. " + blks3[i].Difficulty.Diff.ToString() + " " + cumulativeDiff2.ToString());
+
+                        break;
+                    }
+
+                    int index = nonce.Length.RandomNum();
+                    int value = 256.RandomNum();
+
+                    nonce[index] = (byte)value;
+                }
+            }
+
+            cumulativeDiff1 = 0.0;
+            cumulativeDiff2 = 0.0;
+
+            blockchain.UpdateChain(blks2[0]);
+
+            for (int i = 1; i < blks.Length; i++)
+            {
+                cumulativeDiff1 += blks2[i].Difficulty.Diff;
+
+                BlockChain.UpdateChainReturnType type1 = blockchain.UpdateChain(blks2[i]);
+
+                if (cumulativeDiff1 > cumulativeDiff2)
+                {
+                    if (type1 != BlockChain.UpdateChainReturnType.updated)
+                        throw new Exception("test21_1");
+                }
+                else
+                {
+                    if (type1 != BlockChain.UpdateChainReturnType.pending)
+                        throw new Exception("test21_3");
+                }
+
+                cumulativeDiff2 += blks3[i].Difficulty.Diff;
+
+                BlockChain.UpdateChainReturnType type2 = blockchain.UpdateChain(blks3[i]);
+
+                if (cumulativeDiff2 > cumulativeDiff1)
+                {
+                    if (type2 != BlockChain.UpdateChainReturnType.updated)
+                        throw new Exception("test21_2");
+                }
+                else
+                {
+                    if (type2 != BlockChain.UpdateChainReturnType.pending)
+                        throw new Exception("test21_4");
+                }
+            }
+
+            utxodb.Open();
+
+            foreach (var address in blkCons[9].unspentTxOuts.Keys)
+                foreach (var toc in blkCons[9].unspentTxOuts[address])
+                    if (blockchain.FindUtxo(address, toc.bIndex, toc.txIndex, toc.txOutIndex) == null)
+                        throw new Exception("test21_5");
+
+            foreach (var address in blkCons[9].spentTxOuts.Keys)
+                foreach (var toc in blkCons[9].spentTxOuts[address])
+                    if (blockchain.FindUtxo(address, toc.bIndex, toc.txIndex, toc.txOutIndex) != null)
+                        throw new Exception("test21_6");
+
+            utxodb.Close();
+
             Console.WriteLine("test21_succeeded");
         }
 
         //BlockChainのテスト（分岐がある場合・採掘・順番通りに追加されなかった場合）
         public static void Test22()
         {
+            string basepath = System.IO.Path.GetDirectoryName(Assembly.GetEntryAssembly().Location);
+
+            BlockchainAccessDB bcadb = new BlockchainAccessDB(basepath);
+            string bcadbPath = bcadb.GetPath();
+
+            if (File.Exists(bcadbPath))
+                File.Delete(bcadbPath);
+
+            BlockManagerDB bmdb = new BlockManagerDB(basepath);
+            string bmdbPath = bmdb.GetPath();
+
+            if (File.Exists(bmdbPath))
+                File.Delete(bmdbPath);
+
+            BlockDB bdb = new BlockDB(basepath);
+            string bdbPath = bdb.GetPath(0);
+
+            if (File.Exists(bdbPath))
+                File.Delete(bdbPath);
+
+            BlockFilePointersDB bfpdb = new BlockFilePointersDB(basepath);
+            string bfpPath = bfpdb.GetPath();
+
+            if (File.Exists(bfpPath))
+                File.Delete(bfpPath);
+
+            UtxoFileAccessDB ufadb = new UtxoFileAccessDB(basepath);
+            string ufadbPath = ufadb.GetPath();
+
+            if (File.Exists(ufadbPath))
+                File.Delete(ufadbPath);
+
+            UtxoFilePointersDB ufpdb = new UtxoFilePointersDB(basepath);
+            string ufpdbPath = ufpdb.GetPath();
+
+            if (File.Exists(ufpdbPath))
+                File.Delete(ufpdbPath);
+
+            UtxoFilePointersTempDB ufptempdb = new UtxoFilePointersTempDB(basepath);
+            string ufptempdbPath = ufptempdb.GetPath();
+
+            if (File.Exists(ufptempdbPath))
+                File.Delete(ufptempdbPath);
+
+            UtxoDB utxodb = new UtxoDB(basepath);
+            string utxodbPath = utxodb.GetPath();
+
+            if (File.Exists(utxodbPath))
+                File.Delete(utxodbPath);
+
+            BlockChain blockchain = new BlockChain(bcadb, bmdb, bdb, bfpdb, ufadb, ufpdb, ufptempdb, utxodb);
+
+            BlockGenerator bg = new BlockGenerator();
+
+            Block[] blks = new Block[10];
+            BlockContext[] blkCons = new BlockContext[blks.Length];
+            for (int i = 0; i < blks.Length; i++)
+            {
+                blkCons[i] = bg.CreateNextValidBlock();
+                blks[i] = blkCons[i].block;
+
+                Console.WriteLine("block" + i.ToString() + " created.");
+            }
+
+            Block[] blks2 = new Block[blks.Length];
+            double[] cumulativeDiffs1 = new double[blks.Length];
+            byte[] nonce = null;
+
+            Func<long, TransactionalBlock> _indexToBlock = (index) => blks2[index] as TransactionalBlock;
+
+            for (int i = 0; i < blks.Length; i++)
+            {
+                if (i == 0)
+                {
+                    blks2[i] = blks[i];
+                    cumulativeDiffs1[i] = blks2[i].Difficulty.Diff;
+
+                    Console.WriteLine("block" + i.ToString() + "_1 " + blks2[i].Difficulty.Diff.ToString() + " " + cumulativeDiffs1[i].ToString());
+
+                    continue;
+                }
+
+                TransactionalBlock tblk = blks[i] as TransactionalBlock;
+
+                TransactionalBlock tblk2 = TransactionalBlock.GetBlockTemplate(tblk.Index, tblk.coinbaseTxToMiner, tblk.transferTxs, _indexToBlock, 0);
+
+                nonce = new byte[10];
+
+                while (true)
+                {
+                    tblk2.UpdateTimestamp(DateTime.Now);
+                    tblk2.UpdateNonce(nonce);
+
+                    if (tblk2.Id.CompareTo(tblk2.header.difficulty.Target) <= 0)
+                    {
+                        blks2[i] = tblk2;
+                        cumulativeDiffs1[i] = cumulativeDiffs1[i - 1] + blks2[i].Difficulty.Diff;
+
+                        Console.WriteLine("block" + i.ToString() + "_1 mined. " + blks2[i].Difficulty.Diff.ToString() + " " + cumulativeDiffs1[i].ToString());
+
+                        break;
+                    }
+
+                    int index = nonce.Length.RandomNum();
+                    int value = 256.RandomNum();
+
+                    nonce[index] = (byte)value;
+                }
+            }
+
+            int forkIndex1 = 0;
+            int forkIndex2 = 0;
+
+            int[] forkIndexes = (blks.Length - 1).RandomNums();
+            if (forkIndexes[0] < forkIndexes[1])
+            {
+                forkIndex1 = forkIndexes[0] + 1;
+                forkIndex2 = forkIndexes[1] + 1;
+            }
+            else
+            {
+                forkIndex1 = forkIndexes[1] + 1;
+                forkIndex2 = forkIndexes[0] + 1;
+            }
+
+            Block[] blks3 = new Block[blks.Length];
+            double[] cumulativeDiffs2 = new double[blks.Length];
+
+            Func<long, TransactionalBlock> _indexToBlock2 = (index) => index >= forkIndex1 ? blks3[index] as TransactionalBlock : blks2[index] as TransactionalBlock;
+
+            for (int i = forkIndex1; i < blks.Length; i++)
+            {
+                TransactionalBlock tblk = blks[i] as TransactionalBlock;
+
+                TransactionalBlock tblk3 = TransactionalBlock.GetBlockTemplate(tblk.Index, tblk.coinbaseTxToMiner, tblk.transferTxs, _indexToBlock2, 0);
+
+                nonce = new byte[10];
+
+                while (true)
+                {
+                    tblk3.UpdateTimestamp(DateTime.Now);
+                    tblk3.UpdateNonce(nonce);
+
+                    if (tblk3.Id.CompareTo(tblk3.header.difficulty.Target) <= 0)
+                    {
+                        blks3[i] = tblk3;
+                        if (i == forkIndex1)
+                            cumulativeDiffs2[i] = cumulativeDiffs1[i - 1] + blks3[i].Difficulty.Diff;
+                        else
+                            cumulativeDiffs2[i] = cumulativeDiffs2[i - 1] + blks3[i].Difficulty.Diff;
+
+                        Console.WriteLine("block" + i.ToString() + "_2 mined. " + blks3[i].Difficulty.Diff.ToString() + " " + cumulativeDiffs2[i].ToString());
+
+                        break;
+                    }
+
+                    int index = nonce.Length.RandomNum();
+                    int value = 256.RandomNum();
+
+                    nonce[index] = (byte)value;
+                }
+            }
+
+            Block[] blks4 = new Block[blks.Length];
+            double[] cumulativeDiffs3 = new double[blks.Length];
+
+            Func<long, TransactionalBlock> _indexToBlock3 = (index) => index >= forkIndex2 ? blks4[index] as TransactionalBlock : blks2[index] as TransactionalBlock;
+
+            for (int i = forkIndex2; i < blks.Length; i++)
+            {
+                TransactionalBlock tblk = blks[i] as TransactionalBlock;
+
+                TransactionalBlock tblk3 = TransactionalBlock.GetBlockTemplate(tblk.Index, tblk.coinbaseTxToMiner, tblk.transferTxs, _indexToBlock3, 0);
+
+                nonce = new byte[10];
+
+                while (true)
+                {
+                    tblk3.UpdateTimestamp(DateTime.Now);
+                    tblk3.UpdateNonce(nonce);
+
+                    if (tblk3.Id.CompareTo(tblk3.header.difficulty.Target) <= 0)
+                    {
+                        blks4[i] = tblk3;
+                        if (i == forkIndex2)
+                            cumulativeDiffs3[i] = cumulativeDiffs1[i - 1] + blks4[i].Difficulty.Diff;
+                        else
+                            cumulativeDiffs3[i] = cumulativeDiffs3[i - 1] + blks4[i].Difficulty.Diff;
+
+                        Console.WriteLine("block" + i.ToString() + "_3 mined. " + blks4[i].Difficulty.Diff.ToString() + " " + cumulativeDiffs3[i].ToString());
+
+                        break;
+                    }
+
+                    int index = nonce.Length.RandomNum();
+                    int value = 256.RandomNum();
+
+                    nonce[index] = (byte)value;
+                }
+            }
+
+            bool?[] map1 = new bool?[blks.Length];
+            bool?[] map2 = new bool?[blks.Length];
+            bool?[] map3 = new bool?[blks.Length];
+            bool?[] map4 = new bool?[blks.Length];
+
+            for (int i = 0; i < blks.Length; i++)
+            {
+                map1[i] = i == 0 ? (bool?)null : false;
+                map2[i] = i == 0 ? (bool?)null : false;
+                map3[i] = i < forkIndex1 ? (bool?)null : false;
+                map4[i] = i < forkIndex2 ? (bool?)null : false;
+            }
+
+            blockchain.UpdateChain(blks[0]);
+
+            int[] randomnums = (4 * blks.Length).RandomNums();
+
+            double cumulativeDiff = 0.0;
+
+            for (int i = 0; i < randomnums.Length; i++)
+            {
+                int keiretsu = randomnums[i] / blks.Length;
+                int index = randomnums[i] % blks.Length;
+
+                if ((keiretsu == 0 && map1[index] == null) || (keiretsu == 1 && map2[index] == null) || (keiretsu == 2 && map3[index] == null) || (keiretsu == 3 && map4[index] == null))
+                    continue;
+
+                if (keiretsu == 0)
+                {
+                    BlockChain.UpdateChainReturnType type = blockchain.UpdateChain(blks[index]);
+
+                    bool flag = false;
+
+                    for (int j = index - 1; j > 0; j--)
+                        if (!map1[j].Value)
+                        {
+                            flag = true;
+
+                            break;
+                        }
+
+                    if (flag && type != BlockChain.UpdateChainReturnType.pending)
+                        throw new Exception("test22_1");
+                    if (!flag && type != BlockChain.UpdateChainReturnType.updatedAndRejected)
+                        throw new Exception("test22_2");
+
+                    map1[index] = true;
+                }
+                else if (keiretsu == 1)
+                {
+                    BlockChain.UpdateChainReturnType type = blockchain.UpdateChain(blks2[index]);
+
+                    bool flag = false;
+
+                    for (int j = index - 1; j > 0; j--)
+                        if (!map2[j].Value)
+                        {
+                            flag = true;
+
+                            break;
+                        }
+
+                    if (!flag)
+                    {
+                        int headIndex = index;
+                        for (int j = index + 1; j < blks.Length; j++)
+                            if (map2[j].Value)
+                                headIndex = j;
+                            else
+                                break;
+
+                        if (cumulativeDiff >= cumulativeDiffs1[headIndex])
+                            flag = true;
+                        else
+                            cumulativeDiff = cumulativeDiffs1[headIndex];
+                    }
+
+                    if (flag && type != BlockChain.UpdateChainReturnType.pending)
+                        throw new Exception("test22_3");
+                    if (!flag && type != BlockChain.UpdateChainReturnType.updated)
+                        throw new Exception("test22_4");
+
+                    map2[index] = true;
+                }
+                else if (keiretsu == 2)
+                {
+                    BlockChain.UpdateChainReturnType type = blockchain.UpdateChain(blks3[index]);
+
+                    bool flag = false;
+
+                    for (int j = index - 1; j >= forkIndex1; j--)
+                        if (!map3[j].Value)
+                        {
+                            flag = true;
+
+                            break;
+                        }
+                    if (!flag)
+                        for (int j = forkIndex1 - 1; j > 0; j--)
+                            if (!map2[j].Value)
+                            {
+                                flag = true;
+
+                                break;
+                            }
+
+                    if (!flag)
+                    {
+                        int headIndex = index;
+                        for (int j = index + 1; j < blks.Length; j++)
+                            if (map3[j].Value)
+                                headIndex = j;
+                            else
+                                break;
+
+                        if (cumulativeDiff >= cumulativeDiffs2[headIndex])
+                            flag = true;
+                        else
+                            cumulativeDiff = cumulativeDiffs2[headIndex];
+                    }
+
+                    if (flag && type != BlockChain.UpdateChainReturnType.pending)
+                        throw new Exception("test22_5");
+                    if (!flag && type != BlockChain.UpdateChainReturnType.updated)
+                        throw new Exception("test22_6");
+
+                    map3[index] = true;
+                }
+                else if (keiretsu == 3)
+                {
+                    BlockChain.UpdateChainReturnType type = blockchain.UpdateChain(blks4[index]);
+
+                    bool flag = false;
+
+                    for (int j = index - 1; j >= forkIndex2; j--)
+                        if (!map4[j].Value)
+                        {
+                            flag = true;
+
+                            break;
+                        }
+                    if (!flag)
+                        for (int j = forkIndex2 - 1; j > 0; j--)
+                            if (!map2[j].Value)
+                            {
+                                flag = true;
+
+                                break;
+                            }
+
+                    if (!flag)
+                    {
+                        int headIndex = index;
+                        for (int j = index + 1; j < blks.Length; j++)
+                            if (map4[j].Value)
+                                headIndex = j;
+                            else
+                                break;
+
+                        if (cumulativeDiff >= cumulativeDiffs3[headIndex])
+                            flag = true;
+                        else
+                            cumulativeDiff = cumulativeDiffs3[headIndex];
+                    }
+
+                    if (flag && type != BlockChain.UpdateChainReturnType.pending)
+                        throw new Exception("test22_7");
+                    if (!flag && type != BlockChain.UpdateChainReturnType.updated)
+                        throw new Exception("test22_8");
+
+                    map4[index] = true;
+                }
+            }
+
+
             Console.WriteLine("test22_succeeded");
         }
 
+        //長過ぎる場合
+        //後ろが無効な場合
     }
 
     public class TransactionOutputContext
