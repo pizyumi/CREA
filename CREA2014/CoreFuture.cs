@@ -876,7 +876,7 @@ namespace New
     //2014/12/05 分岐が発生しない場合 試験済
     public class BlockChain
     {
-        public BlockChain(BlockchainAccessDB _bcadb, BlockManagerDB _bmdb, BlockDB _bdb, BlockFilePointersDB _bfpdb, UtxoFileAccessDB _ufadb, UtxoFilePointersDB _ufpdb, UtxoFilePointersTempDB _ufptempdb, UtxoDB _udb)
+        public BlockChain(BlockchainAccessDB _bcadb, BlockManagerDB _bmdb, BlockDB _bdb, BlockFilePointersDB _bfpdb, UtxoFileAccessDB _ufadb, UtxoFilePointersDB _ufpdb, UtxoFilePointersTempDB _ufptempdb, UtxoDB _udb, long _maxBlockIndexMargin = 100, long _mainBlockFinalization = 300, int _mainBlocksRetain = 1000, int _oldBlocksRetain = 1000)
         {
             bcadb = _bcadb;
             bmdb = _bmdb;
@@ -887,6 +887,13 @@ namespace New
             ufptempdb = _ufptempdb;
             udb = _udb;
 
+            maxBlockIndexMargin = _maxBlockIndexMargin;
+            mainBlockFinalization = _mainBlockFinalization;
+            capacity = (maxBlockIndexMargin + mainBlockFinalization) * 2;
+
+            mainBlocksRetain = _mainBlocksRetain;
+            oldBlocksRetain = _oldBlocksRetain;
+
             blockManager = new BlockManager(bmdb, bdb, bfpdb, mainBlocksRetain, oldBlocksRetain, mainBlockFinalization);
             utxoManager = new UtxoManager(ufadb, ufpdb, ufptempdb, udb);
 
@@ -895,12 +902,12 @@ namespace New
             blocksCurrent = new CirculatedInteger((int)capacity);
         }
 
-        private static readonly long maxBlockIndexMargin = 100;
-        private static readonly long mainBlockFinalization = 300;
-        private static readonly long capacity = (maxBlockIndexMargin + mainBlockFinalization) * 2;
+        private long maxBlockIndexMargin = 100;
+        private long mainBlockFinalization = 300;
+        private long capacity;
 
-        private static readonly int mainBlocksRetain = 1000;
-        private static readonly int oldBlocksRetain = 1000;
+        private int mainBlocksRetain = 1000;
+        private int oldBlocksRetain = 1000;
 
         private readonly BlockchainAccessDB bcadb;
         private readonly BlockManagerDB bmdb;
@@ -924,6 +931,16 @@ namespace New
         public Utxo FindUtxo(Sha256Ripemd160Hash address, long blockIndex, int txIndex, int txOutIndex)
         {
             return utxoManager.FindUtxo(address, blockIndex, txIndex, txOutIndex);
+        }
+
+        public Block GetHeadBlock()
+        {
+            return blockManager.GetHeadBlock();
+        }
+
+        public Block GetMainBlock(long blockIndex)
+        {
+            return blockManager.GetMainBlock(blockIndex);
         }
 
         public enum UpdateChainReturnType { updated, invariable, pending, rejected, updatedAndRejected }
@@ -962,9 +979,105 @@ namespace New
             public List<Block> rejectedBlocks { get; set; }
         }
 
+        public class BlockNode
+        {
+            public BlockNode(Block _block, double _cumulativeDiff, CirculatedInteger _ci)
+            {
+                block = _block;
+                cumulativeDiff = _cumulativeDiff;
+                ci = _ci;
+            }
+
+            public Block block { get; set; }
+            public double cumulativeDiff { get; set; }
+            public CirculatedInteger ci { get; set; }
+        }
+
         public UpdateChainReturnType UpdateChain(Block block)
         {
-            UpdateChainInnerReturn ret = UpdateChainInner(block);
+            //最後に確定されたブロックのブロック番号が最小ブロック番号である
+            long minBlockIndex = blockManager.finalizedBlockIndex;
+            //先頭ブロックのブロック番号に余裕を加えたものが最大ブロック番号である
+            long maxBlockIndex = blockManager.headBlockIndex + maxBlockIndexMargin;
+
+            //最小ブロック番号以下のブロック番号を有するブロックは認められない
+            if (block.Index <= minBlockIndex)
+                throw new InvalidOperationException();
+            //現在のブロックのブロック番号より大き過ぎるブロック番号（最大ブロック番号を超えるブロック番号）を有するブロックは認められない
+            if (block.Index > maxBlockIndex)
+                throw new InvalidOperationException();
+
+            int position = blocksCurrent.GetForward((int)(block.Index - blockManager.headBlockIndex));
+            //既に阻却されているブロックの場合は何も変わらない
+            if (rejectedBlocks[position] != null && rejectedBlocks[position].Keys.Contains(block.Id))
+                return UpdateChainReturnType.invariable;
+
+            //既にブロック鎖の一部である場合は何も変わらない
+            Block mainBlock = block.Index > blockManager.headBlockIndex ? null : blockManager.GetMainBlock(block.Index);
+            if (mainBlock != null && mainBlock.Id.Equals(block.Id))
+                return UpdateChainReturnType.invariable;
+
+
+
+            Node<BlockNode> root = new Node<BlockNode>(new BlockNode(block, block.Difficulty.Diff, new CirculatedInteger(position, (int)capacity)), null);
+
+            Queue<Node<BlockNode>> queue = new Queue<Node<BlockNode>>();
+            queue.Enqueue(root);
+
+            while (queue.Count > 0)
+            {
+                Node<BlockNode> current = queue.Dequeue();
+
+                int nextIndex = current.value.ci.GetForward(1);
+
+                if (pendingBlocks[nextIndex] == null)
+                    continue;
+
+                foreach (var nextBlock in pendingBlocks[nextIndex].Values.Where((elem) => elem.PrevId.Equals(current.value.block.Id)))
+                {
+                    Node<BlockNode> child = new Node<BlockNode>(new BlockNode(nextBlock, current.value.cumulativeDiff + nextBlock.Difficulty.Diff, new CirculatedInteger(nextIndex, (int)capacity)), current);
+
+                    current.children.Add(child);
+
+                    queue.Enqueue(child);
+                }
+            }
+
+            queue.Enqueue(root);
+
+            Node<BlockNode> maxCumulativeDiffNode = new Node<BlockNode>(new BlockNode(null, 0.0, null), null);
+            while (queue.Count > 0)
+            {
+                Node<BlockNode> current = queue.Dequeue();
+
+                if (current.children.Count == 0 && current.value.cumulativeDiff > maxCumulativeDiffNode.value.cumulativeDiff)
+                    maxCumulativeDiffNode = current;
+                else
+                    foreach (var child in current.children)
+                        queue.Enqueue(child);
+            }
+
+            //ブロック以後のブロックを格納する
+            //ブロックが分岐ブロック鎖のブロックの一部である場合は、ブロックの直前のブロックからブロック鎖から分岐するまでのブロックも格納する
+            List<Block> blocksList = new List<Block>();
+            //ブロック以後のブロックの被参照取引出力を格納する
+            //ブロックが分岐ブロック鎖のブロックの一部である場合は、ブロックの直前のブロックからブロック鎖から分岐するまでのブロックの被参照取引出力も格納する
+            List<TransactionOutput[][]> prevTxOutputssList = new List<TransactionOutput[][]>();
+
+            //ブロックが分岐ブロック鎖のブロックの一部である場合は、先頭ブロックから分岐が始まっているブロックと同一のブロック番号のブロックまでを格納する
+            List<Block> mainBlocksList = new List<Block>();
+            //ブロックが分岐ブロック鎖のブロックの一部である場合は、先頭ブロックから分岐が始まっているブロックと同一のブロック番号のブロックまでの被参照取引出力を格納する
+            List<TransactionOutput[][]> mainPrevTxOutputssList = new List<TransactionOutput[][]>();
+
+            Node<BlockNode> temp = maxCumulativeDiffNode;
+            while (temp != null)
+            {
+                blocksList.Insert(0, temp.value.block);
+
+                temp = temp.parent;
+            }
+
+            UpdateChainInnerReturn ret = UpdateChainInner(block, blocksList, prevTxOutputssList, mainBlocksList, mainPrevTxOutputssList, minBlockIndex, position, maxCumulativeDiffNode.value.cumulativeDiff);
 
             if (ret.type == UpdateChainReturnType.pending)
             {
@@ -1068,69 +1181,15 @@ namespace New
             return cumulativeDiff;
         }
 
-        private UpdateChainInnerReturn UpdateChainInner(Block block)
+        //<未改良>ブロックより先に分岐がある場合は最も難易度が高いものが選択されるが、その分岐が途中から無効である場合、最も難易度が高いものではない可能性がある
+        private UpdateChainInnerReturn UpdateChainInner(Block block, List<Block> blocksList, List<TransactionOutput[][]> prevTxOutputssList, List<Block> mainBlocksList, List<TransactionOutput[][]> mainPrevTxOutputssList, long minBlockIndex, int position, double cumulativeDiff)
         {
-            //最後に確定されたブロックのブロック番号が最小ブロック番号である
-            long minBlockIndex = blockManager.finalizedBlockIndex;
-            //先頭ブロックのブロック番号に余裕を加えたものが最大ブロック番号である
-            long maxBlockIndex = blockManager.headBlockIndex + maxBlockIndexMargin;
-
-            //最小ブロック番号以下のブロック番号を有するブロックは認められない
-            if (block.Index <= minBlockIndex)
-                throw new InvalidOperationException();
-            //現在のブロックのブロック番号より大き過ぎるブロック番号（最大ブロック番号を超えるブロック番号）を有するブロックは認められない
-            if (block.Index > maxBlockIndex)
-                throw new InvalidOperationException();
-
-            int position = blocksCurrent.GetForward((int)(block.Index - blockManager.headBlockIndex));
-            //既に阻却されているブロックの場合は何も変わらない
-            if (rejectedBlocks[position] != null && rejectedBlocks[position].Keys.Contains(block.Id))
-                return new UpdateChainInnerReturn(UpdateChainReturnType.invariable);
-
-            //既にブロック鎖の一部である場合は何も変わらない
-            Block mainBlock = block.Index > blockManager.headBlockIndex ? null : blockManager.GetMainBlock(block.Index);
-            if (mainBlock != null && mainBlock.Id.Equals(block.Id))
-                return new UpdateChainInnerReturn(UpdateChainReturnType.invariable);
-
-            //ブロック以後のブロックを格納する
-            //ブロックが分岐ブロック鎖のブロックの一部である場合は、ブロックの直前のブロックからブロック鎖から分岐するまでのブロックも格納する
-            List<Block> blocksList = new List<Block>();
-            //ブロック以後のブロックの被参照取引出力を格納する
-            //ブロックが分岐ブロック鎖のブロックの一部である場合は、ブロックの直前のブロックからブロック鎖から分岐するまでのブロックの被参照取引出力も格納する
-            List<TransactionOutput[][]> prevTxOutputssList = new List<TransactionOutput[][]>();
-
-            //ブロックが分岐ブロック鎖のブロックの一部である場合は、先頭ブロックから分岐が始まっているブロックと同一のブロック番号のブロックまでを格納する
-            List<Block> mainBlocksList = new List<Block>();
-            //ブロックが分岐ブロック鎖のブロックの一部である場合は、先頭ブロックから分岐が始まっているブロックと同一のブロック番号のブロックまでの被参照取引出力を格納する
-            List<TransactionOutput[][]> mainsPrevTxOutputssList = new List<TransactionOutput[][]>();
-
-            double cumulativeDiff = 0.0;
-
-            //ブロック以後のブロックを走査する
-            Block nextBlock = block;
-            CirculatedInteger ci = new CirculatedInteger(position, (int)capacity);
-            //先頭ブロックのブロック番号より大き過ぎるブロック番号（最大ブロック番号を超えるブロック番号）を有するブロックは認められない
-            while (nextBlock.Index <= maxBlockIndex)
-            {
-                blocksList.Add(nextBlock);
-
-                cumulativeDiff += nextBlock.Difficulty.Diff;
-
-                ci.Next();
-
-                //留保ブロックの中にブロックの直後のブロックがない場合はそのブロックが最後のブロック
-                if (pendingBlocks[ci.value] == null)
-                    break;
-                if ((nextBlock = pendingBlocks[ci.value].Values.Where((elem) => elem.PrevId.Equals(nextBlock.Id)).FirstOrDefault()) == null)
-                    break;
-            }
-
             //ブロックが起源ブロックである場合と先頭ブロックの直後のブロックである場合
             if (block.Index == blockManager.headBlockIndex + 1 && (blockManager.headBlockIndex == -1 || block.PrevId.Equals(blockManager.GetHeadBlock().Id)))
             {
                 VerifyBlockChain(blocksList, new Dictionary<Sha256Ripemd160Hash, List<Utxo>>(), new Dictionary<Sha256Ripemd160Hash, List<Utxo>>(), prevTxOutputssList);
 
-                UpdateBlockChainInnerInner(blocksList, prevTxOutputssList, mainBlocksList, mainsPrevTxOutputssList);
+                UpdateBlockChainDB(blocksList, prevTxOutputssList, mainBlocksList, mainPrevTxOutputssList);
             }
             else
             {
@@ -1138,7 +1197,7 @@ namespace New
 
                 for (long i = block.Index; i <= blockManager.headBlockIndex; i++)
                 {
-                    nextBlock = blockManager.GetMainBlock(i);
+                    Block nextBlock = blockManager.GetMainBlock(i);
 
                     mainCumulativeDiff += nextBlock.Difficulty.Diff;
 
@@ -1148,7 +1207,7 @@ namespace New
                 Block prevBlockBrunch = block;
                 Block prevBlockMain = block.Index > blockManager.headBlockIndex ? null : blockManager.GetMainBlock(block.Index);
 
-                ci = new CirculatedInteger(position, (int)capacity);
+                CirculatedInteger ci = new CirculatedInteger(position, (int)capacity);
 
                 while (true)
                 {
@@ -1166,7 +1225,7 @@ namespace New
 
                     if (pendingBlocks[ci.value] == null || !pendingBlocks[ci.value].Keys.Contains(prevBlockBrunch.PrevId))
                         if (rejectedBlocks[ci.value] != null && rejectedBlocks[ci.value].Keys.Contains(prevBlockBrunch.PrevId))
-                            return new UpdateChainInnerReturn(UpdateChainReturnType.rejected, ci.value, blocksList);
+                            return new UpdateChainInnerReturn(UpdateChainReturnType.rejected, ci.GetForward(1), blocksList);
                         else
                             return new UpdateChainInnerReturn(UpdateChainReturnType.pending, position);
 
@@ -1203,7 +1262,7 @@ namespace New
                     if (prevTxOutputss == null)
                         throw new InvalidOperationException("blockchain_fork_main_backward");
 
-                    mainsPrevTxOutputssList.Insert(0, prevTxOutputss);
+                    mainPrevTxOutputssList.Insert(0, prevTxOutputss);
 
                     RetrieveTransactionTransitionBackward(mainBlocksList[i], prevTxOutputss, addedUtxos, removedUtxos);
                 }
@@ -1211,7 +1270,7 @@ namespace New
                 cumulativeDiff = VerifyBlockChain(blocksList, addedUtxos, removedUtxos, prevTxOutputssList);
 
                 if (cumulativeDiff > mainCumulativeDiff)
-                    UpdateBlockChainInnerInner(blocksList, prevTxOutputssList, mainBlocksList, mainsPrevTxOutputssList);
+                    UpdateBlockChainDB(blocksList, prevTxOutputssList, mainBlocksList, mainPrevTxOutputssList);
             }
 
             if (blocksList.Count != prevTxOutputssList.Count)
@@ -1220,13 +1279,13 @@ namespace New
                 for (int i = prevTxOutputssList.Count; i < blocksList.Count; i++)
                     rejecteds.Add(blocksList[i]);
 
-                return new UpdateChainInnerReturn(UpdateChainReturnType.updatedAndRejected, blocksCurrent.GetForward(1), rejecteds);
+                return new UpdateChainInnerReturn(UpdateChainReturnType.updatedAndRejected, blocksCurrent.GetForward((int)(blocksList[prevTxOutputssList.Count].Index - blockManager.headBlockIndex)), rejecteds);
             }
 
             return new UpdateChainInnerReturn(UpdateChainReturnType.updated);
         }
 
-        private void UpdateBlockChainInnerInner(List<Block> blocksList, List<TransactionOutput[][]> prevTxOutputssList, List<Block> mainBlocksList, List<TransactionOutput[][]> mainPrevTxOutputssList)
+        private void UpdateBlockChainDB(List<Block> blocksList, List<TransactionOutput[][]> prevTxOutputssList, List<Block> mainBlocksList, List<TransactionOutput[][]> mainPrevTxOutputssList)
         {
             udb.Open();
 
@@ -5860,11 +5919,13 @@ namespace New
             BlockGenerator bg = new BlockGenerator();
 
             Block[] blks = new Block[10];
+            double[] cumulativeDiffs0 = new double[blks.Length];
             BlockContext[] blkCons = new BlockContext[blks.Length];
             for (int i = 0; i < blks.Length; i++)
             {
                 blkCons[i] = bg.CreateNextValidBlock();
                 blks[i] = blkCons[i].block;
+                cumulativeDiffs0[i] = i == 0 ? blks[i].Difficulty.Diff : cumulativeDiffs0[i - 1] + blks[i].Difficulty.Diff;
 
                 Console.WriteLine("block" + i.ToString() + " created.");
             }
@@ -6024,6 +6085,8 @@ namespace New
             int[] randomnums = (4 * blks.Length).RandomNums();
 
             double cumulativeDiff = 0.0;
+            int main = 0;
+            int rejectedIndex = 0;
 
             for (int i = 0; i < randomnums.Length; i++)
             {
@@ -6046,6 +6109,21 @@ namespace New
 
                             break;
                         }
+
+                    if (!flag)
+                    {
+                        int headIndex = index;
+                        for (int j = index + 1; j < blks.Length; j++)
+                            if (map1[j].Value)
+                                headIndex = j;
+                            else
+                                break;
+
+                        if (cumulativeDiff >= cumulativeDiffs0[headIndex])
+                            flag = true;
+                        else
+                            rejectedIndex = headIndex;
+                    }
 
                     if (flag && type != BlockChain.UpdateChainReturnType.pending)
                         throw new Exception("test22_1");
@@ -6080,7 +6158,10 @@ namespace New
                         if (cumulativeDiff >= cumulativeDiffs1[headIndex])
                             flag = true;
                         else
+                        {
                             cumulativeDiff = cumulativeDiffs1[headIndex];
+                            main = 1;
+                        }
                     }
 
                     if (flag && type != BlockChain.UpdateChainReturnType.pending)
@@ -6124,7 +6205,10 @@ namespace New
                         if (cumulativeDiff >= cumulativeDiffs2[headIndex])
                             flag = true;
                         else
+                        {
                             cumulativeDiff = cumulativeDiffs2[headIndex];
+                            main = 2;
+                        }
                     }
 
                     if (flag && type != BlockChain.UpdateChainReturnType.pending)
@@ -6168,7 +6252,10 @@ namespace New
                         if (cumulativeDiff >= cumulativeDiffs3[headIndex])
                             flag = true;
                         else
+                        {
                             cumulativeDiff = cumulativeDiffs3[headIndex];
+                            main = 3;
+                        }
                     }
 
                     if (flag && type != BlockChain.UpdateChainReturnType.pending)
@@ -6178,13 +6265,355 @@ namespace New
 
                     map4[index] = true;
                 }
+
+                bool flag2 = true;
+                for (int j = 1; j < blks.Length; j++)
+                {
+                    if (map1[j].Value)
+                    {
+                        if (flag2 && j <= rejectedIndex)
+                        {
+                            if (blockchain.rejectedBlocks[j + 1] == null || !blockchain.rejectedBlocks[j + 1].Keys.Contains(blks[j].Id))
+                                throw new Exception("test22_9");
+                            if (blockchain.pendingBlocks[j + 1] != null && blockchain.pendingBlocks[j + 1].Keys.Contains(blks[j].Id))
+                                throw new Exception("test22_10");
+                        }
+                        else
+                        {
+                            if (blockchain.rejectedBlocks[j + 1] != null && blockchain.rejectedBlocks[j + 1].Keys.Contains(blks[j].Id))
+                                throw new Exception("test22_11");
+                            if (blockchain.pendingBlocks[j + 1] == null || !blockchain.pendingBlocks[j + 1].Keys.Contains(blks[j].Id))
+                                throw new Exception("test22_12");
+                        }
+                    }
+                    else
+                    {
+                        flag2 = false;
+
+                        if (blockchain.rejectedBlocks[j + 1] != null && blockchain.rejectedBlocks[j + 1].Keys.Contains(blks[j].Id))
+                            throw new Exception("test22_13");
+                        if (blockchain.pendingBlocks[j + 1] != null && blockchain.pendingBlocks[j + 1].Keys.Contains(blks[j].Id))
+                            throw new Exception("test22_14");
+                    }
+                }
+
+                bool flag3 = true;
+                for (int j = 1; j < blks.Length; j++)
+                {
+                    if (blockchain.rejectedBlocks[j + 1] != null && blockchain.rejectedBlocks[j + 1].Keys.Contains(blks2[j].Id))
+                        throw new Exception("test22_15");
+
+                    if (map2[j].Value)
+                    {
+                        if (flag3 && (main == 1 || (main == 2 && j < forkIndex1) || (main == 3 && j < forkIndex2)))
+                        {
+                            if (blockchain.pendingBlocks[j + 1] != null && blockchain.pendingBlocks[j + 1].Keys.Contains(blks2[j].Id))
+                                throw new Exception("test22_16");
+                        }
+                        else
+                        {
+                            if (blockchain.pendingBlocks[j + 1] == null || !blockchain.pendingBlocks[j + 1].Keys.Contains(blks2[j].Id))
+                                throw new Exception("test22_17");
+                        }
+                    }
+                    else
+                    {
+                        flag3 = false;
+
+                        if (blockchain.pendingBlocks[j + 1] != null && blockchain.pendingBlocks[j + 1].Keys.Contains(blks2[j].Id))
+                            throw new Exception("test22_18");
+                    }
+                }
+
+                bool flag4 = true;
+                for (int j = forkIndex1; j < blks.Length; j++)
+                {
+                    if (blockchain.rejectedBlocks[j + 1] != null && blockchain.rejectedBlocks[j + 1].Keys.Contains(blks3[j].Id))
+                        throw new Exception("test22_19");
+
+                    if (map3[j].Value)
+                    {
+                        if (flag4 && main == 2)
+                        {
+                            if (blockchain.pendingBlocks[j + 1] != null && blockchain.pendingBlocks[j + 1].Keys.Contains(blks3[j].Id))
+                                throw new Exception("test22_20");
+                        }
+                        else
+                        {
+                            if (blockchain.pendingBlocks[j + 1] == null || !blockchain.pendingBlocks[j + 1].Keys.Contains(blks3[j].Id))
+                                throw new Exception("test22_21");
+                        }
+                    }
+                    else
+                    {
+                        flag4 = false;
+
+                        if (blockchain.pendingBlocks[j + 1] != null && blockchain.pendingBlocks[j + 1].Keys.Contains(blks3[j].Id))
+                            throw new Exception("test22_22");
+                    }
+                }
+
+                bool flag5 = true;
+                for (int j = forkIndex2; j < blks.Length; j++)
+                {
+                    if (blockchain.rejectedBlocks[j + 1] != null && blockchain.rejectedBlocks[j + 1].Keys.Contains(blks4[j].Id))
+                        throw new Exception("test22_23");
+
+                    if (map4[j].Value)
+                    {
+                        if (flag5 && main == 3)
+                        {
+                            if (blockchain.pendingBlocks[j + 1] != null && blockchain.pendingBlocks[j + 1].Keys.Contains(blks4[j].Id))
+                                throw new Exception("test22_24");
+                        }
+                        else
+                        {
+                            if (blockchain.pendingBlocks[j + 1] == null || !blockchain.pendingBlocks[j + 1].Keys.Contains(blks4[j].Id))
+                                throw new Exception("test22_25");
+                        }
+                    }
+                    else
+                    {
+                        flag5 = false;
+
+                        if (blockchain.pendingBlocks[j + 1] != null && blockchain.pendingBlocks[j + 1].Keys.Contains(blks4[j].Id))
+                            throw new Exception("test22_26");
+                    }
+                }
             }
 
+            Block headBlock = blockchain.GetHeadBlock();
+
+            if (main == 1)
+            {
+                if (!headBlock.Id.Equals(blks2[9].Id))
+                    throw new Exception("test22_27");
+            }
+            else if (main == 2)
+            {
+                if (!headBlock.Id.Equals(blks3[9].Id))
+                    throw new Exception("test22_28");
+            }
+            else if (main == 3)
+            {
+                if (!headBlock.Id.Equals(blks4[9].Id))
+                    throw new Exception("test22_29");
+            }
+            else
+                throw new InvalidOperationException();
+
+            utxodb.Open();
+
+            foreach (var address in blkCons[9].unspentTxOuts.Keys)
+                foreach (var toc in blkCons[9].unspentTxOuts[address])
+                    if (blockchain.FindUtxo(address, toc.bIndex, toc.txIndex, toc.txOutIndex) == null)
+                        throw new Exception("test22_30");
+
+            foreach (var address in blkCons[9].spentTxOuts.Keys)
+                foreach (var toc in blkCons[9].spentTxOuts[address])
+                    if (blockchain.FindUtxo(address, toc.bIndex, toc.txIndex, toc.txOutIndex) != null)
+                        throw new Exception("test22_31");
+
+            utxodb.Close();
 
             Console.WriteLine("test22_succeeded");
         }
 
-        //長過ぎる場合
+        //BlockChainのテスト（分岐がある場合・採掘・長過ぎる場合）
+        public static void Test23()
+        {
+            string basepath = System.IO.Path.GetDirectoryName(Assembly.GetEntryAssembly().Location);
+
+            BlockchainAccessDB bcadb = new BlockchainAccessDB(basepath);
+            string bcadbPath = bcadb.GetPath();
+
+            if (File.Exists(bcadbPath))
+                File.Delete(bcadbPath);
+
+            BlockManagerDB bmdb = new BlockManagerDB(basepath);
+            string bmdbPath = bmdb.GetPath();
+
+            if (File.Exists(bmdbPath))
+                File.Delete(bmdbPath);
+
+            BlockDB bdb = new BlockDB(basepath);
+            string bdbPath = bdb.GetPath(0);
+
+            if (File.Exists(bdbPath))
+                File.Delete(bdbPath);
+
+            BlockFilePointersDB bfpdb = new BlockFilePointersDB(basepath);
+            string bfpPath = bfpdb.GetPath();
+
+            if (File.Exists(bfpPath))
+                File.Delete(bfpPath);
+
+            UtxoFileAccessDB ufadb = new UtxoFileAccessDB(basepath);
+            string ufadbPath = ufadb.GetPath();
+
+            if (File.Exists(ufadbPath))
+                File.Delete(ufadbPath);
+
+            UtxoFilePointersDB ufpdb = new UtxoFilePointersDB(basepath);
+            string ufpdbPath = ufpdb.GetPath();
+
+            if (File.Exists(ufpdbPath))
+                File.Delete(ufpdbPath);
+
+            UtxoFilePointersTempDB ufptempdb = new UtxoFilePointersTempDB(basepath);
+            string ufptempdbPath = ufptempdb.GetPath();
+
+            if (File.Exists(ufptempdbPath))
+                File.Delete(ufptempdbPath);
+
+            UtxoDB utxodb = new UtxoDB(basepath);
+            string utxodbPath = utxodb.GetPath();
+
+            if (File.Exists(utxodbPath))
+                File.Delete(utxodbPath);
+
+            BlockChain blockchain = new BlockChain(bcadb, bmdb, bdb, bfpdb, ufadb, ufpdb, ufptempdb, utxodb, 100, 3, 1000, 1000);
+
+            BlockGenerator bg = new BlockGenerator();
+
+            Block[] blks = new Block[10];
+            BlockContext[] blkCons = new BlockContext[blks.Length];
+            for (int i = 0; i < blks.Length; i++)
+            {
+                blkCons[i] = bg.CreateNextValidBlock();
+                blks[i] = blkCons[i].block;
+
+                Console.WriteLine("block" + i.ToString() + " created.");
+            }
+
+            Block[] blks2 = new Block[blks.Length];
+            double cumulativeDiff1 = 0.0;
+            byte[] nonce = null;
+
+            Func<long, TransactionalBlock> _indexToBlock = (index) => blks2[index] as TransactionalBlock;
+
+            for (int i = 0; i < blks.Length; i++)
+            {
+                if (i == 0)
+                {
+                    blks2[i] = blks[i];
+                    cumulativeDiff1 += blks2[i].Difficulty.Diff;
+
+                    Console.WriteLine("block" + i.ToString() + "_1 " + blks2[i].Difficulty.Diff.ToString() + " " + cumulativeDiff1.ToString());
+
+                    continue;
+                }
+
+                TransactionalBlock tblk = blks[i] as TransactionalBlock;
+
+                TransactionalBlock tblk2 = TransactionalBlock.GetBlockTemplate(tblk.Index, tblk.coinbaseTxToMiner, tblk.transferTxs, _indexToBlock, 0);
+
+                nonce = new byte[10];
+
+                while (true)
+                {
+                    tblk2.UpdateTimestamp(DateTime.Now);
+                    tblk2.UpdateNonce(nonce);
+
+                    if (tblk2.Id.CompareTo(tblk2.header.difficulty.Target) <= 0)
+                    {
+                        blks2[i] = tblk2;
+                        cumulativeDiff1 += blks2[i].Difficulty.Diff;
+
+                        Console.WriteLine("block" + i.ToString() + "_1 mined. " + blks2[i].Difficulty.Diff.ToString() + " " + cumulativeDiff1.ToString());
+
+                        break;
+                    }
+
+                    int index = nonce.Length.RandomNum();
+                    int value = 256.RandomNum();
+
+                    nonce[index] = (byte)value;
+                }
+            }
+
+            Console.WriteLine();
+
+            Block[] blks3 = new Block[blks.Length];
+            double cumulativeDiff2 = 0.0;
+
+            Func<long, TransactionalBlock> _indexToBlock2 = (index) => blks3[index] as TransactionalBlock;
+
+            for (int i = 0; i < blks.Length; i++)
+            {
+                if (i == 0)
+                {
+                    blks3[i] = blks[i];
+                    cumulativeDiff2 += blks3[i].Difficulty.Diff;
+
+                    Console.WriteLine("block" + i.ToString() + "_2 " + blks3[i].Difficulty.Diff.ToString() + " " + cumulativeDiff2.ToString());
+
+                    continue;
+                }
+
+                TransactionalBlock tblk = blks[i] as TransactionalBlock;
+
+                TransactionalBlock tblk3 = TransactionalBlock.GetBlockTemplate(tblk.Index, tblk.coinbaseTxToMiner, tblk.transferTxs, _indexToBlock2, 0);
+
+                nonce = new byte[10];
+
+                while (true)
+                {
+                    tblk3.UpdateTimestamp(DateTime.Now);
+                    tblk3.UpdateNonce(nonce);
+
+                    if (tblk3.Id.CompareTo(tblk3.header.difficulty.Target) <= 0)
+                    {
+                        blks3[i] = tblk3;
+                        cumulativeDiff2 += blks3[i].Difficulty.Diff;
+
+                        Console.WriteLine("block" + i.ToString() + "_2 mined. " + blks3[i].Difficulty.Diff.ToString() + " " + cumulativeDiff2.ToString());
+
+                        break;
+                    }
+
+                    int index = nonce.Length.RandomNum();
+                    int value = 256.RandomNum();
+
+                    nonce[index] = (byte)value;
+                }
+            }
+
+            for (int i = 0; i < blks.Length; i++)
+                blockchain.UpdateChain(blks2[i]);
+
+            for (int i = blks.Length - 1; i >= blks.Length - 3; i--)
+            {
+                BlockChain.UpdateChainReturnType type = blockchain.UpdateChain(blks3[i]);
+
+                if (i == blks.Length - 3)
+                {
+                    if (type != BlockChain.UpdateChainReturnType.rejected)
+                        throw new Exception("test23_1");
+
+                    for (int j = 0; j < blks.Length - 3; j++)
+                        if (blockchain.rejectedBlocks[j + 1] != null)
+                            throw new Exception("test23_2");
+                    for (int j = blks.Length - 3; j < blks.Length; j++)
+                        if (blockchain.rejectedBlocks[j + 1] == null || !blockchain.rejectedBlocks[j + 1].Keys.Contains(blks3[j].Id))
+                            throw new Exception("test23_3");
+
+                    for (int j = 0; j <= blks.Length - 3; j++)
+                        if (blockchain.pendingBlocks[j + 1] != null)
+                            throw new Exception("test23_4");
+                    for (int j = blks.Length - 3 + 1; j < blks.Length; j++)
+                        if (blockchain.pendingBlocks[j + 1] == null || blockchain.pendingBlocks[j + 1].Keys.Count != 0)
+                            throw new Exception("test23_5");
+                }
+                else
+                {
+                    if (type != BlockChain.UpdateChainReturnType.pending)
+                        throw new Exception("test23_6");
+                }
+            }
+        }
+
+
         //後ろが無効な場合
     }
 

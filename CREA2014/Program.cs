@@ -42,6 +42,22 @@ namespace CREA2014
         }
     }
 
+    public class Node<T>
+    {
+        public Node(T _value, Node<T> _parent) : this(_value, _parent, new List<Node<T>>()) { }
+
+        public Node(T _value, Node<T> _parent, List<Node<T>> _children)
+        {
+            value = _value;
+            parent = _parent;
+            children = _children;
+        }
+
+        public T value { get; set; }
+        public Node<T> parent { get; set; }
+        public List<Node<T>> children { get; set; }
+    }
+
     public class CachedData<T>
     {
         public CachedData(Func<T> _generator)
@@ -3525,6 +3541,7 @@ namespace CREA2014
             //New.BlockChainTest.Test20();
             //New.BlockChainTest.Test21();
             New.BlockChainTest.Test22();
+            //New.BlockChainTest.Test23();
 
 
 
