@@ -1017,8 +1017,6 @@ namespace New
             if (mainBlock != null && mainBlock.Id.Equals(block.Id))
                 return UpdateChainReturnType.invariable;
 
-
-
             Node<BlockNode> root = new Node<BlockNode>(new BlockNode(block, block.Difficulty.Diff, new CirculatedInteger(position, (int)capacity)), null);
 
             Queue<Node<BlockNode>> queue = new Queue<Node<BlockNode>>();
@@ -1043,70 +1041,114 @@ namespace New
                 }
             }
 
-            queue.Enqueue(root);
+            UpdateChainReturnType type = UpdateChainReturnType.rejected;
+            double actualCumulativeDiff = 0.0;
 
-            Node<BlockNode> maxCumulativeDiffNode = new Node<BlockNode>(new BlockNode(null, 0.0, null), null);
-            while (queue.Count > 0)
+            while (true)
             {
-                Node<BlockNode> current = queue.Dequeue();
+                queue.Enqueue(root);
 
-                if (current.children.Count == 0 && current.value.cumulativeDiff > maxCumulativeDiffNode.value.cumulativeDiff)
-                    maxCumulativeDiffNode = current;
-                else
-                    foreach (var child in current.children)
-                        queue.Enqueue(child);
-            }
-
-            //ブロック以後のブロックを格納する
-            //ブロックが分岐ブロック鎖のブロックの一部である場合は、ブロックの直前のブロックからブロック鎖から分岐するまでのブロックも格納する
-            List<Block> blocksList = new List<Block>();
-            //ブロック以後のブロックの被参照取引出力を格納する
-            //ブロックが分岐ブロック鎖のブロックの一部である場合は、ブロックの直前のブロックからブロック鎖から分岐するまでのブロックの被参照取引出力も格納する
-            List<TransactionOutput[][]> prevTxOutputssList = new List<TransactionOutput[][]>();
-
-            //ブロックが分岐ブロック鎖のブロックの一部である場合は、先頭ブロックから分岐が始まっているブロックと同一のブロック番号のブロックまでを格納する
-            List<Block> mainBlocksList = new List<Block>();
-            //ブロックが分岐ブロック鎖のブロックの一部である場合は、先頭ブロックから分岐が始まっているブロックと同一のブロック番号のブロックまでの被参照取引出力を格納する
-            List<TransactionOutput[][]> mainPrevTxOutputssList = new List<TransactionOutput[][]>();
-
-            Node<BlockNode> temp = maxCumulativeDiffNode;
-            while (temp != null)
-            {
-                blocksList.Insert(0, temp.value.block);
-
-                temp = temp.parent;
-            }
-
-            UpdateChainInnerReturn ret = UpdateChainInner(block, blocksList, prevTxOutputssList, mainBlocksList, mainPrevTxOutputssList, minBlockIndex, position, maxCumulativeDiffNode.value.cumulativeDiff);
-
-            if (ret.type == UpdateChainReturnType.pending)
-            {
-                if (pendingBlocks[ret.position] == null)
+                Node<BlockNode> maxCumulativeDiffNode = new Node<BlockNode>(new BlockNode(null, 0.0, null), null);
+                while (queue.Count > 0)
                 {
-                    pendingBlocks[ret.position] = new Dictionary<Creahash, Block>();
-                    pendingBlocks[ret.position].Add(block.Id, block);
-                }
-                else if (!pendingBlocks[ret.position].Keys.Contains(block.Id))
-                    pendingBlocks[ret.position].Add(block.Id, block);
-            }
-            else if (ret.type == UpdateChainReturnType.rejected || ret.type == UpdateChainReturnType.updatedAndRejected)
-            {
-                CirculatedInteger ci = new CirculatedInteger(ret.position, (int)capacity);
-                for (int i = 0; i < ret.rejectedBlocks.Count; i++, ci.Next())
-                {
-                    if (pendingBlocks[ci.value] != null && pendingBlocks[ci.value].Keys.Contains(ret.rejectedBlocks[i].Id))
-                        pendingBlocks[ci.value].Remove(ret.rejectedBlocks[i].Id);
-                    if (rejectedBlocks[ci.value] == null)
-                    {
-                        rejectedBlocks[ci.value] = new Dictionary<Creahash, Block>();
-                        rejectedBlocks[ci.value].Add(ret.rejectedBlocks[i].Id, ret.rejectedBlocks[i]);
-                    }
+                    Node<BlockNode> current = queue.Dequeue();
+
+                    if (current.children.Count == 0 && current.value.cumulativeDiff > maxCumulativeDiffNode.value.cumulativeDiff)
+                        maxCumulativeDiffNode = current;
                     else
-                        rejectedBlocks[ci.value].Add(ret.rejectedBlocks[i].Id, ret.rejectedBlocks[i]);
+                        foreach (var child in current.children)
+                            queue.Enqueue(child);
+                }
+
+                if (maxCumulativeDiffNode.value.cumulativeDiff <= actualCumulativeDiff)
+                    return type;
+
+                //ブロック以後のブロックを格納する
+                //ブロックが分岐ブロック鎖のブロックの一部である場合は、ブロックの直前のブロックからブロック鎖から分岐するまでのブロックも格納する
+                List<Block> blocksList = new List<Block>();
+                //ブロック以後のブロックの被参照取引出力を格納する
+                //ブロックが分岐ブロック鎖のブロックの一部である場合は、ブロックの直前のブロックからブロック鎖から分岐するまでのブロックの被参照取引出力も格納する
+                List<TransactionOutput[][]> prevTxOutputssList = new List<TransactionOutput[][]>();
+
+                //ブロックが分岐ブロック鎖のブロックの一部である場合は、先頭ブロックから分岐が始まっているブロックと同一のブロック番号のブロックまでを格納する
+                List<Block> mainBlocksList = new List<Block>();
+                //ブロックが分岐ブロック鎖のブロックの一部である場合は、先頭ブロックから分岐が始まっているブロックと同一のブロック番号のブロックまでの被参照取引出力を格納する
+                List<TransactionOutput[][]> mainPrevTxOutputssList = new List<TransactionOutput[][]>();
+
+                Node<BlockNode> temp = maxCumulativeDiffNode;
+                while (temp != null)
+                {
+                    blocksList.Insert(0, temp.value.block);
+
+                    temp = temp.parent;
+                }
+
+                UpdateChainInnerReturn ret = UpdateChainInner(block, blocksList, prevTxOutputssList, mainBlocksList, mainPrevTxOutputssList, minBlockIndex, position, maxCumulativeDiffNode.value.cumulativeDiff);
+
+                if (ret.type == UpdateChainReturnType.updated)
+                    return UpdateChainReturnType.updated;
+                else if (ret.type == UpdateChainReturnType.pending)
+                {
+                    if (pendingBlocks[ret.position] == null)
+                    {
+                        pendingBlocks[ret.position] = new Dictionary<Creahash, Block>();
+                        pendingBlocks[ret.position].Add(block.Id, block);
+                    }
+                    else if (!pendingBlocks[ret.position].Keys.Contains(block.Id))
+                        pendingBlocks[ret.position].Add(block.Id, block);
+
+                    return UpdateChainReturnType.pending;
+                }
+                else if (ret.type == UpdateChainReturnType.rejected || ret.type == UpdateChainReturnType.updatedAndRejected)
+                {
+                    Block rejectedRootBlock = ret.rejectedBlocks[0];
+
+                    queue.Enqueue(root);
+
+                    Node<BlockNode> rejectedRootNode = null;
+                    while (queue.Count > 0)
+                    {
+                        Node<BlockNode> current = queue.Dequeue();
+
+                        if (current.value.block == rejectedRootBlock)
+                        {
+                            rejectedRootNode = current;
+
+                            break;
+                        }
+
+                        foreach (var child in current.children)
+                            queue.Enqueue(child);
+                    }
+
+                    queue = new Queue<Node<BlockNode>>();
+                    queue.Enqueue(rejectedRootNode);
+
+                    CirculatedInteger ci = new CirculatedInteger(ret.position, (int)capacity);
+                    while (queue.Count > 0)
+                    {
+                        Node<BlockNode> current = queue.Dequeue();
+
+                        int rejectedPosition = ci.GetForward((int)(current.value.block.Index - rejectedRootBlock.Index));
+                        if (pendingBlocks[rejectedPosition] != null && pendingBlocks[rejectedPosition].Keys.Contains(current.value.block.Id))
+                            pendingBlocks[rejectedPosition].Remove(current.value.block.Id);
+                        if (rejectedBlocks[rejectedPosition] == null)
+                            rejectedBlocks[rejectedPosition] = new Dictionary<Creahash, Block>();
+                        rejectedBlocks[rejectedPosition].Add(current.value.block.Id, current.value.block);
+
+                        foreach (var child in current.children)
+                            queue.Enqueue(child);
+                    }
+
+                    if (rejectedRootNode.parent == null)
+                        return ret.type;
+
+                    rejectedRootNode.parent.children.Remove(rejectedRootNode);
+
+                    type = ret.type;
+                    actualCumulativeDiff = rejectedRootNode.value.cumulativeDiff;
                 }
             }
-
-            return ret.type;
         }
 
         private double VerifyBlockChain(List<Block> blocksList, Dictionary<Sha256Ripemd160Hash, List<Utxo>> addedUtxos, Dictionary<Sha256Ripemd160Hash, List<Utxo>> removedUtxos, List<TransactionOutput[][]> prevTxOutputssList)
@@ -1181,7 +1223,6 @@ namespace New
             return cumulativeDiff;
         }
 
-        //<未改良>ブロックより先に分岐がある場合は最も難易度が高いものが選択されるが、その分岐が途中から無効である場合、最も難易度が高いものではない可能性がある
         private UpdateChainInnerReturn UpdateChainInner(Block block, List<Block> blocksList, List<TransactionOutput[][]> prevTxOutputssList, List<Block> mainBlocksList, List<TransactionOutput[][]> mainPrevTxOutputssList, long minBlockIndex, int position, double cumulativeDiff)
         {
             //ブロックが起源ブロックである場合と先頭ブロックの直後のブロックである場合
@@ -6110,25 +6151,33 @@ namespace New
                             break;
                         }
 
-                    if (!flag)
+                    if (!flag && index != 1)
                     {
-                        int headIndex = index;
-                        for (int j = index + 1; j < blks.Length; j++)
-                            if (map1[j].Value)
-                                headIndex = j;
-                            else
-                                break;
-
-                        if (cumulativeDiff >= cumulativeDiffs0[headIndex])
-                            flag = true;
-                        else
-                            rejectedIndex = headIndex;
+                        if (type != BlockChain.UpdateChainReturnType.rejected)
+                            throw new Exception("test22_1");
                     }
+                    else
+                    {
+                        if (!flag)
+                        {
+                            int headIndex = index;
+                            for (int j = index + 1; j < blks.Length; j++)
+                                if (map1[j].Value)
+                                    headIndex = j;
+                                else
+                                    break;
 
-                    if (flag && type != BlockChain.UpdateChainReturnType.pending)
-                        throw new Exception("test22_1");
-                    if (!flag && type != BlockChain.UpdateChainReturnType.updatedAndRejected)
-                        throw new Exception("test22_2");
+                            if (cumulativeDiff >= cumulativeDiffs0[headIndex])
+                                flag = true;
+                            else
+                                rejectedIndex = headIndex;
+                        }
+
+                        if (flag && type != BlockChain.UpdateChainReturnType.pending)
+                            throw new Exception("test22_2");
+                        if (!flag && type != BlockChain.UpdateChainReturnType.updatedAndRejected)
+                            throw new Exception("test22_3");
+                    }
 
                     map1[index] = true;
                 }
@@ -6148,26 +6197,75 @@ namespace New
 
                     if (!flag)
                     {
-                        int headIndex = index;
+                        int headIndex1 = index;
                         for (int j = index + 1; j < blks.Length; j++)
                             if (map2[j].Value)
-                                headIndex = j;
+                                headIndex1 = j;
                             else
                                 break;
 
-                        if (cumulativeDiff >= cumulativeDiffs1[headIndex])
+                        double cdiff = cumulativeDiffs1[headIndex1];
+                        int m = 1;
+
+                        if (headIndex1 + 1 >= forkIndex1 && map3[forkIndex1].Value)
+                        {
+                            int headIndex2 = forkIndex1;
+                            for (int j = forkIndex1 + 1; j < blks.Length; j++)
+                                if (map3[j].Value)
+                                    headIndex2 = j;
+                                else
+                                    break;
+
+                            //<未実装>等しい場合の対処
+                            if (cumulativeDiffs2[headIndex2] > cdiff)
+                            {
+                                cdiff = cumulativeDiffs2[headIndex2];
+                                m = 2;
+                            }
+                            else if (cumulativeDiffs2[headIndex2] == cdiff)
+                            {
+                                Console.WriteLine("not_implemented_test_case");
+
+                                return;
+                            }
+                        }
+
+                        if (headIndex1 + 1 >= forkIndex2 && map4[forkIndex2].Value)
+                        {
+                            int headIndex3 = forkIndex2;
+                            for (int j = forkIndex2 + 1; j < blks.Length; j++)
+                                if (map4[j].Value)
+                                    headIndex3 = j;
+                                else
+                                    break;
+
+                            //<未実装>等しい場合の対処
+                            if (cumulativeDiffs3[headIndex3] > cdiff)
+                            {
+                                cdiff = cumulativeDiffs3[headIndex3];
+                                m = 3;
+                            }
+                            else if (cumulativeDiffs3[headIndex3] == cdiff)
+                            {
+                                Console.WriteLine("not_implemented_test_case");
+
+                                return;
+                            }
+                        }
+
+                        if (cumulativeDiff >= cdiff)
                             flag = true;
                         else
                         {
-                            cumulativeDiff = cumulativeDiffs1[headIndex];
-                            main = 1;
+                            cumulativeDiff = cdiff;
+                            main = m;
                         }
                     }
 
                     if (flag && type != BlockChain.UpdateChainReturnType.pending)
-                        throw new Exception("test22_3");
-                    if (!flag && type != BlockChain.UpdateChainReturnType.updated)
                         throw new Exception("test22_4");
+                    if (!flag && type != BlockChain.UpdateChainReturnType.updated)
+                        throw new Exception("test22_5");
 
                     map2[index] = true;
                 }
@@ -6212,9 +6310,9 @@ namespace New
                     }
 
                     if (flag && type != BlockChain.UpdateChainReturnType.pending)
-                        throw new Exception("test22_5");
-                    if (!flag && type != BlockChain.UpdateChainReturnType.updated)
                         throw new Exception("test22_6");
+                    if (!flag && type != BlockChain.UpdateChainReturnType.updated)
+                        throw new Exception("test22_7");
 
                     map3[index] = true;
                 }
@@ -6259,9 +6357,9 @@ namespace New
                     }
 
                     if (flag && type != BlockChain.UpdateChainReturnType.pending)
-                        throw new Exception("test22_7");
-                    if (!flag && type != BlockChain.UpdateChainReturnType.updated)
                         throw new Exception("test22_8");
+                    if (!flag && type != BlockChain.UpdateChainReturnType.updated)
+                        throw new Exception("test22_9");
 
                     map4[index] = true;
                 }
@@ -6274,16 +6372,16 @@ namespace New
                         if (flag2 && j <= rejectedIndex)
                         {
                             if (blockchain.rejectedBlocks[j + 1] == null || !blockchain.rejectedBlocks[j + 1].Keys.Contains(blks[j].Id))
-                                throw new Exception("test22_9");
-                            if (blockchain.pendingBlocks[j + 1] != null && blockchain.pendingBlocks[j + 1].Keys.Contains(blks[j].Id))
                                 throw new Exception("test22_10");
+                            if (blockchain.pendingBlocks[j + 1] != null && blockchain.pendingBlocks[j + 1].Keys.Contains(blks[j].Id))
+                                throw new Exception("test22_11");
                         }
                         else
                         {
                             if (blockchain.rejectedBlocks[j + 1] != null && blockchain.rejectedBlocks[j + 1].Keys.Contains(blks[j].Id))
-                                throw new Exception("test22_11");
-                            if (blockchain.pendingBlocks[j + 1] == null || !blockchain.pendingBlocks[j + 1].Keys.Contains(blks[j].Id))
                                 throw new Exception("test22_12");
+                            if (blockchain.pendingBlocks[j + 1] == null || !blockchain.pendingBlocks[j + 1].Keys.Contains(blks[j].Id))
+                                throw new Exception("test22_13");
                         }
                     }
                     else
@@ -6291,9 +6389,9 @@ namespace New
                         flag2 = false;
 
                         if (blockchain.rejectedBlocks[j + 1] != null && blockchain.rejectedBlocks[j + 1].Keys.Contains(blks[j].Id))
-                            throw new Exception("test22_13");
-                        if (blockchain.pendingBlocks[j + 1] != null && blockchain.pendingBlocks[j + 1].Keys.Contains(blks[j].Id))
                             throw new Exception("test22_14");
+                        if (blockchain.pendingBlocks[j + 1] != null && blockchain.pendingBlocks[j + 1].Keys.Contains(blks[j].Id))
+                            throw new Exception("test22_15");
                     }
                 }
 
@@ -6301,19 +6399,19 @@ namespace New
                 for (int j = 1; j < blks.Length; j++)
                 {
                     if (blockchain.rejectedBlocks[j + 1] != null && blockchain.rejectedBlocks[j + 1].Keys.Contains(blks2[j].Id))
-                        throw new Exception("test22_15");
+                        throw new Exception("test22_16");
 
                     if (map2[j].Value)
                     {
                         if (flag3 && (main == 1 || (main == 2 && j < forkIndex1) || (main == 3 && j < forkIndex2)))
                         {
                             if (blockchain.pendingBlocks[j + 1] != null && blockchain.pendingBlocks[j + 1].Keys.Contains(blks2[j].Id))
-                                throw new Exception("test22_16");
+                                throw new Exception("test22_17");
                         }
                         else
                         {
                             if (blockchain.pendingBlocks[j + 1] == null || !blockchain.pendingBlocks[j + 1].Keys.Contains(blks2[j].Id))
-                                throw new Exception("test22_17");
+                                throw new Exception("test22_18");
                         }
                     }
                     else
@@ -6321,7 +6419,7 @@ namespace New
                         flag3 = false;
 
                         if (blockchain.pendingBlocks[j + 1] != null && blockchain.pendingBlocks[j + 1].Keys.Contains(blks2[j].Id))
-                            throw new Exception("test22_18");
+                            throw new Exception("test22_19");
                     }
                 }
 
@@ -6329,19 +6427,19 @@ namespace New
                 for (int j = forkIndex1; j < blks.Length; j++)
                 {
                     if (blockchain.rejectedBlocks[j + 1] != null && blockchain.rejectedBlocks[j + 1].Keys.Contains(blks3[j].Id))
-                        throw new Exception("test22_19");
+                        throw new Exception("test22_20");
 
                     if (map3[j].Value)
                     {
                         if (flag4 && main == 2)
                         {
                             if (blockchain.pendingBlocks[j + 1] != null && blockchain.pendingBlocks[j + 1].Keys.Contains(blks3[j].Id))
-                                throw new Exception("test22_20");
+                                throw new Exception("test22_21");
                         }
                         else
                         {
                             if (blockchain.pendingBlocks[j + 1] == null || !blockchain.pendingBlocks[j + 1].Keys.Contains(blks3[j].Id))
-                                throw new Exception("test22_21");
+                                throw new Exception("test22_22");
                         }
                     }
                     else
@@ -6349,7 +6447,7 @@ namespace New
                         flag4 = false;
 
                         if (blockchain.pendingBlocks[j + 1] != null && blockchain.pendingBlocks[j + 1].Keys.Contains(blks3[j].Id))
-                            throw new Exception("test22_22");
+                            throw new Exception("test22_23");
                     }
                 }
 
@@ -6357,19 +6455,19 @@ namespace New
                 for (int j = forkIndex2; j < blks.Length; j++)
                 {
                     if (blockchain.rejectedBlocks[j + 1] != null && blockchain.rejectedBlocks[j + 1].Keys.Contains(blks4[j].Id))
-                        throw new Exception("test22_23");
+                        throw new Exception("test22_24");
 
                     if (map4[j].Value)
                     {
                         if (flag5 && main == 3)
                         {
                             if (blockchain.pendingBlocks[j + 1] != null && blockchain.pendingBlocks[j + 1].Keys.Contains(blks4[j].Id))
-                                throw new Exception("test22_24");
+                                throw new Exception("test22_25");
                         }
                         else
                         {
                             if (blockchain.pendingBlocks[j + 1] == null || !blockchain.pendingBlocks[j + 1].Keys.Contains(blks4[j].Id))
-                                throw new Exception("test22_25");
+                                throw new Exception("test22_26");
                         }
                     }
                     else
@@ -6377,7 +6475,7 @@ namespace New
                         flag5 = false;
 
                         if (blockchain.pendingBlocks[j + 1] != null && blockchain.pendingBlocks[j + 1].Keys.Contains(blks4[j].Id))
-                            throw new Exception("test22_26");
+                            throw new Exception("test22_27");
                     }
                 }
             }
@@ -6387,17 +6485,17 @@ namespace New
             if (main == 1)
             {
                 if (!headBlock.Id.Equals(blks2[9].Id))
-                    throw new Exception("test22_27");
+                    throw new Exception("test22_28");
             }
             else if (main == 2)
             {
                 if (!headBlock.Id.Equals(blks3[9].Id))
-                    throw new Exception("test22_28");
+                    throw new Exception("test22_29");
             }
             else if (main == 3)
             {
                 if (!headBlock.Id.Equals(blks4[9].Id))
-                    throw new Exception("test22_29");
+                    throw new Exception("test22_30");
             }
             else
                 throw new InvalidOperationException();
@@ -6407,12 +6505,12 @@ namespace New
             foreach (var address in blkCons[9].unspentTxOuts.Keys)
                 foreach (var toc in blkCons[9].unspentTxOuts[address])
                     if (blockchain.FindUtxo(address, toc.bIndex, toc.txIndex, toc.txOutIndex) == null)
-                        throw new Exception("test22_30");
+                        throw new Exception("test22_31");
 
             foreach (var address in blkCons[9].spentTxOuts.Keys)
                 foreach (var toc in blkCons[9].spentTxOuts[address])
                     if (blockchain.FindUtxo(address, toc.bIndex, toc.txIndex, toc.txOutIndex) != null)
-                        throw new Exception("test22_31");
+                        throw new Exception("test22_32");
 
             utxodb.Close();
 
