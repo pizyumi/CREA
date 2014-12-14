@@ -3536,6 +3536,73 @@ namespace CREA2014
         }
     }
 
+    public class BlockCollection : SHAREDDATA
+    {
+        public BlockCollection()
+            : base(null)
+        {
+            blocks = new List<Block>();
+            blocksCache = new CachedData<Block[]>(() =>
+            {
+                lock (blocksLock)
+                    return blocks.ToArray();
+            });
+        }
+
+        private readonly object blocksLock = new object();
+        private List<Block> blocks;
+        private readonly CachedData<Block[]> blocksCache;
+        public Block[] Blocks { get { return blocksCache.Data; } }
+
+        public event EventHandler<Block> BlockAdded = delegate { };
+        public event EventHandler<Block> BlockRemoved = delegate { };
+
+        public bool Contains(Creahash id)
+        {
+            lock (blocksLock)
+                return blocks.FirstOrDefault((elem) => elem.Id.Equals(id)) != null;
+        }
+
+        public bool AddBlock(Block block)
+        {
+            lock (blocksLock)
+            {
+                if (blocks.Contains(block))
+                    return false;
+
+                this.ExecuteBeforeEvent(() =>
+                {
+                    blocks.Add(block);
+                    blocksCache.IsModified = true;
+                }, block, BlockAdded);
+
+                return true;
+            }
+        }
+
+        public bool RemoveBlock(Block block)
+        {
+            lock (blocksLock)
+            {
+                if (!blocks.Contains(block))
+                    return false;
+
+                this.ExecuteBeforeEvent(() =>
+                {
+                    blocks.Remove(block);
+                    blocksCache.IsModified = true;
+                }, block, BlockRemoved);
+
+                return true;
+            }
+        }
+
+        protected override Func<ReaderWriter, IEnumerable<MainDataInfomation>> StreamInfo
+        {
+            get { throw new NotImplementedException(); }
+        }
+    }
+
     public class Mining
     {
         public Mining()

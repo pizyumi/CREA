@@ -1716,6 +1716,35 @@ namespace CREA2014
         }
     }
 
+    public class NotifyNewBlock : MessageHash<Creahash>
+    {
+        public NotifyNewBlock() : this(new Creahash()) { }
+
+        public NotifyNewBlock(Creahash _hash) : base(0, _hash) { }
+
+        protected override Func<ReaderWriter, IEnumerable<MainDataInfomation>> StreamInfo
+        {
+            get
+            {
+                if (Version == 0)
+                    return base.StreamInfo;
+                else
+                    throw new NotSupportedException("inv_main_data_info");
+            }
+        }
+        public override bool IsVersioned { get { return true; } }
+        public override bool IsCorruptionChecked
+        {
+            get
+            {
+                if (Version <= 0)
+                    return false;
+                else
+                    throw new NotSupportedException("inv_check");
+            }
+        }
+    }
+
     public class ReqTransactions : MessageHashes<Sha256Sha256Hash>
     {
         public ReqTransactions() : this(new Sha256Sha256Hash[] { }) { }
@@ -2607,12 +2636,14 @@ namespace CREA2014
         public int NumOfNodes { get; private set; }
 
         private readonly TransactionCollection processedTransactions;
+        private readonly BlockCollection processedBlocks;
         private readonly ChatCollection processedChats;
 
         public event EventHandler ConnectionKeeped = delegate { };
         public event EventHandler NumOfConnectingNodesChanged = delegate { };
         public event EventHandler NumOfNodesChanged = delegate { };
         public event EventHandler<Transaction> ReceivedNewTransaction = delegate { };
+        public event EventHandler<Block> ReceivedNewBlock = delegate { };
         public event EventHandler<Chat> ReceivedNewChat = delegate { };
 
         private NodeInformation[] GetNodeInfos()
@@ -2661,6 +2692,28 @@ namespace CREA2014
                     ReceivedNewTransaction(this, ttransaction);
 
                     this.StartTask("diffuseNewTransactions", "diffuseNewTransactions", () => DiffuseNewTransaction(nodeInfo, nnt, ttransaction));
+                }
+            }
+            else if (message.name == MessageName.notifyNewBlock)
+            {
+                NotifyNewBlock nnb = SHAREDDATA.FromBinary<NotifyNewBlock>(sc.ReadBytes());
+                bool isNew = !processedBlocks.Contains(nnb.hash);
+                sc.WriteBytes(BitConverter.GetBytes(isNew));
+                if (isNew)
+                {
+                    Block block = SHAREDDATA.FromBinary<Block>(sc.ReadBytes());
+
+                    if (block == null)
+                        throw new InvalidOperationException();
+                    if (!nnb.hash.Equals(block.Id))
+                        throw new InvalidOperationException();
+
+                    if (!processedBlocks.AddBlock(block))
+                        return;
+
+                    ReceivedNewBlock(this, block);
+
+                    this.StartTask("diffuseNewBlocks", "diffuseNewBlocks", () => DiffuseNewBlock(nodeInfo, nnb, block));
                 }
             }
             else if (message.name == MessageName.NotifyNewChat)
@@ -2727,6 +2780,25 @@ namespace CREA2014
 
                 return new SHAREDDATA[] { };
             }
+            else if (message.name == MessageName.notifyNewBlock)
+            {
+                if (datas.Length != 2)
+                    throw new InvalidOperationException();
+
+                NotifyNewBlock nnb = datas[0] as NotifyNewBlock;
+                Block block = datas[1] as Block;
+
+                if (nnb == null || block == null)
+                    throw new InvalidOperationException();
+                if (!nnb.hash.Equals(block.Id))
+                    throw new InvalidOperationException();
+
+                sc.WriteBytes(nnb.ToBinary());
+                if (BitConverter.ToBoolean(sc.ReadBytes(), 0))
+                    sc.WriteBytes(SHAREDDATA.ToBinary<Block>(block));
+
+                return new SHAREDDATA[] { };
+            }
             else if (message.name == MessageName.NotifyNewChat)
             {
                 if (datas.Length != 2)
@@ -2770,6 +2842,18 @@ namespace CREA2014
         }
 
         private void DiffuseNewTransaction(NodeInformation source, NotifyNewTransaction nnt, TransferTransaction ttransaction) { Diffuse(source, new Message(MessageName.notifyNewTransaction, 0), nnt, ttransaction); }
+
+        public void DiffuseNewBlock(Block block)
+        {
+            if ((!processedBlocks.AddBlock(block)).RaiseNotification(this.GetType(), "alredy_processed_block", 3))
+                return;
+
+            ReceivedNewBlock(this, block);
+
+            DiffuseNewBlock(null, new NotifyNewBlock(block.Id), block);
+        }
+
+        private void DiffuseNewBlock(NodeInformation source, NotifyNewBlock nnb, Block block) { Diffuse(source, new Message(MessageName.notifyNewTransaction, 0), nnb, block); }
 
         public void DiffuseNewChat(Chat chat)
         {

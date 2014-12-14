@@ -108,6 +108,7 @@
     <Compile Include="CoreFuture.cs" />
     <Compile Include="CoreIroiro.cs" />
     <Compile Include="CoreNetwork.cs" />
+    <Compile Include="CoreTest.cs" />
     <Compile Include="Windows\AboutWindow.xaml.cs">
       <DependentUpon>AboutWindow.xaml</DependentUpon>
     </Compile>

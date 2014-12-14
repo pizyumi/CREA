@@ -3540,8 +3540,9 @@ namespace CREA2014
             //New.BlockChainTest.Test19();
             //New.BlockChainTest.Test20();
             //New.BlockChainTest.Test21();
-            New.BlockChainTest.Test22();
+            //New.BlockChainTest.Test22();
             //New.BlockChainTest.Test23();
+            New.BlockChainTest.Test24();
 
 
 
