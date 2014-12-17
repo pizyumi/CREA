@@ -3512,17 +3512,10 @@ namespace CREA2014
         [STAThread]
         public static void Main(string[] args)
         {
-            string guidString1 = Guid.NewGuid().ToByteArray().ToHexstring();
-            string guidString2 = Guid.NewGuid().ToByteArray().ToHexstring();
-            string guidString3 = Guid.NewGuid().ToByteArray().ToHexstring();
-            string guidString4 = Guid.NewGuid().ToByteArray().ToHexstring();
-            string guidString5 = Guid.NewGuid().ToByteArray().ToHexstring();
-
-
             //New.BlockChainTest.Test1();
             //New.BlockChainTest.Test2();
             //New.BlockChainTest.Test3();
-            //New.BlockChainTest.Test4();
+            //BlockChainTest.Test4();
             //New.BlockChainTest.Test5();
             //New.BlockChainTest.Test6();
             //New.BlockChainTest.Test7();
@@ -3542,7 +3535,8 @@ namespace CREA2014
             //New.BlockChainTest.Test21();
             //New.BlockChainTest.Test22();
             //New.BlockChainTest.Test23();
-            New.BlockChainTest.Test24();
+            //New.BlockChainTest.Test24();
+            BlockChainTest.Test25();
 
 
 
@@ -3803,6 +3797,7 @@ namespace CREA2014
                 {"fatal:utxos_access", () => "データベースが破損した可能性があります。".Multilanguage(227)},
                 {"fatal:bfpdb", () => "データベースが破損した可能性があります。".Multilanguage(227)},
                 {"fatal:blkchain_access", () => "データベースが破損した可能性があります。".Multilanguage(227)},
+                {"fatal:blkchain_freeze", () => "データベースが応答を停止しました。".Multilanguage(228)},
             };
 
             Extension.Tasked += (sender, e) => tasker.New(new TaskData(e, taskNumber++));

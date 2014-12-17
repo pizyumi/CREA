@@ -45,11 +45,14 @@ namespace CREA2014
         public CREANODEBASE iCreaNodeTest { get { return creaNodeTest; } }
 
         private AccountHoldersDatabase ahDatabase;
-        private BlockChainDatabase bcDatabase;
-        private BlockNodesGroupDatabase bngDatabase;
-        private BlockGroupDatabase bgDatabase;
-        private UtxoDatabase utxoDatabase;
-        private AddressEventDatabase addressEventDatabase;
+        private BlockchainAccessDB bcadb;
+        private BlockManagerDB bmdb;
+        private BlockDB bdb;
+        private BlockFilePointersDB bfpdb;
+        private UtxoFileAccessDB ufadb;
+        private UtxoFilePointersDB ufpdb;
+        private UtxoFilePointersTempDB ufptempdb;
+        private UtxoDB utxodb;
 
         public AccountHolders accountHolders { get; private set; }
         public IAccountHolders iAccountHolders { get { return accountHolders; } }
@@ -78,11 +81,14 @@ namespace CREA2014
                 throw new InvalidOperationException("core_started");
 
             ahDatabase = new AccountHoldersDatabase(databaseBasepath);
-            bcDatabase = new BlockChainDatabase(databaseBasepath);
-            bngDatabase = new BlockNodesGroupDatabase(databaseBasepath);
-            bgDatabase = new BlockGroupDatabase(databaseBasepath);
-            utxoDatabase = new UtxoDatabase(databaseBasepath);
-            addressEventDatabase = new AddressEventDatabase(databaseBasepath);
+            bcadb = new BlockchainAccessDB(databaseBasepath);
+            bmdb = new BlockManagerDB(databaseBasepath);
+            bdb = new BlockDB(databaseBasepath);
+            bfpdb = new BlockFilePointersDB(databaseBasepath);
+            ufadb = new UtxoFileAccessDB(databaseBasepath);
+            ufpdb = new UtxoFilePointersDB(databaseBasepath);
+            ufptempdb = new UtxoFilePointersTempDB(databaseBasepath);
+            utxodb = new UtxoDB(databaseBasepath);
 
             accountHolders = new AccountHolders();
             accountHoldersFactory = new AccountHoldersFactory();
@@ -110,8 +116,7 @@ namespace CREA2014
                 return cu;
             });
 
-            blockChain = new BlockChain(bcDatabase, bngDatabase, bgDatabase, utxoDatabase, addressEventDatabase);
-            blockChain.Initialize();
+            BlockChain blockchain = new BlockChain(bcadb, bmdb, bdb, bfpdb, ufadb, ufpdb, ufptempdb, utxodb);
 
             Dictionary<Account, EventHandler<Tuple<CurrencyUnit, CurrencyUnit>>> changeAmountDict = new Dictionary<Account, EventHandler<Tuple<CurrencyUnit, CurrencyUnit>>>();
 
@@ -195,7 +200,7 @@ namespace CREA2014
             if (!isSystemStarted)
                 throw new InvalidOperationException("core_not_started");
 
-            blockChain.SaveWhenExit();
+            blockChain.Exit();
 
             ahDatabase.UpdateData(accountHolders.ToBinary());
 
@@ -212,12 +217,12 @@ namespace CREA2014
 
             Action _Mine = () =>
             {
-                mining.NewMiningBlock(TransactionalBlock.GetBlockTemplate(blockChain.head + 1, account.Address.Hash, new TransferTransaction[] { }, (index) => blockChain.GetMainBlock(index), 0));
+                mining.NewMiningBlock(TransactionalBlock.GetBlockTemplate(blockChain.headBlockIndex + 1, account.Address.Hash, new TransferTransaction[] { }, (index) => blockChain.GetMainBlock(index) as TransactionalBlock, 0));
             };
 
             _ContinueMine = (sender, e) =>
             {
-                blockChain.AddBlock(e);
+                blockChain.UpdateChain(e);
 
                 _Mine();
             };

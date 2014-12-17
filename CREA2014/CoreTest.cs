@@ -1,13 +1,39 @@
-﻿namespace New
+﻿using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Reflection;
+using System.Linq;
+using System.Diagnostics;
+using System.Threading;
+
+namespace CREA2014
 {
-    using CREA2014;
-    using System;
-    using System.Collections.Generic;
-    using System.IO;
-    using System.Reflection;
-    using System.Linq;
-    using System.Diagnostics;
-    using System.Threading;
+    public class TestBlock : Block
+    {
+        public TestBlock() : base(null) { }
+
+        public TestBlock(long _index) : base(null) { index = _index; }
+
+        private long index;
+
+        public override long Index { get { return index; } }
+        public override Creahash PrevId { get { return null; } }
+        public override Difficulty<Creahash> Difficulty { get { return null; } }
+        public override Transaction[] Transactions { get { return new Transaction[] { }; } }
+
+        public const string guidString = "4c5f058d31606b4d9830bc713f6162f0";
+        public override Guid Guid { get { return new Guid(guidString); } }
+
+        protected override Func<ReaderWriter, IEnumerable<MainDataInfomation>> StreamInfo
+        {
+            get
+            {
+                return (msrw) => new MainDataInfomation[]{
+                    new MainDataInfomation(typeof(long), () => index, (o) => index = (long)o),
+                };
+            }
+        }
+    }
 
     public static class BlockChainTest
     {
@@ -374,14 +400,38 @@
             Creacoin c3 = new Creacoin(65536.RandomNum());
 
             utxom.AddUtxo(address1, bi1, ti1, toi1, c1);
-            utxom.AddUtxo(address2, bi2, ti1, toi1, c1);
-            utxom.AddUtxo(address3, bi3, ti1, toi1, c1);
-            utxom.AddUtxo(address1, bi1, ti2, toi2, c2);
+            utxom.AddUtxo(address2, bi1, ti1, toi1, c1);
+            utxom.AddUtxo(address3, bi1, ti1, toi1, c1);
+            utxom.AddUtxo(address1, bi2, ti2, toi2, c2);
             utxom.AddUtxo(address2, bi2, ti2, toi2, c2);
-            utxom.AddUtxo(address3, bi3, ti2, toi2, c2);
-            utxom.AddUtxo(address1, bi1, ti3, toi3, c3);
-            utxom.AddUtxo(address2, bi2, ti3, toi3, c3);
+            utxom.AddUtxo(address3, bi2, ti2, toi2, c2);
+            utxom.AddUtxo(address1, bi3, ti3, toi3, c3);
+            utxom.AddUtxo(address2, bi3, ti3, toi3, c3);
             utxom.AddUtxo(address3, bi3, ti3, toi3, c3);
+
+            //2014/12/17追加 GetAllUtxosLatestFirstの試験
+
+            List<Utxo> utxos1 = utxom.GetAllUtxosLatestFirst(address1);
+            List<Utxo> utxos2 = utxom.GetAllUtxosLatestFirst(address2);
+            List<Utxo> utxos3 = utxom.GetAllUtxosLatestFirst(address3);
+
+            if (utxos1.Count != 3)
+                throw new Exception("test4_19");
+            if (utxos2.Count != 3)
+                throw new Exception("test4_20");
+            if (utxos3.Count != 3)
+                throw new Exception("test4_21");
+
+            long max = Math.Max(Math.Max(bi1, bi2), bi3);
+
+            if (utxos1[0].blockIndex != max)
+                throw new Exception("test4_22");
+            if (utxos2[0].blockIndex != max)
+                throw new Exception("test4_23");
+            if (utxos3[0].blockIndex != max)
+                throw new Exception("test4_24");
+
+            //2014/12/17追加（終）
 
             Utxo utxo1 = utxom.FindUtxo(address1, bi1, ti1, toi1);
 
@@ -436,11 +486,11 @@
 
             utxodb.Open();
 
-            Utxo utxo2 = utxom.FindUtxo(address2, bi2, ti1, toi1);
+            Utxo utxo2 = utxom.FindUtxo(address2, bi1, ti1, toi1);
 
             if (utxo2 == null)
                 throw new Exception("test4_14");
-            if (utxo2.blockIndex != bi2)
+            if (utxo2.blockIndex != bi1)
                 throw new Exception("test4_15");
             if (utxo2.txIndex != ti1)
                 throw new Exception("test4_16");
@@ -4520,6 +4570,184 @@
 
             Console.WriteLine("test24_succeeded");
         }
+
+        //2014/12/17追加 BlockChainの試験（口座残高）
+        public static void Test25()
+        {
+            string basepath = System.IO.Path.GetDirectoryName(Assembly.GetEntryAssembly().Location);
+
+            BlockchainAccessDB bcadb = new BlockchainAccessDB(basepath);
+            string bcadbPath = bcadb.GetPath();
+
+            if (File.Exists(bcadbPath))
+                File.Delete(bcadbPath);
+
+            BlockManagerDB bmdb = new BlockManagerDB(basepath);
+            string bmdbPath = bmdb.GetPath();
+
+            if (File.Exists(bmdbPath))
+                File.Delete(bmdbPath);
+
+            BlockDB bdb = new BlockDB(basepath);
+            string bdbPath = bdb.GetPath(0);
+
+            if (File.Exists(bdbPath))
+                File.Delete(bdbPath);
+
+            BlockFilePointersDB bfpdb = new BlockFilePointersDB(basepath);
+            string bfpPath = bfpdb.GetPath();
+
+            if (File.Exists(bfpPath))
+                File.Delete(bfpPath);
+
+            UtxoFileAccessDB ufadb = new UtxoFileAccessDB(basepath);
+            string ufadbPath = ufadb.GetPath();
+
+            if (File.Exists(ufadbPath))
+                File.Delete(ufadbPath);
+
+            UtxoFilePointersDB ufpdb = new UtxoFilePointersDB(basepath);
+            string ufpdbPath = ufpdb.GetPath();
+
+            if (File.Exists(ufpdbPath))
+                File.Delete(ufpdbPath);
+
+            UtxoFilePointersTempDB ufptempdb = new UtxoFilePointersTempDB(basepath);
+            string ufptempdbPath = ufptempdb.GetPath();
+
+            if (File.Exists(ufptempdbPath))
+                File.Delete(ufptempdbPath);
+
+            UtxoDB utxodb = new UtxoDB(basepath);
+            string utxodbPath = utxodb.GetPath();
+
+            if (File.Exists(utxodbPath))
+                File.Delete(utxodbPath);
+
+            BlockChain blockchain = new BlockChain(bcadb, bmdb, bdb, bfpdb, ufadb, ufpdb, ufptempdb, utxodb);
+
+            BlockGenerator bg = new BlockGenerator();
+
+            Block[] blks = new Block[10];
+            BlockContext[] blkCons = new BlockContext[blks.Length];
+            for (int i = 0; i < blks.Length; i++)
+            {
+                blkCons[i] = bg.CreateNextValidBlock();
+                blks[i] = blkCons[i].block;
+
+                Console.WriteLine("block" + i.ToString() + " created.");
+            }
+
+            Block[] blks2 = new Block[blks.Length];
+            byte[] nonce = null;
+
+            Func<long, TransactionalBlock> _indexToBlock = (index) => blks2[index] as TransactionalBlock;
+
+            for (int i = 0; i < blks.Length; i++)
+            {
+                if (i == 0)
+                {
+                    blks2[i] = blks[i];
+
+                    continue;
+                }
+
+                TransactionalBlock tblk = blks[i] as TransactionalBlock;
+
+                TransactionalBlock tblk2 = TransactionalBlock.GetBlockTemplate(tblk.Index, tblk.coinbaseTxToMiner, tblk.transferTxs, _indexToBlock, 0);
+
+                nonce = new byte[10];
+
+                while (true)
+                {
+                    tblk2.UpdateTimestamp(DateTime.Now);
+                    tblk2.UpdateNonce(nonce);
+
+                    if (tblk2.Id.CompareTo(tblk2.header.difficulty.Target) <= 0)
+                    {
+                        blks2[i] = tblk2;
+
+                        Console.WriteLine("block" + i.ToString() + " mined.");
+
+                        break;
+                    }
+
+                    int index = nonce.Length.RandomNum();
+                    int value = 256.RandomNum();
+
+                    nonce[index] = (byte)value;
+                }
+            }
+
+            if (blockchain.registeredAddresses.Count != 0)
+                throw new Exception("test25_1");
+
+            AddressEvent ae = new AddressEvent(new Sha256Ripemd160Hash());
+
+            blockchain.AddAddressEvent(ae);
+
+            if (blockchain.registeredAddresses.Count != 1)
+                throw new Exception("test25_2");
+            if (!blockchain.registeredAddresses.Keys.Contains(ae))
+                throw new Exception("test25_3");
+            if (blockchain.registeredAddresses[ae].Count != 0)
+                throw new Exception("test25_4");
+
+            AddressEvent aeret = blockchain.RemoveAddressEvent(new Sha256Ripemd160Hash());
+
+            if (ae != aeret)
+                throw new Exception("test25_5");
+            if (blockchain.registeredAddresses.Count != 0)
+                throw new Exception("test25_6");
+
+            blockchain.AddAddressEvent(ae);
+
+            Dictionary<Sha256Ripemd160Hash, Tuple<CurrencyUnit, CurrencyUnit>> balances = new Dictionary<Sha256Ripemd160Hash, Tuple<CurrencyUnit, CurrencyUnit>>();
+
+            foreach (var address in bg.addresses)
+            {
+                AddressEvent addressEvent = new AddressEvent(address);
+                addressEvent.BalanceUpdated += (sender, e) =>
+                {
+                    balances[addressEvent.address] = e;
+                };
+
+                blockchain.AddAddressEvent(addressEvent);
+            }
+
+            int counter = 0;
+            blockchain.BalanceUpdated += (sender, e) =>
+            {
+                counter++;
+            };
+
+            for (int i = 0; i < blks.Length; i++)
+            {
+                blockchain.UpdateChain(blks2[i]);
+
+                if (counter != i)
+                    throw new Exception("test25_7");
+
+                foreach (var address in bg.addresses)
+                {
+                    long usable = 0;
+                    long unusable = 0;
+
+                    foreach (var txoutcon in blkCons[i].unspentTxOuts[address])
+                        if (txoutcon.bIndex + 6 > i)
+                            unusable += txoutcon.amount.rawAmount;
+                        else
+                            usable += txoutcon.amount.rawAmount;
+
+                    if (balances[address].Item1.rawAmount != usable)
+                        throw new Exception("test25_2");
+                    if (balances[address].Item2.rawAmount != unusable)
+                        throw new Exception("test25_2");
+                }
+            }
+
+            Console.WriteLine("test25_succeeded");
+        }
     }
 
     public class TransactionOutputContext
@@ -4613,14 +4841,14 @@
         private readonly int maxNumOfSpendTxOuts;
         private readonly double avgIORatio;
 
-        private Ecdsa256KeyPair[] keyPairs;
-        private Sha256Ripemd160Hash[] addresses;
-        private long currentBIndex;
-        private List<TransactionOutputContext> unspentTxOuts;
-        private List<TransactionOutputContext> spentTxOuts;
-        private List<Block> blks;
-        private Dictionary<Sha256Ripemd160Hash, List<TransactionOutputContext>> unspentTxOutsDict;
-        private Dictionary<Sha256Ripemd160Hash, List<TransactionOutputContext>> spentTxOutsDict;
+        public Ecdsa256KeyPair[] keyPairs;
+        public Sha256Ripemd160Hash[] addresses;
+        public long currentBIndex;
+        public List<TransactionOutputContext> unspentTxOuts;
+        public List<TransactionOutputContext> spentTxOuts;
+        public List<Block> blks;
+        public Dictionary<Sha256Ripemd160Hash, List<TransactionOutputContext>> unspentTxOutsDict;
+        public Dictionary<Sha256Ripemd160Hash, List<TransactionOutputContext>> spentTxOutsDict;
 
         public BlockContext CreateNextValidBlock()
         {
