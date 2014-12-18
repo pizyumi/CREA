@@ -73,6 +73,8 @@ namespace CREA2014
 
         public CurrencyUnit Balance { get { return new CurrencyUnit(UsableBalance.rawAmount + UnusableBalance.rawAmount); } }
 
+        public bool canMine { get { return blockChain.headBlockIndex >= 0; } }
+
         public event EventHandler BalanceUpdated = delegate { };
 
         public void StartSystem()
@@ -116,7 +118,15 @@ namespace CREA2014
                 return cu;
             });
 
-            BlockChain blockchain = new BlockChain(bcadb, bmdb, bdb, bfpdb, ufadb, ufpdb, ufptempdb, utxodb);
+            blockChain = new BlockChain(bcadb, bmdb, bdb, bfpdb, ufadb, ufpdb, ufptempdb, utxodb);
+
+            //<未改良>暫定？
+            if (blockChain.headBlockIndex == -1)
+            {
+                blockChain.UpdateChain(new GenesisBlock());
+
+                this.RaiseNotification("genesis_block_generated", 5);
+            }
 
             Dictionary<Account, EventHandler<Tuple<CurrencyUnit, CurrencyUnit>>> changeAmountDict = new Dictionary<Account, EventHandler<Tuple<CurrencyUnit, CurrencyUnit>>>();
 
@@ -146,7 +156,14 @@ namespace CREA2014
                 _UpdateBalance();
             };
 
-            EventHandler<Account> _AccountAdded = (sender, e) => _AddAddressEvent(e);
+            EventHandler<Account> _AccountAdded = (sender, e) =>
+            {
+                utxodb.Open();
+
+                _AddAddressEvent(e);
+
+                utxodb.Close();
+            };
             EventHandler<Account> _AccountRemoved = (sender, e) =>
             {
                 EventHandler<Tuple<CurrencyUnit, CurrencyUnit>> eh = changeAmountDict[e];
@@ -159,6 +176,8 @@ namespace CREA2014
                 _UpdateBalance();
             };
 
+            utxodb.Open();
+
             foreach (var accountHolder in accountHolders.AllAccountHolders)
             {
                 foreach (var account in accountHolder.Accounts)
@@ -167,6 +186,8 @@ namespace CREA2014
                 accountHolder.AccountAdded += _AccountAdded;
                 accountHolder.AccountRemoved += _AccountRemoved;
             }
+
+            utxodb.Close();
 
             accountHolders.AccountHolderAdded += (sender, e) =>
             {
@@ -186,10 +207,12 @@ namespace CREA2014
             mining = new Mining();
 
             //creaNodeTest = new CreaNode(ps.NodePort, creaVersion, appnameWithVersion, new FirstNodeInfosDatabase(p2pDirectory));
+            creaNodeTest.ConnectionKeeped += (sender, e) => creaNodeTest.SyncronizeBlockchain(blockChain);
             creaNodeTest = new CreaNodeTest(ps.NodePort, creaVersion, appnameWithVersion);
             creaNodeTest.ReceivedNewTransaction += (sender, e) =>
             {
             };
+            creaNodeTest.ReceivedNewBlock += (sender, e) => blockChain.UpdateChain(e);
             //creaNodeTest.Start();
 
             isSystemStarted = true;
@@ -207,10 +230,16 @@ namespace CREA2014
             isSystemStarted = false;
         }
 
-        private EventHandler<TransactionalBlock> _ContinueMine;
+        private EventHandler<TransactionalBlock> _FoundNonce;
+        private EventHandler _UpdatedBlockchain;
 
         public void StartMining(IAccount iAccount)
         {
+            if (!isSystemStarted)
+                throw new InvalidOperationException("core_not_started");
+            if (!canMine)
+                throw new InvalidOperationException("cant_mine");
+
             Account account = iAccount as Account;
             if (account == null)
                 throw new ArgumentException("iaccount_type");
@@ -220,14 +249,12 @@ namespace CREA2014
                 mining.NewMiningBlock(TransactionalBlock.GetBlockTemplate(blockChain.headBlockIndex + 1, account.Address.Hash, new TransferTransaction[] { }, (index) => blockChain.GetMainBlock(index) as TransactionalBlock, 0));
             };
 
-            _ContinueMine = (sender, e) =>
-            {
-                blockChain.UpdateChain(e);
+            _FoundNonce = (sender, e) => creaNodeTest.DiffuseNewBlock(e);
+            _UpdatedBlockchain = (sender, e) => _Mine();
 
-                _Mine();
-            };
+            blockChain.Updated += _UpdatedBlockchain;
 
-            mining.FoundNonce += _ContinueMine;
+            mining.FoundNonce += _FoundNonce;
             mining.Start();
 
             _Mine();
@@ -235,8 +262,13 @@ namespace CREA2014
 
         public void EndMining()
         {
+            if (!isSystemStarted)
+                throw new InvalidOperationException("core_not_started");
+
             mining.End();
-            mining.FoundNonce -= _ContinueMine;
+            mining.FoundNonce -= _FoundNonce;
+
+            blockChain.Updated -= _UpdatedBlockchain;
         }
     }
 

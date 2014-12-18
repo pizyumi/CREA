@@ -1294,7 +1294,6 @@ namespace CREA2014
             {
                 myPrivateRsaParameters = GetPrivateRsaParameters();
                 myIpAddress = GetIpAddressAndOpenPort();
-                myIpAddress = IPAddress.None;
                 myFirstNodeInfo = new FirstNodeInformation(myIpAddress, myPortNumber, Network);
 
                 CreateNodeInfo();
@@ -2604,6 +2603,7 @@ namespace CREA2014
             : base(_portNumber, _creaVersion, _appnameWithVersion)
         {
             processedTransactions = new TransactionCollection();
+            processedBlocks = new BlockCollection();
             processedChats = new ChatCollection();
         }
 
@@ -3278,6 +3278,61 @@ namespace CREA2014
             _KeepConnectionsFirst();
 
             this.StartTask("keep_connections", "keep_connections", _KeepConnections);
+        }
+
+        public void SyncronizeBlockchain(BlockChain blockchain)
+        {
+            long startIndex;
+
+            if (blockchain.headBlockIndex != -1)
+            {
+                Connection[] allConnections = GetAllConnections().ToArray();
+
+                //送信
+                Creahash headBlockId = blockchain.GetHeadBlock().Id;
+
+                //受信
+                bool?[] isSyncronized = new bool?[allConnections.Length];
+                bool?[] isInBlockchains = new bool?[allConnections.Length];
+                Creahash[][] prevBlockIdss = new Creahash[allConnections.Length][];
+
+                for (int i = 0; i < allConnections.Length; i++)
+                {
+
+                }
+
+                bool isInBlockchain = true;
+
+                int trueCount = 0;
+                int falseCount = 0;
+                for (int i = 0; i < isInBlockchains.Length; i++)
+                    if (isSyncronized[i].HasValue && isSyncronized[i].Value && isInBlockchains[i].HasValue)
+                        if (isInBlockchains[i].Value)
+                            trueCount++;
+                        else
+                            falseCount++;
+
+                if (falseCount > trueCount)
+                    isInBlockchain = false;
+
+                if (!isInBlockchain)
+                {
+                    Creahash decidedId = null;
+                    int decidedIdCount = 0;
+                    Dictionary<Creahash, int> idCounts = new Dictionary<Creahash, int>();
+                    for (int i = 0; i < prevBlockIdss.Length; i++)
+                    {
+                        if (!idCounts.Keys.Contains(prevBlockIdss[i][0]))
+                        {
+
+                        }
+                    }
+                }
+                else
+                    startIndex = blockchain.headBlockIndex + 1;
+            }
+            else
+                startIndex = 0;
         }
 
         private int GetDistanceLevel(NodeInformation nodeInfo2)

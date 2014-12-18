@@ -753,12 +753,13 @@ namespace CREA2014
                             foreach (var pah in core.iAccountHolders.iPseudonymousAccountHolders)
                                 if (pah.iSign == obj["pah"] as string)
                                 {
-                                    Secp256k1PrivKey<Sha256Hash> privKey = pah.iPrivKey as Secp256k1PrivKey<Sha256Hash>;
+                                    Ecdsa256PubKey pubKey = pah.iPubKey as Ecdsa256PubKey;
+                                    Ecdsa256PrivKey privKey = pah.iPrivKey as Ecdsa256PrivKey;
                                     if (privKey == null)
                                         throw new InvalidOperationException("new_chat_pah_version");
 
                                     Chat chat = new Chat();
-                                    chat.LoadVersion0(pah.iName, obj["message"] as string);
+                                    chat.LoadVersion0(pah.iName, obj["message"] as string, pubKey);
                                     chat.Sign(privKey);
 
                                     core.iCreaNodeTest.DiffuseNewChat(chat);
@@ -1132,6 +1133,13 @@ namespace CREA2014
             }
             else
             {
+                if (!core.canMine)
+                {
+                    MessageBox.Show("起源ブロックが存在しないため採掘を開始できません。起源ブロックがまだ配信されていない可能性があります。".Multilanguage(229), appname, MessageBoxButton.OK, MessageBoxImage.Error);
+
+                    return;
+                }
+
                 MiningWindow mw = null;
 
                 IAccountHolder iAccountHolder = null;
@@ -1207,7 +1215,8 @@ namespace CREA2014
 
                 core.iAccountHolders.iAccountHolderAdded -= accountHolderAdded;
 
-                iAccountHolder.iAccountAdded -= accountAdded;
+                if (iAccountHolder != null)
+                    iAccountHolder.iAccountAdded -= accountAdded;
 
                 if (!mw.DialogResult.Value)
                     return;

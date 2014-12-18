@@ -3536,7 +3536,7 @@ namespace CREA2014
             //New.BlockChainTest.Test22();
             //New.BlockChainTest.Test23();
             //New.BlockChainTest.Test24();
-            BlockChainTest.Test25();
+            //BlockChainTest.Test25();
 
 
 
@@ -3785,6 +3785,7 @@ namespace CREA2014
                 {"update_keep_conn", (args) => "常時接続更新".Multilanguage(215)},
                 {"web_server_data", (args) => "内部ウェブサーバデータが存在しません。".Multilanguage(91)},
                 {"wss_command", (args) => "内部ウェブソケット命令が存在しません。".Multilanguage(92)},
+                {"genesis_block_generated", (args) => "起源ブロックを生成しました。採掘が可能になりました。".Multilanguage(230)},
             };
 
             exceptionMessages = new Dictionary<string, Func<string>>() {
@@ -3964,7 +3965,7 @@ namespace CREA2014
 
                     if (exceptionMessage != e.Exception.Message)
                     {
-                        MessageBox.Show(string.Join(Environment.NewLine, "致命的な問題が発生したため終了します：".Multilanguage(226), exceptionMessage), appnameWithVersion, MessageBoxButton.OK, MessageBoxImage.Error);
+                        MessageBox.Show(string.Join(Environment.NewLine, "致命的な問題が発生したため終了します：".Multilanguage(226), exceptionMessage), appname, MessageBoxButton.OK, MessageBoxImage.Error);
 
                         Environment.Exit(0);
                     }

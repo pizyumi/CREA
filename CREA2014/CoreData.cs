@@ -21,19 +21,21 @@ namespace CREA2014
     {
         public Chat() : base(0) { }
 
-        public void LoadVersion0(String _name, String _message)
+        public void LoadVersion0(string _name, string _message, Ecdsa256PubKey _pubKey)
         {
             this.Version = 0;
 
             this.Name = _name;
             this.Message = _message;
+            this.PubKey = _pubKey;
             this.Id = Guid.NewGuid();
         }
 
-        public String Name { get; private set; }
-        public String Message { get; private set; }
+        public string Name { get; private set; }
+        public string Message { get; private set; }
         public Guid Id { get; private set; }
-        public Secp256k1Signature signature { get; private set; }
+        public Ecdsa256PubKey PubKey { get; private set; }
+        public Ecdsa256Signature signature { get; private set; }
 
         protected override Func<ReaderWriter, IEnumerable<MainDataInfomation>> StreamInfo
         {
@@ -43,8 +45,9 @@ namespace CREA2014
                     return (msrw) => new MainDataInfomation[]{
                         new MainDataInfomation(typeof(string), () => this.Name, (o) => this.Name = (string)o),
                         new MainDataInfomation(typeof(string), () => this.Message, (o) => this.Message = (string)o),
-                        new MainDataInfomation(typeof(Byte[]), 16, () => this.Id.ToByteArray(), (o) => this.Id = new Guid((byte[])o)),
-                        new MainDataInfomation(typeof(Secp256k1Signature), null, () => this.signature, (o) => this.signature = (Secp256k1Signature)o),
+                        new MainDataInfomation(typeof(byte[]), 16, () => this.Id.ToByteArray(), (o) => this.Id = new Guid((byte[])o)),
+                        new MainDataInfomation(typeof(Ecdsa256PubKey), null, () => this.PubKey, (o) => this.PubKey = (Ecdsa256PubKey)o),
+                        new MainDataInfomation(typeof(Ecdsa256Signature), null, () => this.signature, (o) => this.signature = (Ecdsa256Signature)o),
                     };
                 else
                     throw new NotSupportedException();
@@ -61,7 +64,7 @@ namespace CREA2014
                 if (Version != 0)
                     throw new NotSupportedException();
 
-                return Secp256k1Utility.Recover<Sha256Hash>(ToBinary(StreamInfoToSign), this.signature.signature).pubKey.ComputeTrip();
+                return PubKey.pubKey.ComputeTrip();
             }
         }
 
@@ -75,22 +78,21 @@ namespace CREA2014
                     return (msrw) => new MainDataInfomation[]{
                         new MainDataInfomation(typeof(string), () => this.Name, (o) => this.Name = (string)o),
                         new MainDataInfomation(typeof(string), () => this.Message, (o) => this.Message = (string)o),
-                        new MainDataInfomation(typeof(Byte[]), 16, () => this.Id.ToByteArray(), (o) => this.Id = new Guid((byte[])o))
+                        new MainDataInfomation(typeof(byte[]), 16, () => this.Id.ToByteArray(), (o) => this.Id = new Guid((byte[])o))
                     };
                 else
                     throw new NotSupportedException();
             }
         }
 
-        public void Sign(Secp256k1PrivKey<Sha256Hash> _privateKey)
+        public void Sign(Ecdsa256PrivKey privKey)
         {
-            signature = _privateKey.Sign(ToBinary(StreamInfoToSign)) as Secp256k1Signature;
+            signature = privKey.Sign(ToBinary(StreamInfoToSign)) as Ecdsa256Signature;
         }
 
         public bool Verify()
         {
-            var tmp = ToBinary(StreamInfoToSign);
-            return Secp256k1Utility.Recover<Sha256Hash>(tmp, this.signature.signature).Verify(tmp, this.signature.signature);
+            return PubKey.Verify(ToBinary(StreamInfoToSign), signature.signature);
         }
     }
 
@@ -757,6 +759,7 @@ namespace CREA2014
     public interface IPseudonymousAccountHolder : IAccountHolder
     {
         DSAPRIVKEYBASE iPrivKey { get; }
+        DSAPUBKEYBASE iPubKey { get; }
 
         string iName { get; }
         string iSign { get; }
@@ -1325,6 +1328,7 @@ namespace CREA2014
 
         public override string ToString() { return Sign; }
 
+        public DSAPUBKEYBASE iPubKey { get { return pubKey; } }
         public DSAPRIVKEYBASE iPrivKey { get { return privKey; } }
 
         public string iName { get { return Name; } }
@@ -3607,8 +3611,6 @@ namespace CREA2014
 
     //未試験項目
     //・ブロック鎖のExit/同時更新など
-    //・GetAllUtxos
-    //・AddressEvent関連
 
     //2014/12/05 分岐が発生しない場合 試験済
     //2014/12/14 分岐が発生する場合 試験済
@@ -3641,7 +3643,7 @@ namespace CREA2014
 
             registeredAddresses = new Dictionary<AddressEvent, List<Utxo>>();
 
-            are = new AutoResetEvent(false);
+            are = new AutoResetEvent(true);
         }
 
         private static readonly long unusableConformation = 6;
@@ -3674,6 +3676,7 @@ namespace CREA2014
         public bool isExited { get; private set; }
 
         public event EventHandler BalanceUpdated = delegate { };
+        public event EventHandler Updated = delegate { };
 
         private readonly AutoResetEvent are;
         private readonly object lockObj = new object();
@@ -4132,8 +4135,12 @@ namespace CREA2014
                 for (int i = prevTxOutputssList.Count; i < blocksList.Count; i++)
                     rejecteds.Add(blocksList[i]);
 
+                Updated(this, EventArgs.Empty);
+
                 return new UpdateChainInnerReturn(UpdateChainReturnType.updatedAndRejected, blocksCurrent.GetForward((int)(blocksList[prevTxOutputssList.Count].Index - blockManager.headBlockIndex)), rejecteds);
             }
+
+            Updated(this, EventArgs.Empty);
 
             return new UpdateChainInnerReturn(UpdateChainReturnType.updated);
         }
@@ -4607,8 +4614,12 @@ namespace CREA2014
 
         public void AddUtxo(Sha256Ripemd160Hash address, long blockIndex, int txIndex, int txOutIndex, CurrencyUnit amount)
         {
+            bool isExistedInTemp = false;
+
             long? position = ufptemp.Get(address);
-            if (!position.HasValue)
+            if (position.HasValue)
+                isExistedInTemp = true;
+            else
                 position = ufp.Get(address);
 
             bool isProcessed = false;
@@ -4645,7 +4656,10 @@ namespace CREA2014
                         else if (position == -1)
                         {
                             ufi.Update(firstPosition.Value);
-                            ufptemp.Update(address, udb.AddUtxoData(ufi.ToBinary()));
+                            if (isExistedInTemp)
+                                ufptemp.Update(address, udb.AddUtxoData(ufi.ToBinary()));
+                            else
+                                ufptemp.Add(address, udb.AddUtxoData(ufi.ToBinary()));
                         }
                         else
                             udb.UpdateUtxoData(position.Value, ufi.ToBinary());
@@ -4967,7 +4981,7 @@ namespace CREA2014
 
             this.StartTask("mining", "mining", () =>
             {
-                byte[] bytes = new byte[] { 0, 0, 0, 0 };
+                byte[] bytes = new byte[10];
                 int counter = 0;
                 DateTime datetime1 = DateTime.Now;
                 DateTime datetime2 = DateTime.Now;
@@ -4981,6 +4995,8 @@ namespace CREA2014
                         are.WaitOne(30000);
 
                         txBlockCopy = txBlock;
+
+                        are.Reset();
                     }
 
                     txBlockCopy.UpdateTimestamp(datetime1 = DateTime.Now);
