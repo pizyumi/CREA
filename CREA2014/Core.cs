@@ -207,13 +207,13 @@ namespace CREA2014
             mining = new Mining();
 
             //creaNodeTest = new CreaNode(ps.NodePort, creaVersion, appnameWithVersion, new FirstNodeInfosDatabase(p2pDirectory));
-            creaNodeTest.ConnectionKeeped += (sender, e) => creaNodeTest.SyncronizeBlockchain(blockChain);
             creaNodeTest = new CreaNodeTest(ps.NodePort, creaVersion, appnameWithVersion);
+            //creaNodeTest.ConnectionKeeped += (sender, e) => creaNodeTest.SyncronizeBlockchain(blockChain);
             creaNodeTest.ReceivedNewTransaction += (sender, e) =>
             {
             };
             creaNodeTest.ReceivedNewBlock += (sender, e) => blockChain.UpdateChain(e);
-            //creaNodeTest.Start();
+            creaNodeTest.Start();
 
             isSystemStarted = true;
         }
