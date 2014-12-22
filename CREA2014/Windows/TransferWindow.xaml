@@ -1,0 +1,106 @@
+﻿<Window x:Class="CREA2014.Windows.TransferWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        SizeToContent="WidthAndHeight" ResizeMode="NoResize" ShowInTaskbar="False" WindowStartupLocation="CenterOwner" WindowStyle="SingleBorderWindow">
+    <DockPanel>
+        <Grid DockPanel.Dock="Top">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="350"></ColumnDefinition>
+            </Grid.ColumnDefinitions>
+            <Grid.RowDefinitions>
+                <RowDefinition Height="*"></RowDefinition>
+                <RowDefinition Height="*"></RowDefinition>
+                <RowDefinition Height="*"></RowDefinition>
+                <RowDefinition Height="*"></RowDefinition>
+                <RowDefinition Height="10"></RowDefinition>
+                <RowDefinition Height="*"></RowDefinition>
+                <RowDefinition Height="*"></RowDefinition>
+                <RowDefinition Height="10"></RowDefinition>
+                <RowDefinition Height="*"></RowDefinition>
+                <RowDefinition Height="*"></RowDefinition>
+                <RowDefinition Height="10"></RowDefinition>
+                <RowDefinition Height="*"></RowDefinition>
+                <RowDefinition Height="*"></RowDefinition>
+                <RowDefinition Height="10"></RowDefinition>
+                <RowDefinition Height="*"></RowDefinition>
+                <RowDefinition Height="*"></RowDefinition>
+                <RowDefinition Height="10"></RowDefinition>
+                <RowDefinition Height="*"></RowDefinition>
+                <RowDefinition Height="*"></RowDefinition>
+                <RowDefinition Height="10"></RowDefinition>
+                <RowDefinition Height="*"></RowDefinition>
+                <RowDefinition Height="*"></RowDefinition>
+                <RowDefinition Height="10"></RowDefinition>
+
+            </Grid.RowDefinitions>
+
+            <TextBlock x:Name="tbAccountHolder" Grid.Column="0" Grid.Row="0">送付元口座名義：</TextBlock>
+            <RadioButton x:Name="rbAnonymous" Grid.Column="0" Grid.Row="1" GroupName="AccountHolder" Checked="rbAnonymous_Checked">匿名(_A)</RadioButton>
+            <StackPanel Grid.Column="0" Grid.Row="2" Orientation="Horizontal">
+                <RadioButton x:Name="rbPseudonymous" GroupName="AccountHolder" Checked="rbPseudonymous_Checked">顕名(_P)</RadioButton>
+                <TextBlock x:Name="tbAccountHolderChk" Foreground="Pink"></TextBlock>
+            </StackPanel>
+            <DockPanel Grid.Column="0" Grid.Row="3">
+                <ComboBox x:Name="cbAccountHolder" Margin="20,0,0,0" SelectionChanged="cbAccountHolder_SelectionChanged"></ComboBox>
+            </DockPanel>
+
+            <StackPanel Grid.Column="0" Grid.Row="5" Orientation="Horizontal">
+                <TextBlock><AccessText x:Name="atAccount">送付元口座名(_B)：</AccessText></TextBlock>
+                <TextBlock x:Name="tbAccountChk" Foreground="Pink"></TextBlock>
+            </StackPanel>
+            <DockPanel Grid.Column="0" Grid.Row="6">
+                <ComboBox x:Name="cbAccount" Margin="20,0,0,0" SelectionChanged="cbAccount_SelectionChanged"></ComboBox>
+            </DockPanel>
+
+            <StackPanel Grid.Column="0" Grid.Row="8" Orientation="Horizontal">
+                <TextBlock x:Name="tbBlanceLabel">残高：</TextBlock>
+            </StackPanel>
+            <DockPanel Grid.Column="0" Grid.Row="9">
+                <TextBlock x:Name="tbBlanceUnit" DockPanel.Dock="Right">CREA</TextBlock>
+                <TextBlock x:Name="tbBlance" HorizontalAlignment="Right"></TextBlock>
+            </DockPanel>
+
+            <StackPanel Grid.Column="0" Grid.Row="11" Orientation="Horizontal">
+                <TextBlock><AccessText x:Name="atAccountTo">送付先口座番号(_T)：</AccessText></TextBlock>
+                <TextBlock x:Name="tbAccountToChk" Foreground="Pink"></TextBlock>
+            </StackPanel>
+            <DockPanel Grid.Column="0" Grid.Row="12">
+                <TextBox x:Name="tbAccountToAddress"></TextBox>
+            </DockPanel>
+
+            <StackPanel Grid.Column="0" Grid.Row="14" Orientation="Horizontal">
+                <TextBlock><AccessText x:Name="atAmmount">送付額(_M)：</AccessText></TextBlock>
+                <TextBlock x:Name="tbAmmountChk" Foreground="Pink"></TextBlock>
+            </StackPanel>
+            <DockPanel Grid.Column="0" Grid.Row="15">
+                <TextBlock x:Name="tbAmmountUnit" DockPanel.Dock="Right" VerticalAlignment="Center">CREA</TextBlock>
+                <TextBox x:Name="tbAmmount"></TextBox>
+            </DockPanel>
+
+            <StackPanel Grid.Column="0" Grid.Row="17" Orientation="Horizontal">
+                <TextBlock><AccessText x:Name="atFee">手数料(_F)：</AccessText></TextBlock>
+                <TextBlock x:Name="tbFeeChk" Foreground="Pink"></TextBlock>
+            </StackPanel>
+            <DockPanel Grid.Column="0" Grid.Row="18">
+                <TextBlock x:Name="tbFeeUnit" DockPanel.Dock="Right" VerticalAlignment="Center">CREA</TextBlock>
+                <TextBox x:Name="tbFee"></TextBox>
+            </DockPanel>
+
+            <StackPanel Grid.Column="0" Grid.Row="20" Orientation="Horizontal">
+                <TextBlock x:Name="tbTotalLabel">計：</TextBlock>
+            </StackPanel>
+            <DockPanel Grid.Column="0" Grid.Row="21">
+                <TextBlock x:Name="tbTotalUnit" DockPanel.Dock="Right">CREA</TextBlock>
+                <TextBlock x:Name="tbTotal" HorizontalAlignment="Right"></TextBlock>
+            </DockPanel>
+        </Grid>
+
+        <DockPanel DockPanel.Dock="Bottom">
+            <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
+                <Button x:Name="bOK" Width="100" IsDefault="True" Click="bOK_Click">OK(_O)</Button>
+                <Button x:Name="bCancel" Width="100" IsCancel="True" Click="bCancel_Click">キャンセル(_C)</Button>
+            </StackPanel>
+            <Grid></Grid>
+        </DockPanel>
+    </DockPanel>
+</Window>

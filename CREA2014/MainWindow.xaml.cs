@@ -959,6 +959,11 @@ namespace CREA2014
                 string[] buttonNewAccountKey = json.CreateJSONPair("key", ((int)Key.B).ToString());
                 string[] buttonNewAccount = json.CreateJSONPair("buttonNewAccount", json.CreateJSONObject(buttonNewAccountName, buttonNewAccountKeyName, buttonNewAccountKey));
 
+                string[] buttonNewTransactionName = json.CreateJSONPair("name", "新しい取引".Multilanguage(206));
+                string[] buttonNewTransactionKeyName = json.CreateJSONPair("keyName", "T");
+                string[] buttonNewTransactionKey = json.CreateJSONPair("key", ((int)Key.T).ToString());
+                string[] buttonNewTransaction = json.CreateJSONPair("buttonNewTransaction", json.CreateJSONObject(buttonNewTransactionName, buttonNewTransactionKeyName, buttonNewTransactionKey));
+
                 List<string[]> logsList = new List<string[]>();
                 foreach (var log in logger.Logs.Reverse())
                     logsList.Add(_CreateLogJSON(log));
@@ -984,12 +989,17 @@ namespace CREA2014
                 string[] partChatItems = json.CreateJSONPair("chats", json.CreateJSONArray(chatsList.ToArray()));
                 string[] partChat = json.CreateJSONObject(partChatName, partChatPahSelect, partChatSendButton, partChatItems);
 
+                string[] partTransactionName = json.CreateJSONPair("name", "取引");
+                string[] partTransactionButtons = json.CreateJSONPair("buttons", json.CreateJSONObject(buttonNewTransaction));
+                string[] partTransaction = json.CreateJSONObject(partTransactionName, partTransactionButtons);
+
                 string[] universeTitle = json.CreateJSONPair("title", appnameWithVersion);
                 string[] universePartBalance = json.CreateJSONPair("partBalance", partBalance);
                 string[] universePartAccount = json.CreateJSONPair("partAccount", partAccount);
                 string[] universePartLog = json.CreateJSONPair("partLog", partLog);
                 string[] universePartChat = json.CreateJSONPair("partChat", partChat);
-                string[] universe = json.CreateJSONObject(universeTitle, universePartBalance, universePartAccount, universePartLog, universePartChat);
+                string[] universePartTransaction = json.CreateJSONPair("partTransaction", partTransaction);
+                string[] universe = json.CreateJSONObject(universeTitle, universePartBalance, universePartAccount, universePartLog, universePartChat, universePartTransaction);
 
                 string jsonString = string.Join(Environment.NewLine, universe);
 

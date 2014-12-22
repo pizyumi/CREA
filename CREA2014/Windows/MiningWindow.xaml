@@ -17,6 +17,7 @@
                 <RowDefinition Height="10"></RowDefinition>
                 <RowDefinition Height="*"></RowDefinition>
                 <RowDefinition Height="*"></RowDefinition>
+                <RowDefinition Height="10"></RowDefinition>
             </Grid.RowDefinitions>
 
             <TextBlock x:Name="tbMiningDescription" Grid.Column="0" Grid.Row="0">ブロック報酬を送付する口座を選択してください。</TextBlock>
@@ -33,7 +34,7 @@
             </DockPanel>
 
             <StackPanel Grid.Column="0" Grid.Row="7" Orientation="Horizontal">
-                <TextBlock><AccessText x:Name="atAccount">口座名(_A)：</AccessText></TextBlock>
+                <TextBlock><AccessText x:Name="atAccount">口座名(_B)：</AccessText></TextBlock>
                 <TextBlock x:Name="tbAccountChk" Foreground="Pink"></TextBlock>
             </StackPanel>
             <DockPanel Grid.Column="0" Grid.Row="8">

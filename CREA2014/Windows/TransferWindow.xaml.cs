@@ -1,27 +1,32 @@
 ﻿using System;
 using System.Windows;
+using System.Windows.Controls;
 
 namespace CREA2014.Windows
 {
-    public partial class MiningWindow : Window
+    public partial class TransferWindow : Window
     {
-        public MiningWindow(Action<Window> _NewAccountHolder, Action<Window> _NewAccount, Action _UpdateDisplayedAccounts)
+        public TransferWindow(Action _UpdateDisplayedAccounts)
         {
             InitializeComponent();
 
-            Title = "採掘開始".Multilanguage(157);
-            tbMiningDescription.Text = "ブロック報酬を送付する口座を選択してください。".Multilanguage(158);
-            tbAccountHolder.Text = "口座名義".Multilanguage(159) + "：";
-            rbAnonymous.Content = "匿名".Multilanguage(160) + "(_A)";
-            rbPseudonymous.Content = "顕名".Multilanguage(161) + "(_P)";
-            bNewAccountHolder.Content = "新しい口座名義".Multilanguage(162) + "(_H)...";
-            atAccount.Text = "口座名".Multilanguage(163) + "(_B)：";
-            bNewAccount.Content = "新しい口座".Multilanguage(164) + "(_I)...";
-            bOK.Content = "OK".Multilanguage(165) + "(_O)";
-            bCancel.Content = "キャンセル".Multilanguage(166) + "(_C)";
+            Title = "新しい取引".Multilanguage(231);
+            tbAccountHolder.Text = "送付元口座名義".Multilanguage(232) + "：";
+            rbAnonymous.Content = "匿名".Multilanguage(233) + "(_A)";
+            rbPseudonymous.Content = "顕名".Multilanguage(234) + "(_P)";
+            atAccount.Text = "送付元口座名".Multilanguage(235) + "(_B)：";
+            tbBlanceLabel.Text = "残高".Multilanguage(236) + "：";
+            tbBlanceUnit.Text = "CREA";
+            atAccountTo.Text = "送付先口座番号".Multilanguage(237) + "(_T)：";
+            atAmmount.Text = "送付額".Multilanguage(238) + "(_M)：";
+            tbAmmountUnit.Text = "CREA";
+            atFee.Text = "手数料".Multilanguage(239) + "(_F)：";
+            tbFeeUnit.Text = "CREA";
+            tbTotalLabel.Text = "計".Multilanguage(240) + "：";
+            tbTotalUnit.Text = "CREA";
+            bOK.Content = "OK".Multilanguage(241) + "(_O)";
+            bCancel.Content = "キャンセル".Multilanguage(242) + "(_C)";
 
-            bNewAccountHolder.Click += (sender, e) => _NewAccountHolder(this);
-            bNewAccount.Click += (sender, e) => _NewAccount(this);
             rbAnonymous.Checked += (sender, e) => _UpdateDisplayedAccounts();
             rbPseudonymous.Checked += (sender, e) => _UpdateDisplayedAccounts();
             cbAccountHolder.SelectionChanged += (sender, e) => _UpdateDisplayedAccounts();
@@ -53,19 +58,18 @@ namespace CREA2014.Windows
             Validate();
         }
 
-        private void cbAccountHolder_SelectionChanged(object sender, System.Windows.Controls.SelectionChangedEventArgs e)
+        private void cbAccountHolder_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
             Validate();
         }
 
-        private void cbAccount_SelectionChanged(object sender, System.Windows.Controls.SelectionChangedEventArgs e)
+        private void cbAccount_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
             Validate();
         }
 
         private void SetIsEnabled(bool isEnabled)
         {
-            bNewAccountHolder.IsEnabled = isEnabled;
             cbAccountHolder.IsEnabled = isEnabled;
             tbAccountHolderChk.Visibility = isEnabled ? Visibility.Visible : Visibility.Collapsed;
         }
@@ -82,7 +86,7 @@ namespace CREA2014.Windows
         {
             return (cbAccountHolder.SelectedItem != null).Pipe((flag) =>
             {
-                tbAccountHolderChk.Text = flag ? string.Empty : "口座名義を選択してください。".Multilanguage(167);
+                tbAccountHolderChk.Text = flag ? string.Empty : "口座名義を選択してください。".Multilanguage(243);
             });
         }
 
@@ -90,7 +94,7 @@ namespace CREA2014.Windows
         {
             return (cbAccount.SelectedItem != null).Pipe((flag) =>
             {
-                tbAccountChk.Text = flag ? string.Empty : "口座を選択してください。".Multilanguage(168);
+                tbAccountChk.Text = flag ? string.Empty : "口座を選択してください。".Multilanguage(244);
             });
         }
     }

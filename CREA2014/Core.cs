@@ -213,7 +213,7 @@ namespace CREA2014
             {
             };
             creaNodeTest.ReceivedNewBlock += (sender, e) => blockChain.UpdateChain(e);
-            creaNodeTest.Start();
+            //creaNodeTest.Start();
 
             isSystemStarted = true;
         }

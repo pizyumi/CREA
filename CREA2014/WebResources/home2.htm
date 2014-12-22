@@ -21,6 +21,7 @@
             self.partAccount = ko.observable("");
             self.partLog = ko.observable("");
             self.partChat = ko.observable("");
+            self.partTransaction = ko.observable("");
 
             self.activatedPart = ko.observable(0);
 
@@ -65,6 +66,16 @@
                 ws.send("new_account");
             }
 
+            self.buttonNewTransactionName = ko.observable("");
+            self.buttonNewTransactionKeyName = ko.observable("");
+            self.buttonNewTransactionKey = ko.observable();
+            self.buttonNewTransactionCaption = ko.computed(function () {
+                return $("<div>").text(self.buttonNewTransactionName()).html() + "(<U>" + $("<div>").text(self.buttonNewTransactionKeyName()).html() + "</U>)...";
+            });
+            self.buttonNewTransactionClicked = function () {
+                ws.send("new_transaction");
+            }
+
             self.accountHoldersColumnName = ko.observable("");
             self.accountHoldersColumnDescription = ko.observable("");
             self.accountHoldersColumnAddress = ko.observable("");
@@ -101,6 +112,10 @@
 
             self.activatePartChat = function () {
                 self.activatedPart(3);
+            }
+
+            self.activatePartTransaction = function () {
+                self.activatedPart(4);
             }
         }
 
@@ -191,6 +206,7 @@
                     vm.partAccount(obj.partAccount.name);
                     vm.partLog(obj.partLog.name);
                     vm.partChat(obj.partChat.name);
+                    vm.partTransaction(obj.partTransaction.name);
 
                     vm.balanceName(obj.partBalance.detail.name);
                     vm.balanceValue(obj.partBalance.detail.value);
@@ -211,6 +227,10 @@
                     vm.buttonNewAccountName(obj.partAccount.accountButtons.buttonNewAccount.name);
                     vm.buttonNewAccountKey(obj.partAccount.accountButtons.buttonNewAccount.key);
                     vm.buttonNewAccountKeyName(obj.partAccount.accountButtons.buttonNewAccount.keyName);
+
+                    vm.buttonNewTransactionName(obj.partTransaction.buttons.buttonNewTransaction.name);
+                    vm.buttonNewTransactionKey(obj.partTransaction.buttons.buttonNewTransaction.key);
+                    vm.buttonNewTransactionKeyName(obj.partTransaction.buttons.buttonNewTransaction.keyName);
 
                     vm.accountHoldersColumnName(obj.partAccount.accountHolderColumns.name);
                     vm.accountHoldersColumnDescription(obj.partAccount.accountHolderColumns.description);
@@ -609,6 +629,7 @@
                     <div id="tab1_tabitem2" class="tab1_tabitem" data-bind="text: partAccount, click: activatePartAccount, css: { tab1_tabitem_selected: activatedPart() == 1 }"></div>
                     <div id="tab1_tabitem3" class="tab1_tabitem" data-bind="text: partLog, click: activatePartLog, css: { tab1_tabitem_selected: activatedPart() == 2 }"></div>
                     <div id="tab1_tabitem4" class="tab1_tabitem" data-bind="text: partChat, click: activatePartChat, css: { tab1_tabitem_selected: activatedPart() == 3 }"></div>
+                    <div id="tab1_tabitem5" class="tab1_tabitem" data-bind="text: partTransaction, click: activatePartTransaction, css: { tab1_tabitem_selected: activatedPart() == 4 }"></div>
                 </div>
                 <div id="tab1contents">
                     <div id="tab1_tabcontent1" class="tab1_tabcontent" data-bind="visible: activatedPart() == 0">
@@ -671,6 +692,11 @@
                             </div>
                         </div>
                     </div>
+                    <div id="tab1_tabcontent5" class="tab1_tabcontent" data-bind="visible: activatedPart() == 4">
+                        <div id="button3" class="button">
+                            <div id="button3_content" class="button1_content" data-bind="html: buttonNewTransactionCaption, click: buttonNewTransactionClicked"></div>
+                        </div>
+                    </div>
                     <div id="tab1_tabcontent3" class="tab1_tabcontent" data-bind="visible: activatedPart() == 2">
                         <div id="logs_container">
                             <div data-bind="foreach: logs">
@@ -693,7 +719,7 @@
                                     <input id="chatMessageInput" style="width: calc(80vw - 250px);" data-bind="textInput: chatMessage" />
                                 </div>
                             </div>
-                            <div style="clear:both;" data-bind="foreach: chats">
+                            <div style="clear: both;" data-bind="foreach: chats">
                                 <span data-bind="text: name + '> ' + message"></span>
                                 <br />
                             </div>
