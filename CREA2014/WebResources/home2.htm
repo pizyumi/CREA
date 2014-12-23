@@ -82,6 +82,22 @@
             self.anonymousAccountHolder = new AccountHolder();
             self.pseudonymousAccountHolders = ko.observableArray();
 
+            self.txsColumnValidity = ko.observable("");
+            self.txsColumnState = ko.observable("");
+            self.txsColumnConfirmation = ko.observable("");
+            self.txsColumnType = ko.observable("");
+            self.txsColumnDatetime = ko.observable("");
+            self.txsColumnId = ko.observable("");
+            self.txsColumnFromAddress = ko.observable("");
+            self.txsColumnToAddress = ko.observable("");
+            self.txsColumnAmount = ko.observable("");
+            self.invalidTxsName = ko.observable("");
+            self.unconfirmedTxsName = ko.observable("");
+            self.confirmedTxsName = ko.observable("");
+            self.invalidTxs = ko.observableArray();
+            self.unconfirmedTxs = ko.observableArray();
+            self.confirmedTxs = ko.observableArray();
+
             self.logs = ko.observableArray();
 
             self.chatPah = ko.observable();
@@ -236,6 +252,20 @@
                     vm.accountHoldersColumnDescription(obj.partAccount.accountHolderColumns.description);
                     vm.accountHoldersColumnAddress(obj.partAccount.accountHolderColumns.address);
 
+                    vm.txsColumnValidity(obj.partTransaction.txsColumns.validity);
+                    vm.txsColumnState(obj.partTransaction.txsColumns.state);
+                    vm.txsColumnConfirmation(obj.partTransaction.txsColumns.confirmation);
+                    vm.txsColumnType(obj.partTransaction.txsColumns.type);
+                    vm.txsColumnDatetime(obj.partTransaction.txsColumns.datetime);
+                    vm.txsColumnId(obj.partTransaction.txsColumns.id);
+                    vm.txsColumnFromAddress(obj.partTransaction.txsColumns.fromAddress);
+                    vm.txsColumnToAddress(obj.partTransaction.txsColumns.toAddress);
+                    vm.txsColumnAmount(obj.partTransaction.txsColumns.amount);
+
+                    vm.invalidTxsName(obj.partTransaction.invalidTxsName);
+                    vm.unconfirmedTxsName(obj.partTransaction.unconfirmedTxsName);
+                    vm.confirmedTxsName(obj.partTransaction.confirmedTxsName);
+
                     vm.anonymousAccountHolder.name(obj.partAccount.anonymousAccountHolder.name);
                     var temp = vm.anonymousAccountHolder.accounts();
                     for (var i = 0; i < obj.partAccount.anonymousAccountHolder.accounts.length; i++) {
@@ -288,6 +318,11 @@
                     }
                     else if (e.keyCode == vm.buttonNewAccountKey()) {
                         ws.send("new_account");
+                    }
+                }
+                else if (vm.activatedPart() == 4) {
+                    if (e.keyCode == vm.buttonNewTransactionKey()) {
+                        ws.send("new_transaction");
                     }
                 }
             });
@@ -589,6 +624,85 @@
                         width: 50%;
                     }
 
+                    .txs {
+                        clear: left;
+                        margin: 15px 5px 0px 5px;
+                        font-size: 16px;
+                        border: solid;
+                        border-color: rgba(128,128,128,0.4);
+                        border-width: 2px;
+                        background-color: rgba(255,255,255,0.4);
+                    }
+
+                    .txs_title {
+                        padding: 5px;
+                    }
+
+                    .txs_header td, .txs_header th {
+                        font-size: 12px;
+                        white-space: pre;
+                        padding: 3px;
+                        color: #2e6e9e;
+                        border: 1px solid #c5dbec;
+                        background-color: rgba(223,239,252,0.5);
+                    }
+
+                    .tx td, .tx th {
+                        font-size: 12px;
+                        padding: 2px;
+                        border: 1px solid #a6c9e2;
+                    }
+
+                    .tx_hover td, .tx_hover th {
+                        font-size: 12px;
+                        padding: 2px;
+                        border: 1px solid #79b7e7;
+                        background-color: rgba(208,229,245,0.5);
+                    }
+
+                    .tx_selected td, .tx_selected th {
+                        font-size: 12px;
+                        padding: 2px;
+                        border: 1px solid #fad42e;
+                        background-color: rgba(251,236,136,0.5);
+                    }
+
+                    .tx_validity {
+                        width: 5%;
+                    }
+
+                    .tx_state {
+                        width: 5%;
+                    }
+
+                    .tx_confirmation {
+                        width: 5%;
+                    }
+
+                    .tx_type {
+                        width: 5%;
+                    }
+
+                    .tx_datetime {
+                        width: 10%;
+                    }
+
+                    .tx_id {
+                        width: 20%;
+                    }
+
+                    .tx_from_address {
+                        width: 20%;
+                    }
+
+                    .tx_to_address {
+                        width: 20%;
+                    }
+
+                    .tx_amount {
+                        width: 10%;
+                    }
+
                     .log_item_notification {
                         color: yellowgreen;
                     }
@@ -627,9 +741,9 @@
                 <div id="tab1items">
                     <div id="tab1_tabitem1" class="tab1_tabitem" data-bind="text: partBalance, click: activatePartBalance, css: { tab1_tabitem_selected: activatedPart() == 0 }"></div>
                     <div id="tab1_tabitem2" class="tab1_tabitem" data-bind="text: partAccount, click: activatePartAccount, css: { tab1_tabitem_selected: activatedPart() == 1 }"></div>
+                    <div id="tab1_tabitem5" class="tab1_tabitem" data-bind="text: partTransaction, click: activatePartTransaction, css: { tab1_tabitem_selected: activatedPart() == 4 }"></div>
                     <div id="tab1_tabitem3" class="tab1_tabitem" data-bind="text: partLog, click: activatePartLog, css: { tab1_tabitem_selected: activatedPart() == 2 }"></div>
                     <div id="tab1_tabitem4" class="tab1_tabitem" data-bind="text: partChat, click: activatePartChat, css: { tab1_tabitem_selected: activatedPart() == 3 }"></div>
-                    <div id="tab1_tabitem5" class="tab1_tabitem" data-bind="text: partTransaction, click: activatePartTransaction, css: { tab1_tabitem_selected: activatedPart() == 4 }"></div>
                 </div>
                 <div id="tab1contents">
                     <div id="tab1_tabcontent1" class="tab1_tabcontent" data-bind="visible: activatedPart() == 0">
@@ -695,6 +809,105 @@
                     <div id="tab1_tabcontent5" class="tab1_tabcontent" data-bind="visible: activatedPart() == 4">
                         <div id="button3" class="button">
                             <div id="button3_content" class="button1_content" data-bind="html: buttonNewTransactionCaption, click: buttonNewTransactionClicked"></div>
+                        </div>
+                        <div id="invalid_txs_container">
+                            <div class="txs">
+                                <div class="txs_title" data-bind="text: invalidTxsName"></div>
+                                <table>
+                                    <thead>
+                                        <tr class="txs_header">
+                                            <th data-bind="text: txsColumnValidity"></th>
+                                            <th data-bind="text: txsColumnState"></th>
+                                            <th data-bind="text: txsColumnConfirmation"></th>
+                                            <th data-bind="text: txsColumnType"></th>
+                                            <th data-bind="text: txsColumnDatetime"></th>
+                                            <th data-bind="text: txsColumnId"></th>
+                                            <th data-bind="text: txsColumnFromAddress"></th>
+                                            <th data-bind="text: txsColumnToAddress"></th>
+                                            <th data-bind="text: txsColumnAmount"></th>
+                                        </tr>
+                                    </thead>
+                                    <tbody data-bind="foreach: invalidTxs">
+                                        <tr class="tx">
+                                            <td class="tx_validity" data-bind="text: validity"></td>
+                                            <td class="tx_state" data-bind="text: state"></td>
+                                            <td class="tx_confirmation" data-bind="text: confirmation"></td>
+                                            <td class="tx_type" data-bind="text: type"></td>
+                                            <td class="tx_datetime" data-bind="text: datetime"></td>
+                                            <td class="tx_id" data-bind="text: id"></td>
+                                            <td class="tx_from_address" data-bind="text: fromAddress"></td>
+                                            <td class="tx_to_address" data-bind="text: toAddress"></td>
+                                            <td class="tx_amount" data-bind="text: amount"></td>
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                        <div id="unconfirmed_txs_container">
+                            <div class="txs">
+                                <div class="txs_title" data-bind="text: unconfirmedTxsName"></div>
+                                <table>
+                                    <thead>
+                                        <tr class="txs_header">
+                                            <th data-bind="text: txsColumnValidity"></th>
+                                            <th data-bind="text: txsColumnState"></th>
+                                            <th data-bind="text: txsColumnConfirmation"></th>
+                                            <th data-bind="text: txsColumnType"></th>
+                                            <th data-bind="text: txsColumnDatetime"></th>
+                                            <th data-bind="text: txsColumnId"></th>
+                                            <th data-bind="text: txsColumnFromAddress"></th>
+                                            <th data-bind="text: txsColumnToAddress"></th>
+                                            <th data-bind="text: txsColumnAmount"></th>
+                                        </tr>
+                                    </thead>
+                                    <tbody data-bind="foreach: unconfirmedTxs">
+                                        <tr class="tx">
+                                            <td class="tx_validity" data-bind="text: validity"></td>
+                                            <td class="tx_state" data-bind="text: state"></td>
+                                            <td class="tx_confirmation" data-bind="text: confirmation"></td>
+                                            <td class="tx_type" data-bind="text: type"></td>
+                                            <td class="tx_datetime" data-bind="text: datetime"></td>
+                                            <td class="tx_id" data-bind="text: id"></td>
+                                            <td class="tx_from_address" data-bind="text: fromAddress"></td>
+                                            <td class="tx_to_address" data-bind="text: toAddress"></td>
+                                            <td class="tx_amount" data-bind="text: amount"></td>
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                        <div id="confirmed_txs_container">
+                            <div class="txs">
+                                <div class="txs_title" data-bind="text: confirmedTxsName"></div>
+                                <table>
+                                    <thead>
+                                        <tr class="txs_header">
+                                            <th data-bind="text: txsColumnValidity"></th>
+                                            <th data-bind="text: txsColumnState"></th>
+                                            <th data-bind="text: txsColumnConfirmation"></th>
+                                            <th data-bind="text: txsColumnType"></th>
+                                            <th data-bind="text: txsColumnDatetime"></th>
+                                            <th data-bind="text: txsColumnId"></th>
+                                            <th data-bind="text: txsColumnFromAddress"></th>
+                                            <th data-bind="text: txsColumnToAddress"></th>
+                                            <th data-bind="text: txsColumnAmount"></th>
+                                        </tr>
+                                    </thead>
+                                    <tbody data-bind="foreach: confirmedTxs">
+                                        <tr class="tx">
+                                            <td class="tx_validity" data-bind="text: validity"></td>
+                                            <td class="tx_state" data-bind="text: state"></td>
+                                            <td class="tx_confirmation" data-bind="text: confirmation"></td>
+                                            <td class="tx_type" data-bind="text: type"></td>
+                                            <td class="tx_datetime" data-bind="text: datetime"></td>
+                                            <td class="tx_id" data-bind="text: id"></td>
+                                            <td class="tx_from_address" data-bind="text: fromAddress"></td>
+                                            <td class="tx_to_address" data-bind="text: toAddress"></td>
+                                            <td class="tx_amount" data-bind="text: amount"></td>
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
                         </div>
                     </div>
                     <div id="tab1_tabcontent3" class="tab1_tabcontent" data-bind="visible: activatedPart() == 2">

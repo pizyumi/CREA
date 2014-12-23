@@ -769,6 +769,69 @@ namespace CREA2014
 
                             throw new InvalidOperationException("new_chat_pah_not_found");
                         }
+                        else if (message.StartsWith("new_transaction"))
+                        {
+                            NewTransactionWindow ntw = null;
+
+                            IAccountHolder iAccountHolder = null;
+
+                            Action _ClearAccount = () => ntw.cbAccount.Items.Clear();
+                            Action _AddAccount = () =>
+                            {
+                                foreach (var account in iAccountHolder.iAccounts)
+                                    ntw.cbAccount.Items.Add(account);
+                            };
+
+                            EventHandler<IAccount> accountAdded = (sender2, e2) => _ClearAccount.AndThen(_AddAccount).ExecuteInUIThread();
+
+                            ntw = new NewTransactionWindow(() =>
+                            {
+                                if (iAccountHolder != null)
+                                {
+                                    iAccountHolder.iAccountAdded -= accountAdded;
+
+                                    _ClearAccount();
+                                }
+
+                                if (ntw.rbAnonymous.IsChecked.Value)
+                                    iAccountHolder = core.iAccountHolders.iAnonymousAccountHolder;
+                                else
+                                    iAccountHolder = ntw.cbAccountHolder.SelectedItem as IAccountHolder;
+
+                                if (iAccountHolder != null)
+                                {
+                                    iAccountHolder.iAccountAdded += accountAdded;
+
+                                    _AddAccount();
+                                }
+                            });
+                            ntw.Owner = this;
+
+                            Action _ClearAccountHolder = () => ntw.cbAccountHolder.Items.Clear();
+                            Action _AddAccountHolder = () =>
+                            {
+                                foreach (var ah in core.iAccountHolders.iPseudonymousAccountHolders)
+                                    ntw.cbAccountHolder.Items.Add(ah);
+                            };
+
+                            EventHandler<IAccountHolder> accountHolderAdded = (sender2, e2) => _ClearAccountHolder.AndThen(_AddAccountHolder).ExecuteInUIThread();
+
+                            core.iAccountHolders.iAccountHolderAdded += accountHolderAdded;
+
+                            _AddAccountHolder();
+
+                            ntw.rbAnonymous.IsChecked = true;
+
+                            if (ntw.ShowDialog() == true)
+                            {
+
+                            }
+
+                            core.iAccountHolders.iAccountHolderAdded -= accountHolderAdded;
+
+                            if (iAccountHolder != null)
+                                iAccountHolder.iAccountAdded -= accountAdded;
+                        }
                         else
                             this.RaiseError("wss_command", 5);
                     });
@@ -949,6 +1012,21 @@ namespace CREA2014
                 string[] accountHolderColumnAddress = json.CreateJSONPair("address", "口座番号".Multilanguage(204));
                 string[] accountHolderColumns = json.CreateJSONObject(accountHolderColumnName, accountHolderColumnDescription, accountHolderColumnAddress);
 
+                string[] txsColumnValidty = json.CreateJSONPair("validity", "効力".Multilanguage(247));
+                string[] txsColumnState = json.CreateJSONPair("state", "状態".Multilanguage(248));
+                string[] txsColumnConfirmation = json.CreateJSONPair("confirmation", "確証度".Multilanguage(249));
+                string[] txsColumnType = json.CreateJSONPair("type", "種類".Multilanguage(250));
+                string[] txsColumnDatetime = json.CreateJSONPair("datetime", "日時".Multilanguage(251));
+                string[] txsColumnId = json.CreateJSONPair("id", "取引識別子".Multilanguage(252));
+                string[] txsColumnFromAddress = json.CreateJSONPair("fromAddress", "送付元口座番号".Multilanguage(253));
+                string[] txsColumnToAddress = json.CreateJSONPair("toAddress", "送付先口座番号".Multilanguage(254));
+                string[] txsColumnAmount = json.CreateJSONPair("amount", "金額".Multilanguage(255));
+                string[] txsColumns = json.CreateJSONObject(txsColumnValidty, txsColumnState, txsColumnConfirmation, txsColumnType, txsColumnDatetime, txsColumnId, txsColumnFromAddress, txsColumnToAddress, txsColumnAmount);
+
+                string[] invalidTxsName = json.CreateJSONPair("invalidTxsName", "無効".Multilanguage(256));
+                string[] unconfirmedTxsName = json.CreateJSONPair("unconfirmedTxsName", "未承認".Multilanguage(257));
+                string[] confirmedTxsName = json.CreateJSONPair("confirmedTxsName", "承認済".Multilanguage(258));
+
                 string[] buttonNewAccountHolderName = json.CreateJSONPair("name", "新しい口座名義".Multilanguage(205));
                 string[] buttonNewAccountHolderKeyName = json.CreateJSONPair("keyName", "A");
                 string[] buttonNewAccountHolderKey = json.CreateJSONPair("key", ((int)Key.A).ToString());
@@ -959,7 +1037,7 @@ namespace CREA2014
                 string[] buttonNewAccountKey = json.CreateJSONPair("key", ((int)Key.B).ToString());
                 string[] buttonNewAccount = json.CreateJSONPair("buttonNewAccount", json.CreateJSONObject(buttonNewAccountName, buttonNewAccountKeyName, buttonNewAccountKey));
 
-                string[] buttonNewTransactionName = json.CreateJSONPair("name", "新しい取引".Multilanguage(206));
+                string[] buttonNewTransactionName = json.CreateJSONPair("name", "新しい取引".Multilanguage(246));
                 string[] buttonNewTransactionKeyName = json.CreateJSONPair("keyName", "T");
                 string[] buttonNewTransactionKey = json.CreateJSONPair("key", ((int)Key.T).ToString());
                 string[] buttonNewTransaction = json.CreateJSONPair("buttonNewTransaction", json.CreateJSONObject(buttonNewTransactionName, buttonNewTransactionKeyName, buttonNewTransactionKey));
@@ -989,9 +1067,10 @@ namespace CREA2014
                 string[] partChatItems = json.CreateJSONPair("chats", json.CreateJSONArray(chatsList.ToArray()));
                 string[] partChat = json.CreateJSONObject(partChatName, partChatPahSelect, partChatSendButton, partChatItems);
 
-                string[] partTransactionName = json.CreateJSONPair("name", "取引");
+                string[] partTransactionName = json.CreateJSONPair("name", "取引".Multilanguage(245));
                 string[] partTransactionButtons = json.CreateJSONPair("buttons", json.CreateJSONObject(buttonNewTransaction));
-                string[] partTransaction = json.CreateJSONObject(partTransactionName, partTransactionButtons);
+                string[] partTransactionTxsColumns = json.CreateJSONPair("txsColumns", txsColumns);
+                string[] partTransaction = json.CreateJSONObject(partTransactionName, partTransactionButtons, partTransactionTxsColumns, invalidTxsName, unconfirmedTxsName, confirmedTxsName);
 
                 string[] universeTitle = json.CreateJSONPair("title", appnameWithVersion);
                 string[] universePartBalance = json.CreateJSONPair("partBalance", partBalance);

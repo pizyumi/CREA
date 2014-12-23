@@ -44,7 +44,8 @@ namespace CREA2014
         private CREANODEBASE creaNodeTest;
         public CREANODEBASE iCreaNodeTest { get { return creaNodeTest; } }
 
-        private AccountHoldersDatabase ahDatabase;
+        private AccountHoldersDatabase ahdb;
+        private TransactionHistoriesDatabase thdb;
         private BlockchainAccessDB bcadb;
         private BlockManagerDB bmdb;
         private BlockDB bdb;
@@ -82,7 +83,8 @@ namespace CREA2014
             if (isSystemStarted)
                 throw new InvalidOperationException("core_started");
 
-            ahDatabase = new AccountHoldersDatabase(databaseBasepath);
+            ahdb = new AccountHoldersDatabase(databaseBasepath);
+            thdb = new TransactionHistoriesDatabase(databaseBasepath);
             bcadb = new BlockchainAccessDB(databaseBasepath);
             bmdb = new BlockManagerDB(databaseBasepath);
             bdb = new BlockDB(databaseBasepath);
@@ -95,7 +97,7 @@ namespace CREA2014
             accountHolders = new AccountHolders();
             accountHoldersFactory = new AccountHoldersFactory();
 
-            byte[] ahDataBytes = ahDatabase.GetData();
+            byte[] ahDataBytes = ahdb.GetData();
             if (ahDataBytes.Length != 0)
                 accountHolders.FromBinary(ahDataBytes);
             else
@@ -119,6 +121,7 @@ namespace CREA2014
             });
 
             blockChain = new BlockChain(bcadb, bmdb, bdb, bfpdb, ufadb, ufpdb, ufptempdb, utxodb);
+            blockChain.LoadTransactionHistories(thdb);
 
             //<未改良>暫定？
             if (blockChain.headBlockIndex == -1)
@@ -225,7 +228,7 @@ namespace CREA2014
 
             blockChain.Exit();
 
-            ahDatabase.UpdateData(accountHolders.ToBinary());
+            ahdb.UpdateData(accountHolders.ToBinary());
 
             isSystemStarted = false;
         }

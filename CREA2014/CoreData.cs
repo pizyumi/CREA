@@ -3611,6 +3611,7 @@ namespace CREA2014
 
     //未試験項目
     //・ブロック鎖のExit/同時更新など
+    //・取引履歴関連
 
     //2014/12/05 分岐が発生しない場合 試験済
     //2014/12/14 分岐が発生する場合 試験済
@@ -3664,6 +3665,8 @@ namespace CREA2014
         private readonly UtxoFilePointersTempDB ufptempdb;
         private readonly UtxoDB udb;
 
+        private TransactionHistoriesDatabase thdb;
+
         private readonly BlockManager blockManager;
         private readonly UtxoManager utxoManager;
 
@@ -3672,6 +3675,8 @@ namespace CREA2014
         public readonly CirculatedInteger blocksCurrent;
 
         public readonly Dictionary<AddressEvent, List<Utxo>> registeredAddresses;
+
+        public TransactionHistories ths;
 
         public bool isExited { get; private set; }
 
@@ -3749,6 +3754,13 @@ namespace CREA2014
             public CirculatedInteger ci { get; set; }
         }
 
+        public void LoadTransactionHistories(TransactionHistoriesDatabase _thdb)
+        {
+            thdb = _thdb;
+
+            ths = thdb.GetData().Pipe((data) => data.Length == 0 ? new TransactionHistories() : SHAREDDATA.FromBinary<TransactionHistories>(data));
+        }
+
         private Tuple<CurrencyUnit, CurrencyUnit> CalculateBalance(List<Utxo> utxosList)
         {
             long usableRawAmount = 0;
@@ -3795,6 +3807,8 @@ namespace CREA2014
         {
             if (isExited)
                 throw new InvalidOperationException("blockchain_alredy_exited");
+
+            thdb.UpdateData(ths.ToBinary());
 
             if (are.WaitOne(30000))
                 isExited = true;
@@ -4158,12 +4172,12 @@ namespace CREA2014
             List<AddressEvent> updatedAddressesList = new List<AddressEvent>();
             List<AddressEvent> notupdatedAddressesList = new List<AddressEvent>(registeredAddresses.Keys);
 
-            Action<Sha256Ripemd160Hash> _FindUpdatedAddressEvent = (address) =>
+            Func<TransactionOutput, bool> _FindUpdatedAddressEvent = (txOut) =>
             {
                 AddressEvent updatedAddressEvent = null;
 
                 foreach (var addressEvent in notupdatedAddressesList)
-                    if (address.Equals(addressEvent.address))
+                    if (txOut.Address.Equals(addressEvent.address))
                     {
                         updatedAddressEvent = addressEvent;
 
@@ -4174,19 +4188,43 @@ namespace CREA2014
                 {
                     updatedAddressesList.Add(updatedAddressEvent);
                     notupdatedAddressesList.Remove(updatedAddressEvent);
+
+                    return true;
                 }
+
+                foreach (var addressEvent in updatedAddressesList)
+                    if (txOut.Address.Equals(addressEvent.address))
+                        return true;
+
+                return false;
             };
 
             for (int i = mainBlocksList.Count - 1; i >= 0; i--)
             {
-                if (notupdatedAddressesList.Count > 0)
-                    for (int j = 0; j < mainBlocksList[i].Transactions.Length; j++)
+                for (int j = 0; j < mainBlocksList[i].Transactions.Length; j++)
+                {
+                    List<TransactionOutput> senders = null;
+                    List<TransactionOutput> receivers = null;
+
+                    for (int k = 0; k < mainBlocksList[i].Transactions[j].TxInputs.Length; k++)
+                        if (_FindUpdatedAddressEvent(mainPrevTxOutputssList[i][j][k]))
+                            senders.Add(mainPrevTxOutputssList[i][j][k]);
+                    for (int k = 0; k < mainBlocksList[i].Transactions[j].TxOutputs.Length; k++)
+                        if (_FindUpdatedAddressEvent(mainBlocksList[i].Transactions[j].TxOutputs[k]))
+                            receivers.Add(mainBlocksList[i].Transactions[j].TxOutputs[k]);
+
+                    if (senders.Count > 0 || receivers.Count > 0)
                     {
-                        for (int k = 0; k < mainBlocksList[i].Transactions[j].TxInputs.Length; k++)
-                            _FindUpdatedAddressEvent(mainPrevTxOutputssList[i][j][k].Address);
-                        for (int k = 0; k < mainBlocksList[i].Transactions[j].TxOutputs.Length; k++)
-                            _FindUpdatedAddressEvent(mainBlocksList[i].Transactions[j].TxOutputs[k].Address);
+                        TransactionHistory th = ths.ContainsConformedTransactionHistory(mainBlocksList[i].Transactions[j].Id);
+
+                        if (th != null)
+                            ths.RemoveConfirmedTransactionHistory(mainBlocksList[i].Transactions[j].Id);
+
+                        th = new TransactionHistory(true, false, mainBlocksList[i].Transactions[j] is CoinbaseTransaction ? TransactionHistoryType.mined : TransactionHistoryType.transfered, th != null ? th.datetime : mainBlocksList[i].Transactions[j] is CoinbaseTransaction ? (mainBlocksList[i] as TransactionalBlock).header.timestamp : DateTime.MinValue, 0, mainBlocksList[i].Transactions[j].Id, senders.ToArray(), receivers.ToArray(), mainBlocksList[i].Transactions[j]);
+
+                        ths.AddTransactionHistory(th);
                     }
+                }
 
                 blockManager.DeleteMainBlock(mainBlocksList[i].Index);
                 utxoManager.RevertBlock(mainBlocksList[i], mainPrevTxOutputssList[i]);
@@ -4200,14 +4238,30 @@ namespace CREA2014
 
             for (int i = 0; i < prevTxOutputssList.Count; i++)
             {
-                if (notupdatedAddressesList.Count > 0)
-                    for (int j = 0; j < blocksList[i].Transactions.Length; j++)
+                for (int j = 0; j < blocksList[i].Transactions.Length; j++)
+                {
+                    List<TransactionOutput> senders = null;
+                    List<TransactionOutput> receivers = null;
+
+                    for (int k = 0; k < blocksList[i].Transactions[j].TxInputs.Length; k++)
+                        if (_FindUpdatedAddressEvent(prevTxOutputssList[i][j][k]))
+                            senders.Add(prevTxOutputssList[i][j][k]);
+                    for (int k = 0; k < blocksList[i].Transactions[j].TxOutputs.Length; k++)
+                        if (_FindUpdatedAddressEvent(blocksList[i].Transactions[j].TxOutputs[k]))
+                            receivers.Add(blocksList[i].Transactions[j].TxOutputs[k]);
+
+                    if (senders.Count > 0 || receivers.Count > 0)
                     {
-                        for (int k = 0; k < blocksList[i].Transactions[j].TxInputs.Length; k++)
-                            _FindUpdatedAddressEvent(prevTxOutputssList[i][j][k].Address);
-                        for (int k = 0; k < blocksList[i].Transactions[j].TxOutputs.Length; k++)
-                            _FindUpdatedAddressEvent(blocksList[i].Transactions[j].TxOutputs[k].Address);
+                        TransactionHistory th = ths.ContainsUnconformedTransactionHistory(blocksList[i].Transactions[j].Id);
+
+                        if (th != null)
+                            ths.RemoveUnconfirmedTransactionHistory(blocksList[i].Transactions[j].Id);
+
+                        th = new TransactionHistory(true, true, blocksList[i].Transactions[j] is CoinbaseTransaction ? TransactionHistoryType.mined : TransactionHistoryType.transfered, th != null ? th.datetime : blocksList[i].Transactions[j] is CoinbaseTransaction ? (blocksList[i] as TransactionalBlock).header.timestamp : DateTime.MinValue, blocksList[i].Index, blocksList[i].Transactions[j].Id, senders.ToArray(), receivers.ToArray(), blocksList[i].Transactions[j]);
+
+                        ths.AddTransactionHistory(th);
                     }
+                }
 
                 blockManager.AddMainBlock(blocksList[i]);
                 utxoManager.ApplyBlock(blocksList[i], prevTxOutputssList[i]);
@@ -4973,6 +5027,143 @@ namespace CREA2014
 
     #endregion
 
+    public enum TransactionHistoryType { mined, transfered }
+
+    public class TransactionHistory : SHAREDDATA
+    {
+        public TransactionHistory() : base(0) { }
+
+        public TransactionHistory(bool _isValid, bool _isConfirmed, TransactionHistoryType _type, DateTime _datetime, long _blockIndex, Sha256Sha256Hash _id, TransactionOutput[] _senders, TransactionOutput[] _receivers, Transaction _transaction)
+            : base(0)
+        {
+            isValid = _isValid;
+            isConfirmed = _isConfirmed;
+            type = _type;
+            datetime = _datetime;
+            blockIndex = _blockIndex;
+            id = _id;
+            senders = _senders;
+            receivers = _receivers;
+            transaction = _transaction;
+        }
+
+        public bool isValid { get; private set; }
+        public bool isConfirmed { get; private set; }
+        public TransactionHistoryType type { get; private set; }
+        public DateTime datetime { get; private set; }
+        public long blockIndex { get; private set; }
+        public Sha256Sha256Hash id { get; private set; }
+        public TransactionOutput[] senders { get; private set; }
+        public TransactionOutput[] receivers { get; private set; }
+        public Transaction transaction { get; private set; }
+
+        protected override Func<ReaderWriter, IEnumerable<MainDataInfomation>> StreamInfo
+        {
+            get
+            {
+                if (Version == 0)
+                    return (msrw) => new MainDataInfomation[]{
+                        new MainDataInfomation(typeof(bool), () => isValid, (o) => isValid = (bool)o),
+                        new MainDataInfomation(typeof(bool), () => isConfirmed, (o) => isConfirmed = (bool)o),
+                        new MainDataInfomation(typeof(int), () => (int)type, (o) => type = (TransactionHistoryType)o),
+                        new MainDataInfomation(typeof(DateTime), () => datetime, (o) => datetime = (DateTime)o),
+                        new MainDataInfomation(typeof(long), () => blockIndex, (o) => blockIndex = (long)o),
+                        new MainDataInfomation(typeof(Sha256Sha256Hash), null, () => id, (o) => id = (Sha256Sha256Hash)o),
+                        new MainDataInfomation(typeof(TransactionOutput[]), null, 0, () => senders, (o) => senders = (TransactionOutput[])o),
+                        new MainDataInfomation(typeof(TransactionOutput[]), null, 0, () => receivers, (o) => receivers = (TransactionOutput[])o),
+                        new MainDataInfomation(typeof(Transaction), null, 0, () => transaction, (o) => transaction = (Transaction)o),
+                    };
+                else
+                    throw new NotSupportedException();
+            }
+        }
+
+        public override bool IsVersioned { get { return true; } }
+        public override bool IsCorruptionChecked { get { return false; } }
+    }
+
+    public class TransactionHistories : SHAREDDATA
+    {
+        public TransactionHistories()
+            : base(0)
+        {
+            invalidTransactionHistories = new List<TransactionHistory>();
+            unconfirmedTransactionHistories = new List<TransactionHistory>();
+            confirmedTransactionHistories = new List<TransactionHistory>();
+        }
+
+        public List<TransactionHistory> invalidTransactionHistories { get; private set; }
+        public List<TransactionHistory> unconfirmedTransactionHistories { get; private set; }
+        public List<TransactionHistory> confirmedTransactionHistories { get; private set; }
+
+        public void AddTransactionHistory(TransactionHistory th)
+        {
+            if (!th.isValid)
+                invalidTransactionHistories.Insert(0, th);
+            else if (!th.isConfirmed)
+                unconfirmedTransactionHistories.Insert(0, th);
+            else
+                confirmedTransactionHistories.Insert(0, th);
+        }
+
+        public void RemoveInvalidTransactionHistory(Sha256Sha256Hash id)
+        {
+            TransactionHistory th = invalidTransactionHistories.FirstOrDefault((elem) => elem.id.Equals(id));
+
+            if (th != null)
+                invalidTransactionHistories.Remove(th);
+        }
+
+        public void RemoveUnconfirmedTransactionHistory(Sha256Sha256Hash id)
+        {
+            TransactionHistory th = unconfirmedTransactionHistories.FirstOrDefault((elem) => elem.id.Equals(id));
+
+            if (th != null)
+                unconfirmedTransactionHistories.Remove(th);
+        }
+
+        public void RemoveConfirmedTransactionHistory(Sha256Sha256Hash id)
+        {
+            TransactionHistory th = invalidTransactionHistories.FirstOrDefault((elem) => elem.id.Equals(id));
+
+            if (th != null)
+                invalidTransactionHistories.Remove(th);
+        }
+
+        public TransactionHistory ContainsInvalidTransactionHistory(Sha256Sha256Hash id)
+        {
+            return invalidTransactionHistories.FirstOrDefault((elem) => elem.id.Equals(id));
+        }
+
+        public TransactionHistory ContainsUnconformedTransactionHistory(Sha256Sha256Hash id)
+        {
+            return unconfirmedTransactionHistories.FirstOrDefault((elem) => elem.id.Equals(id));
+        }
+
+        public TransactionHistory ContainsConformedTransactionHistory(Sha256Sha256Hash id)
+        {
+            return confirmedTransactionHistories.FirstOrDefault((elem) => elem.id.Equals(id));
+        }
+
+        protected override Func<ReaderWriter, IEnumerable<MainDataInfomation>> StreamInfo
+        {
+            get
+            {
+                if (Version == 0)
+                    return (msrw) => new MainDataInfomation[]{
+                        new MainDataInfomation(typeof(TransactionHistory[]), 0, null, () => invalidTransactionHistories.ToArray(), (o) => invalidTransactionHistories = new List<TransactionHistory>((TransactionHistory[])o)),
+                        new MainDataInfomation(typeof(TransactionHistory[]), 0, null, () => unconfirmedTransactionHistories.ToArray(), (o) => unconfirmedTransactionHistories = new List<TransactionHistory>((TransactionHistory[])o)),
+                        new MainDataInfomation(typeof(TransactionHistory[]), 0, null, () => confirmedTransactionHistories.ToArray(), (o) => invalidTransactionHistories = new List<TransactionHistory>((TransactionHistory[])o)),
+                    };
+                else
+                    throw new NotSupportedException();
+            }
+        }
+
+        public override bool IsVersioned { get { return true; } }
+        public override bool IsCorruptionChecked { get { return true; } }
+    }
+
     public class Mining
     {
         public Mining()
@@ -5140,6 +5331,19 @@ namespace CREA2014
         protected override string filenameBase { get { return "acc_test" + version.ToString(); } }
 #else
         protected override string filenameBase { get { return "acc"; } }
+#endif
+    }
+
+    public class TransactionHistoriesDatabase : SimpleDatabase
+    {
+        public TransactionHistoriesDatabase(string _pathBase) : base(_pathBase) { }
+
+        protected override int version { get { return 0; } }
+
+#if TEST
+        protected override string filenameBase { get { return "th_test" + version.ToString(); } }
+#else
+        protected override string filenameBase { get { return "th"; } }
 #endif
     }
 

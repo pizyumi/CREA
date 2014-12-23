@@ -127,8 +127,8 @@
     <Compile Include="Windows\SettingsWindow.xaml.cs">
       <DependentUpon>SettingsWindow.xaml</DependentUpon>
     </Compile>
-    <Compile Include="Windows\TransferWindow.xaml.cs">
-      <DependentUpon>TransferWindow.xaml</DependentUpon>
+    <Compile Include="Windows\NewTransactionWindow.xaml.cs">
+      <DependentUpon>NewTransactionWindow.xaml</DependentUpon>
     </Compile>
     <Page Include="App.xaml">
       <Generator>MSBuild:Compile</Generator>
@@ -171,7 +171,7 @@
       <SubType>Designer</SubType>
       <Generator>MSBuild:Compile</Generator>
     </Page>
-    <Page Include="Windows\TransferWindow.xaml">
+    <Page Include="Windows\NewTransactionWindow.xaml">
       <SubType>Designer</SubType>
       <Generator>MSBuild:Compile</Generator>
     </Page>

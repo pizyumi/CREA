@@ -4,9 +4,9 @@ using System.Windows.Controls;
 
 namespace CREA2014.Windows
 {
-    public partial class TransferWindow : Window
+    public partial class NewTransactionWindow : Window
     {
-        public TransferWindow(Action _UpdateDisplayedAccounts)
+        public NewTransactionWindow(Action _UpdateDisplayedAccounts)
         {
             InitializeComponent();
 
@@ -15,7 +15,7 @@ namespace CREA2014.Windows
             rbAnonymous.Content = "匿名".Multilanguage(233) + "(_A)";
             rbPseudonymous.Content = "顕名".Multilanguage(234) + "(_P)";
             atAccount.Text = "送付元口座名".Multilanguage(235) + "(_B)：";
-            tbBlanceLabel.Text = "残高".Multilanguage(236) + "：";
+            tbBlanceLabel.Text = "使用可能残高".Multilanguage(236) + "：";
             tbBlanceUnit.Text = "CREA";
             atAccountTo.Text = "送付先口座番号".Multilanguage(237) + "(_T)：";
             atAmmount.Text = "送付額".Multilanguage(238) + "(_M)：";
