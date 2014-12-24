@@ -14,6 +14,21 @@
             self.accounts = ko.observableArray();
         }
 
+        function TransactionHistory() {
+            var self = this;
+
+            self.validity = ko.observable("");
+            self.state = ko.observable("");
+            self.blockIndex = ko.observable("");
+            self.confirmation = ko.observable("");
+            self.type = ko.observable("");
+            self.datetime = ko.observable("");
+            self.id = ko.observable("");
+            self.fromAddress = ko.observable("");
+            self.toAddress = ko.observable("");
+            self.amount = ko.observable("");
+        }
+
         function AppViewModel() {
             var self = this;
 
@@ -97,6 +112,7 @@
             self.invalidTxs = ko.observableArray();
             self.unconfirmedTxs = ko.observableArray();
             self.confirmedTxs = ko.observableArray();
+            self.currentBlockIndex = ko.observable("");
 
             self.logs = ko.observableArray();
 
@@ -213,6 +229,78 @@
                 else if (e.data.indexOf("chatAdded", 0) == 0) {
                     vm.chats.splice(0, 0, JSON.parse(e.data.substring(10)));
                 }
+                else if (e.data.indexOf("blockchainUpdated", 0) == 0) {
+                    var obj = JSON.parse(e.data.substring(18));
+
+                    vm.currentBlockIndex(obj.currentBlockIndex);
+
+                    for (var i = 0; i < vm.invalidTxs().length; i++) {
+                        vm.invalidTxs[i].confirmation(obj.currentBlockIndex - vm.invalidTxs[i].blockIndex());
+                    }
+                    for (var i = 0; i < vm.unconfirmedTxs().length; i++) {
+                        vm.unconfirmedTxs[i].confirmation(obj.currentBlockIndex - vm.unconfirmedTxs[i].blockIndex());
+                    }
+                    for (var i = 0; i < vm.confirmedTxs().length; i++) {
+                        vm.confirmedTxs()[i].confirmation(obj.currentBlockIndex - vm.confirmedTxs()[i].blockIndex());
+                    }
+                }
+                else if (e.data.indexOf("invalidTxAdded", 0) == 0) {
+                    vm.invalidTxs.splice(0, 0, CreateTransactionHistory(JSON.parse(e.data.substring(15)), vm.currentBlockIndex()));
+                }
+                else if (e.data.indexOf("invalidTxRemoved", 0) == 0) {
+                    var obj = JSON.parse(e.data.substring(17));
+
+                    var index = null;
+                    for (var i = 0; i < vm.invalidTxs.length; i++) {
+                        if (vm.invalidTxs[i].id == obj.id) {
+                            index = i;
+
+                            break;
+                        }
+                    }
+
+                    if (index != null) {
+                        vm.invalidTxs.splice(index, 1);
+                    }
+                }
+                else if (e.data.indexOf("unconfirmedTxAdded", 0) == 0) {
+                    vm.unconfirmedTxs.splice(0, 0, CreateTransactionHistory(JSON.parse(e.data.substring(19)), vm.currentBlockIndex()));
+                }
+                else if (e.data.indexOf("unconformedTxRemoved", 0) == 0) {
+                    var obj = JSON.parse(e.data.substring(21));
+
+                    var index = null;
+                    for (var i = 0; i < vm.unconfirmedTxs.length; i++) {
+                        if (vm.unconfirmedTxs[i].id == obj.id) {
+                            index = i;
+
+                            break;
+                        }
+                    }
+
+                    if (index != null) {
+                        vm.unconfirmedTxs.splice(index, 1);
+                    }
+                }
+                else if (e.data.indexOf("confirmedTxAdded", 0) == 0) {
+                    vm.confirmedTxs.splice(0, 0, CreateTransactionHistory(JSON.parse(e.data.substring(17)), vm.currentBlockIndex()));
+                }
+                else if (e.data.indexOf("confirmedTxRemoved", 0) == 0) {
+                    var obj = JSON.parse(e.data.substring(19));
+
+                    var index = null;
+                    for (var i = 0; i < vm.confirmedTxs.length; i++) {
+                        if (vm.confirmedTxs[i].id == obj.id) {
+                            index = i;
+
+                            break;
+                        }
+                    }
+
+                    if (index != null) {
+                        vm.confirmedTxs.splice(index, 1);
+                    }
+                }
                 else if (e.data.indexOf("initial_data", 0) == 0) {
                     var obj = JSON.parse(e.data.substring(13));
 
@@ -265,6 +353,26 @@
                     vm.invalidTxsName(obj.partTransaction.invalidTxsName);
                     vm.unconfirmedTxsName(obj.partTransaction.unconfirmedTxsName);
                     vm.confirmedTxsName(obj.partTransaction.confirmedTxsName);
+
+                    vm.currentBlockIndex(obj.partTransaction.currentBlockIndex);
+
+                    var temp = vm.invalidTxs();
+                    for (var i = 0; i < obj.partTransaction.invalidTxs.length; i++) {
+                        temp.push(CreateTransactionHistory(obj.partTransaction.invalidTxs[i], obj.partTransaction.currentBlockIndex));
+                    }
+                    vm.invalidTxs.valueHasMutated();
+
+                    var temp = vm.unconfirmedTxs();
+                    for (var i = 0; i < obj.partTransaction.unconfirmedTxs.length; i++) {
+                        temp.push(CreateTransactionHistory(obj.partTransaction.unconfirmedTxs[i], obj.partTransaction.currentBlockIndex));
+                    }
+                    vm.unconfirmedTxs.valueHasMutated();
+
+                    var temp = vm.confirmedTxs();
+                    for (var i = 0; i < obj.partTransaction.confirmedTxs.length; i++) {
+                        temp.push(CreateTransactionHistory(obj.partTransaction.confirmedTxs[i], obj.partTransaction.currentBlockIndex));
+                    }
+                    vm.confirmedTxs.valueHasMutated();
 
                     vm.anonymousAccountHolder.name(obj.partAccount.anonymousAccountHolder.name);
                     var temp = vm.anonymousAccountHolder.accounts();
@@ -326,6 +434,23 @@
                     }
                 }
             });
+
+            function CreateTransactionHistory(original, currentBlockIndex) {
+                var th = new TransactionHistory();
+
+                th.validity(original.validity);
+                th.state(original.state);
+                th.blockIndex(original.blockIndex);
+                th.confirmation(currentBlockIndex - original.blockIndex);
+                th.type(original.type);
+                th.datetime(original.datetime);
+                th.id(original.id);
+                th.fromAddress(original.fromAddress);
+                th.toAddress(original.toAddress);
+                th.amount(original.amount);
+
+                return th;
+            }
 
             function AccUI() {
                 var accounts = $(".acc");
@@ -689,14 +814,17 @@
 
                     .tx_id {
                         width: 20%;
+                        word-break: break-all;
                     }
 
                     .tx_from_address {
                         width: 20%;
+                        word-break: break-all;
                     }
 
                     .tx_to_address {
                         width: 20%;
+                        word-break: break-all;
                     }
 
                     .tx_amount {

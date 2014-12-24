@@ -61,7 +61,10 @@ namespace CREA2014
         private AccountHoldersFactory accountHoldersFactory;
         public IAccountHoldersFactory iAccountHoldersFactory { get { return accountHoldersFactory; } }
 
-        private BlockChain blockChain;
+        public TransactionHistories transactionHistories { get; private set; }
+
+        public BlockChain blockChain { get; private set; }
+
         private Mining mining;
 
         private bool isSystemStarted;
@@ -103,6 +106,8 @@ namespace CREA2014
             else
                 accountHolders.LoadVersion0();
 
+            transactionHistories = thdb.GetData().Pipe((data) => data.Length == 0 ? new TransactionHistories() : SHAREDDATA.FromBinary<TransactionHistories>(data));
+
             usableBalanceCache = new CachedData<CurrencyUnit>(() =>
             {
                 CurrencyUnit cu = new CurrencyUnit(0);
@@ -121,7 +126,7 @@ namespace CREA2014
             });
 
             blockChain = new BlockChain(bcadb, bmdb, bdb, bfpdb, ufadb, ufpdb, ufptempdb, utxodb);
-            blockChain.LoadTransactionHistories(thdb);
+            blockChain.LoadTransactionHistories(transactionHistories);
 
             //<未改良>暫定？
             if (blockChain.headBlockIndex == -1)
@@ -228,6 +233,7 @@ namespace CREA2014
 
             blockChain.Exit();
 
+            thdb.UpdateData(transactionHistories.ToBinary());
             ahdb.UpdateData(accountHolders.ToBinary());
 
             isSystemStarted = false;

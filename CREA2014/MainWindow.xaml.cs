@@ -13,7 +13,6 @@ using System.Net.Mime;
 using System.Reflection;
 using System.Text;
 using System.Threading;
-using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
@@ -896,6 +895,29 @@ namespace CREA2014
                 return json.CreateJSONArray(pseudonymousAccountHoldersList.ToArray());
             };
 
+            Func<TransactionHistory, string[]> _CreateTransactionHistoryJSON = (th) =>
+            {
+                string[] thValidity = json.CreateJSONPair("validity", th.isValid ? "有効" : "無効");
+                string[] thState = json.CreateJSONPair("state", th.isConfirmed ? "承認済" : "未承認");
+                string[] thBlockIndex = json.CreateJSONPair("blockIndex", th.blockIndex);
+                string[] thType = json.CreateJSONPair("type", th.type == TransactionHistoryType.mined ? "採掘" : th.type == TransactionHistoryType.sent ? "送付" : th.type == TransactionHistoryType.received ? "受領" : "振替");
+                string[] thDatetime = json.CreateJSONPair("datetime", th.datetime.ToString());
+                string[] thId = json.CreateJSONPair("id", th.id.ToString());
+                string[] thFromAddress = json.CreateJSONPair("fromAddress", json.CreateJSONArray(th.prevTxOuts.Select((elem) => elem.Address.ToString()).ToArray()));
+                string[] thToAddress = json.CreateJSONPair("toAddress", json.CreateJSONArray(th.transaction.TxOutputs.Select((elem) => elem.Address.ToString()).ToArray()));
+                string[] thAmount = json.CreateJSONPair("amount", th.amount.AmountInCreacoin.Amount);
+
+                return json.CreateJSONObject(thValidity, thState, thBlockIndex, thType, thDatetime, thId, thFromAddress, thToAddress, thAmount);
+            };
+
+            Func<List<TransactionHistory>, string[]> _CreateTransactionHistoriesJSON = (ths) =>
+            {
+                List<string[]> transactionHistoriesList = new List<string[]>();
+                foreach (var th in ths)
+                    transactionHistoriesList.Add(_CreateTransactionHistoryJSON(th));
+                return json.CreateJSONArray(transactionHistoriesList.ToArray());
+            };
+
             Func<Program.LogData, string[]> _CreateLogJSON = (log) =>
             {
                 string[] logType = json.CreateJSONPair("type", log.Kind.ToString());
@@ -910,27 +932,27 @@ namespace CREA2014
                 return json.CreateJSONObject(chatName, chatMessage);
             };
 
-            core.BalanceUpdated += (sender2, e2) =>
+            Action<string> _SendMessage = (message) =>
             {
-                string[] balance = _CreateBalanceJSON();
-
                 if (wss != null)
                     foreach (var wssession in wss.GetAllSessions())
-                        wssession.Send("balanceUpdated " + string.Join(Environment.NewLine, balance));
+                        wssession.Send(message);
             };
 
-            Action _SendAccountHolders = () =>
+            Action<string[]> _SendMessages = (messages) =>
             {
-                string[] aah = _CreateAahJSON();
-                string[] pahs = _CreatePahsJSON();
-
                 if (wss != null)
                     foreach (var wssession in wss.GetAllSessions())
-                    {
-                        wssession.Send("aahUpdated " + string.Join(Environment.NewLine, aah));
-                        wssession.Send("pahsUpdated " + string.Join(Environment.NewLine, pahs));
-                    }
+                        foreach (var message in messages)
+                            wssession.Send(message);
             };
+
+            core.BalanceUpdated += (sender2, e2) => _SendMessage("balanceUpdated " + string.Join(Environment.NewLine, _CreateBalanceJSON()));
+            core.blockChain.Updated += (sender2, e2) => _SendMessage("blockchainUpdated " + string.Join(Environment.NewLine, json.CreateJSONObject(json.CreateJSONPair("currentBlockIndex", core.blockChain.headBlockIndex))));
+            logger.LogAdded += (sender2, e2) => _SendMessage("logAdded " + string.Join(Environment.NewLine, _CreateLogJSON(e2)));
+            core.iCreaNodeTest.ReceivedNewChat += (sender2, e2) => _SendMessage("chatAdded " + string.Join(Environment.NewLine, _CreateChatJSON(e2)));
+
+            Action _SendAccountHolders = () => _SendMessages(new string[] { "aahUpdated " + string.Join(Environment.NewLine, _CreateAahJSON()), "pahsUpdated " + string.Join(Environment.NewLine, _CreatePahsJSON()) });
 
             EventHandler _AccountChanged = (sender2, e2) => _SendAccountHolders();
             EventHandler<IAccount> _AccountAdded = (sender2, e2) =>
@@ -972,24 +994,6 @@ namespace CREA2014
                 e2.iAccountRemoved -= _AccountRemoved;
                 foreach (var account in e2.iAccounts)
                     account.iAccountChanged -= _AccountChanged;
-            };
-
-            logger.LogAdded += (sender2, e2) =>
-            {
-                string[] log = _CreateLogJSON(e2);
-
-                if (wss != null)
-                    foreach (var wssession in wss.GetAllSessions())
-                        wssession.Send("logAdded " + string.Join(Environment.NewLine, log));
-            };
-
-            core.iCreaNodeTest.ReceivedNewChat += (sender2, e2) =>
-            {
-                string[] chat = _CreateChatJSON(e2);
-
-                if (wss != null)
-                    foreach (var wssession in wss.GetAllSessions())
-                        wssession.Send("chatAdded " + string.Join(Environment.NewLine, chat));
             };
 
             WebSocketServer oldWss;
@@ -1067,17 +1071,21 @@ namespace CREA2014
                 string[] partChatItems = json.CreateJSONPair("chats", json.CreateJSONArray(chatsList.ToArray()));
                 string[] partChat = json.CreateJSONObject(partChatName, partChatPahSelect, partChatSendButton, partChatItems);
 
-                string[] partTransactionName = json.CreateJSONPair("name", "取引".Multilanguage(245));
-                string[] partTransactionButtons = json.CreateJSONPair("buttons", json.CreateJSONObject(buttonNewTransaction));
-                string[] partTransactionTxsColumns = json.CreateJSONPair("txsColumns", txsColumns);
-                string[] partTransaction = json.CreateJSONObject(partTransactionName, partTransactionButtons, partTransactionTxsColumns, invalidTxsName, unconfirmedTxsName, confirmedTxsName);
+                string[] partTxName = json.CreateJSONPair("name", "取引".Multilanguage(245));
+                string[] partTxButtons = json.CreateJSONPair("buttons", json.CreateJSONObject(buttonNewTransaction));
+                string[] partTxTxsColumns = json.CreateJSONPair("txsColumns", txsColumns);
+                string[] partTxInvalidTxs = json.CreateJSONPair("invalidTxs", _CreateTransactionHistoriesJSON(core.transactionHistories.invalidTransactionHistories));
+                string[] partTxUnconfirmedTxs = json.CreateJSONPair("unconfirmedTxs", _CreateTransactionHistoriesJSON(core.transactionHistories.unconfirmedTransactionHistories));
+                string[] partTxConfirmedTxs = json.CreateJSONPair("confirmedTxs", _CreateTransactionHistoriesJSON(core.transactionHistories.confirmedTransactionHistories));
+                string[] partTxCurrentBlockIndex = json.CreateJSONPair("currentBlockIndex", core.blockChain.headBlockIndex);
+                string[] partTx = json.CreateJSONObject(partTxName, partTxButtons, partTxTxsColumns, invalidTxsName, unconfirmedTxsName, confirmedTxsName, partTxInvalidTxs, partTxUnconfirmedTxs, partTxConfirmedTxs, partTxCurrentBlockIndex);
 
                 string[] universeTitle = json.CreateJSONPair("title", appnameWithVersion);
                 string[] universePartBalance = json.CreateJSONPair("partBalance", partBalance);
                 string[] universePartAccount = json.CreateJSONPair("partAccount", partAccount);
                 string[] universePartLog = json.CreateJSONPair("partLog", partLog);
                 string[] universePartChat = json.CreateJSONPair("partChat", partChat);
-                string[] universePartTransaction = json.CreateJSONPair("partTransaction", partTransaction);
+                string[] universePartTransaction = json.CreateJSONPair("partTransaction", partTx);
                 string[] universe = json.CreateJSONObject(universeTitle, universePartBalance, universePartAccount, universePartLog, universePartChat, universePartTransaction);
 
                 string jsonString = string.Join(Environment.NewLine, universe);
