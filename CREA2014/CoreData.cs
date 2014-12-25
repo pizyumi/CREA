@@ -738,6 +738,9 @@ namespace CREA2014
 
         CurrencyUnit iUsableAmount { get; }
         CurrencyUnit iUnusableAmount { get; }
+        CurrencyUnit iUnconfirmedAmount { get; }
+        CurrencyUnit iUsableAmountWithUnconfirmed { get; }
+        CurrencyUnit iUnusableAmountWithUnconfirmed { get; }
 
         event EventHandler iAccountChanged;
     }
@@ -1027,6 +1030,9 @@ namespace CREA2014
 
         public CurrencyUnit iUsableAmount { get { return accountStatus.usableAmount; } }
         public CurrencyUnit iUnusableAmount { get { return accountStatus.unusableAmount; } }
+        public CurrencyUnit iUnconfirmedAmount { get { return accountStatus.unconfirmedAmount; } }
+        public CurrencyUnit iUsableAmountWithUnconfirmed { get { return accountStatus.usableAmountWithUnconfirmed; } }
+        public CurrencyUnit iUnusableAmountWithUnconfirmed { get { return accountStatus.unusableAmountWithUnconfirmed; } }
 
         public event EventHandler iAccountChanged
         {
@@ -4254,7 +4260,7 @@ namespace CREA2014
                         if (th != null)
                             ths.RemoveConfirmedTransactionHistory(mainBlocksList[i].Transactions[j].Id);
 
-                        th = new TransactionHistory(true, false, _GetType(mainBlocksList[i].Transactions[j], receivers, senders), _GetDatetime(mainBlocksList[i], mainBlocksList[i].Transactions[j], th), 0, mainBlocksList[i].Transactions[j].Id, senders.ToArray(), receivers.ToArray(), mainBlocksList[i].Transactions[j], mainPrevTxOutputssList[i][j], new CurrencyUnit(receivedAmount - sentAmount));
+                        th = new TransactionHistory(true, false, _GetType(mainBlocksList[i].Transactions[j], receivers, senders), _GetDatetime(mainBlocksList[i], mainBlocksList[i].Transactions[j], th), 0, mainBlocksList[i].Transactions[j].Id, senders.ToArray(), receivers.ToArray(), mainBlocksList[i].Transactions[j], mainPrevTxOutputssList[i][j], new CurrencyUnit(sentAmount), new CurrencyUnit(receivedAmount - sentAmount));
 
                         ths.AddTransactionHistory(th);
                     }
@@ -4302,7 +4308,7 @@ namespace CREA2014
                         if (th != null)
                             ths.RemoveUnconfirmedTransactionHistory(blocksList[i].Transactions[j].Id);
 
-                        th = new TransactionHistory(true, true, _GetType(blocksList[i].Transactions[j], receivers, senders), _GetDatetime(blocksList[i], blocksList[i].Transactions[j], th), blocksList[i].Index, blocksList[i].Transactions[j].Id, senders.ToArray(), receivers.ToArray(), blocksList[i].Transactions[j], prevTxOutputssList[i][j], new CurrencyUnit(receivedAmount - sentAmount));
+                        th = new TransactionHistory(true, true, _GetType(blocksList[i].Transactions[j], receivers, senders), _GetDatetime(blocksList[i], blocksList[i].Transactions[j], th), blocksList[i].Index, blocksList[i].Transactions[j].Id, senders.ToArray(), receivers.ToArray(), blocksList[i].Transactions[j], prevTxOutputssList[i][j], new CurrencyUnit(sentAmount), new CurrencyUnit(receivedAmount - sentAmount));
 
                         ths.AddTransactionHistory(th);
                     }
@@ -5078,7 +5084,7 @@ namespace CREA2014
     {
         public TransactionHistory() : base(0) { }
 
-        public TransactionHistory(bool _isValid, bool _isConfirmed, TransactionHistoryType _type, DateTime _datetime, long _blockIndex, Sha256Sha256Hash _id, TransactionOutput[] _senders, TransactionOutput[] _receivers, Transaction _transaction, TransactionOutput[] _prevTxOuts, CurrencyUnit _amount)
+        public TransactionHistory(bool _isValid, bool _isConfirmed, TransactionHistoryType _type, DateTime _datetime, long _blockIndex, Sha256Sha256Hash _id, TransactionOutput[] _senders, TransactionOutput[] _receivers, Transaction _transaction, TransactionOutput[] _prevTxOuts, CurrencyUnit _amountDependent, CurrencyUnit _amount)
             : base(0)
         {
             isValid = _isValid;
@@ -5091,6 +5097,7 @@ namespace CREA2014
             receivers = _receivers;
             transaction = _transaction;
             prevTxOuts = _prevTxOuts;
+            amountDependent = _amountDependent;
             amount = _amount;
         }
 
@@ -5104,6 +5111,7 @@ namespace CREA2014
         public TransactionOutput[] receivers { get; private set; }
         public Transaction transaction { get; private set; }
         public TransactionOutput[] prevTxOuts { get; private set; }
+        public CurrencyUnit amountDependent { get; private set; }
         public CurrencyUnit amount { get; private set; }
 
         protected override Func<ReaderWriter, IEnumerable<MainDataInfomation>> StreamInfo
@@ -5122,6 +5130,7 @@ namespace CREA2014
                         new MainDataInfomation(typeof(TransactionOutput[]), 0, null, () => receivers, (o) => receivers = (TransactionOutput[])o),
                         new MainDataInfomation(typeof(Transaction), 0, () => transaction, (o) => transaction = (Transaction)o),
                         new MainDataInfomation(typeof(TransactionOutput[]), 0, null, () => prevTxOuts, (o) => prevTxOuts = (TransactionOutput[])o),
+                        new MainDataInfomation(typeof(long), () => amountDependent.rawAmount, (o) => amountDependent = new CurrencyUnit((long)o)),
                         new MainDataInfomation(typeof(long), () => amount.rawAmount, (o) => amount = new CurrencyUnit((long)o)),
                     };
                 else

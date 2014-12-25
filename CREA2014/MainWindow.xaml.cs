@@ -726,6 +726,8 @@ namespace CREA2014
             };
             _StartWebServer();
 
+            bool flag = false;
+
             //<未改良>WebSocketListenerを使用する
             //<未実装>localhost以外からの接続をはじく
             //<未実装>既にポートが使用されている場合
@@ -846,21 +848,33 @@ namespace CREA2014
             Func<string[]> _CreateBalanceJSON = () =>
             {
                 string[] usableName = json.CreateJSONPair("name", "使用可能".Multilanguage(198));
-                string[] usableValue = json.CreateJSONPair("value", core.UsableBalance.AmountInCreacoin.Amount);
+                string[] usableValue = json.CreateJSONPair("value", core.UnusableBalanceWithUnconfirmed.AmountInCreacoin.Amount);
                 string[] usableUnit = json.CreateJSONPair("unit", Creacoin.Name);
                 string[] usable = json.CreateJSONObject(usableName, usableValue, usableUnit);
 
                 string[] unusableName = json.CreateJSONPair("name", "使用不能".Multilanguage(199));
-                string[] unusableValue = json.CreateJSONPair("value", core.UnusableBalance.AmountInCreacoin.Amount);
+                string[] unusableValue = json.CreateJSONPair("value", core.UnusableBalanceWithUnconfirmed.AmountInCreacoin.Amount);
                 string[] unusableUnit = json.CreateJSONPair("unit", Creacoin.Name);
                 string[] unusable = json.CreateJSONObject(unusableName, unusableValue, unusableUnit);
+
+                string[] unusableConfirmedName = json.CreateJSONPair("name", "承認済".Multilanguage(259));
+                string[] unusableConfirmedValue = json.CreateJSONPair("value", core.UnusableBalance.AmountInCreacoin.Amount);
+                string[] unusableConfirmedUnit = json.CreateJSONPair("unit", Creacoin.Name);
+                string[] unusableConfirmed = json.CreateJSONObject(unusableConfirmedName, unusableConfirmedValue, unusableConfirmedUnit);
+
+                string[] unusableUnconfirmedName = json.CreateJSONPair("name", "未承認".Multilanguage(260));
+                string[] unusableUnconfirmedValue = json.CreateJSONPair("value", core.UnconfirmedBalance.AmountInCreacoin.Amount);
+                string[] unusableUnconfirmedUnit = json.CreateJSONPair("unit", Creacoin.Name);
+                string[] unusableUnconfirmed = json.CreateJSONObject(unusableUnconfirmedName, unusableUnconfirmedValue, unusableUnconfirmedUnit);
 
                 string[] balanceName = json.CreateJSONPair("name", "残高".Multilanguage(200));
                 string[] balanceValue = json.CreateJSONPair("value", core.Balance.AmountInCreacoin.Amount);
                 string[] balanceUnit = json.CreateJSONPair("unit", Creacoin.Name);
                 string[] balanceUsable = json.CreateJSONPair("usable", usable);
                 string[] balanceUnusable = json.CreateJSONPair("unusable", unusable);
-                return json.CreateJSONObject(balanceName, balanceValue, balanceUnit, balanceUsable, balanceUnusable);
+                string[] balanceUnusableConfirmed = json.CreateJSONPair("unusableConfirmed", unusableConfirmed);
+                string[] balanceUnusableUnconfirmed = json.CreateJSONPair("unusableUnconfirmed", unusableUnconfirmed);
+                return json.CreateJSONObject(balanceName, balanceValue, balanceUnit, balanceUsable, balanceUnusable, balanceUnusableConfirmed, balanceUnusableUnconfirmed);
             };
 
             Func<IAccount[], string[]> _CreateAccountsJSON = (iaccounts) =>
@@ -949,6 +963,12 @@ namespace CREA2014
 
             core.BalanceUpdated += (sender2, e2) => _SendMessage("balanceUpdated " + string.Join(Environment.NewLine, _CreateBalanceJSON()));
             core.blockChain.Updated += (sender2, e2) => _SendMessage("blockchainUpdated " + string.Join(Environment.NewLine, json.CreateJSONObject(json.CreateJSONPair("currentBlockIndex", core.blockChain.headBlockIndex))));
+            core.transactionHistories.InvalidTransactionAdded += (sender2, e2) => _SendMessage("invalidTxAdded " + string.Join(Environment.NewLine, _CreateTransactionHistoryJSON(e2)));
+            core.transactionHistories.InvalidTransactionRemoved += (sender2, e2) => _SendMessage("invalidTxRemoved " + string.Join(Environment.NewLine, json.CreateJSONObject(json.CreateJSONPair("id", e2.id.ToString()))));
+            core.transactionHistories.UnconfirmedTransactionAdded += (sender2, e2) => _SendMessage("unconfirmedTxAdded " + string.Join(Environment.NewLine, _CreateTransactionHistoryJSON(e2)));
+            core.transactionHistories.UnconfirmedTransactionRemoved += (sender2, e2) => _SendMessage("unconformedTxRemoved " + string.Join(Environment.NewLine, json.CreateJSONObject(json.CreateJSONPair("id", e2.id.ToString()))));
+            core.transactionHistories.ConfirmedTransactionAdded += (sender2, e2) => _SendMessage("confirmedTxAdded " + string.Join(Environment.NewLine, _CreateTransactionHistoryJSON(e2)));
+            core.transactionHistories.ConfirmedTransactionRemoved += (sender2, e2) => _SendMessage("confirmedTxRemoved " + string.Join(Environment.NewLine, json.CreateJSONObject(json.CreateJSONPair("id", e2.id.ToString()))));
             logger.LogAdded += (sender2, e2) => _SendMessage("logAdded " + string.Join(Environment.NewLine, _CreateLogJSON(e2)));
             core.iCreaNodeTest.ReceivedNewChat += (sender2, e2) => _SendMessage("chatAdded " + string.Join(Environment.NewLine, _CreateChatJSON(e2)));
 

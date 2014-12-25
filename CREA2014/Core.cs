@@ -75,6 +75,15 @@ namespace CREA2014
         private CachedData<CurrencyUnit> unusableBalanceCache;
         public CurrencyUnit UnusableBalance { get { return unusableBalanceCache.Data; } }
 
+        private CachedData<CurrencyUnit> unconfirmedBalanceCache;
+        public CurrencyUnit UnconfirmedBalance { get { return unconfirmedBalanceCache.Data; } }
+
+        private CachedData<CurrencyUnit> usableBalanceWithUnconfirmedCache;
+        public CurrencyUnit UsableBalanceWithUnconfirmed { get { return usableBalanceWithUnconfirmedCache.Data; } }
+
+        private CachedData<CurrencyUnit> unusableBalanceWithUnconformedCache;
+        public CurrencyUnit UnusableBalanceWithUnconfirmed { get { return unusableBalanceWithUnconformedCache.Data; } }
+
         public CurrencyUnit Balance { get { return new CurrencyUnit(UsableBalance.rawAmount + UnusableBalance.rawAmount); } }
 
         public bool canMine { get { return blockChain.headBlockIndex >= 0; } }
@@ -107,23 +116,49 @@ namespace CREA2014
                 accountHolders.LoadVersion0();
 
             transactionHistories = thdb.GetData().Pipe((data) => data.Length == 0 ? new TransactionHistories() : SHAREDDATA.FromBinary<TransactionHistories>(data));
+            transactionHistories.UnconfirmedTransactionAdded += (sender, e) =>
+            {
+                foreach (var accountHolder in accountHolders.AllAccountHolders)
+                    foreach (var account in accountHolder.Accounts)
+                        foreach (var prevTxOut in e.senders)
+                            if (account.Address.Equals(prevTxOut.Address))
+                                account.accountStatus.unconfirmedAmount = new CurrencyUnit(account.accountStatus.unconfirmedAmount.rawAmount + prevTxOut.Amount.rawAmount);
+            };
+            transactionHistories.UnconfirmedTransactionRemoved += (sender, e) =>
+            {
+                foreach (var accountHolder in accountHolders.AllAccountHolders)
+                    foreach (var account in accountHolder.Accounts)
+                        foreach (var prevTxOut in e.receivers)
+                            if (account.Address.Equals(prevTxOut.Address))
+                                account.accountStatus.unconfirmedAmount = new CurrencyUnit(account.accountStatus.unconfirmedAmount.rawAmount - prevTxOut.Amount.rawAmount);
+            };
 
             usableBalanceCache = new CachedData<CurrencyUnit>(() =>
             {
-                CurrencyUnit cu = new CurrencyUnit(0);
+                long rawAmount = 0;
                 foreach (var accountHolder in accountHolders.AllAccountHolders)
                     foreach (var account in accountHolder.Accounts)
-                        cu = new CurrencyUnit(cu.rawAmount + account.accountStatus.usableAmount.rawAmount);
-                return cu;
+                        rawAmount += account.accountStatus.usableAmount.rawAmount;
+                return new CurrencyUnit(rawAmount);
             });
             unusableBalanceCache = new CachedData<CurrencyUnit>(() =>
             {
-                CurrencyUnit cu = new CurrencyUnit(0);
+                long rawAmount = 0;
                 foreach (var accountHolder in accountHolders.AllAccountHolders)
                     foreach (var account in accountHolder.Accounts)
-                        cu = new CurrencyUnit(cu.rawAmount + account.accountStatus.unusableAmount.rawAmount);
-                return cu;
+                        rawAmount += account.accountStatus.unusableAmount.rawAmount;
+                return new CurrencyUnit(rawAmount);
             });
+            unconfirmedBalanceCache = new CachedData<CurrencyUnit>(() =>
+            {
+                long rawAmount = 0;
+                foreach (var accountHolder in accountHolders.AllAccountHolders)
+                    foreach (var account in accountHolder.Accounts)
+                        rawAmount += account.accountStatus.unconfirmedAmount.rawAmount;
+                return new CurrencyUnit(rawAmount);
+            });
+            usableBalanceWithUnconfirmedCache = new CachedData<CurrencyUnit>(() => new CurrencyUnit(usableBalanceCache.Data.rawAmount - unconfirmedBalanceCache.Data.rawAmount));
+            unusableBalanceWithUnconformedCache = new CachedData<CurrencyUnit>(() => new CurrencyUnit(unusableBalanceWithUnconformedCache.Data.rawAmount - unconfirmedBalanceCache.Data.rawAmount));
 
             blockChain = new BlockChain(bcadb, bmdb, bdb, bfpdb, ufadb, ufpdb, ufptempdb, utxodb);
             blockChain.LoadTransactionHistories(transactionHistories);
@@ -138,15 +173,21 @@ namespace CREA2014
 
             Dictionary<Account, EventHandler<Tuple<CurrencyUnit, CurrencyUnit>>> changeAmountDict = new Dictionary<Account, EventHandler<Tuple<CurrencyUnit, CurrencyUnit>>>();
 
-            Action _UpdateBalance = () =>
+            Action<bool> _UpdateBalance = (isOnlyUnconfirmed) =>
             {
-                usableBalanceCache.IsModified = true;
-                unusableBalanceCache.IsModified = true;
+                if (!isOnlyUnconfirmed)
+                {
+                    usableBalanceCache.IsModified = true;
+                    unusableBalanceCache.IsModified = true;
+                }
+                unconfirmedBalanceCache.IsModified = true;
+                usableBalanceWithUnconfirmedCache.IsModified = true;
+                unusableBalanceWithUnconformedCache.IsModified = true;
 
                 BalanceUpdated(this, EventArgs.Empty);
             };
 
-            Action<Account> _AddAddressEvent = (account) =>
+            Action<Account, bool> _AddAddressEvent = (account, isUpdatebalance) =>
             {
                 EventHandler<Tuple<CurrencyUnit, CurrencyUnit>> eh = (sender, e) =>
                 {
@@ -161,14 +202,22 @@ namespace CREA2014
 
                 blockChain.AddAddressEvent(addressEvent);
 
-                _UpdateBalance();
+                long rawAmount = 0;
+                foreach (var unconfirmedTh in transactionHistories.unconfirmedTransactionHistories)
+                    foreach (var prevTxOut in unconfirmedTh.senders)
+                        if (prevTxOut.Address.Equals(account.Address))
+                            rawAmount += prevTxOut.Amount.rawAmount;
+                account.accountStatus.unconfirmedAmount = new CurrencyUnit(rawAmount);
+
+                if (isUpdatebalance)
+                    _UpdateBalance(false);
             };
 
             EventHandler<Account> _AccountAdded = (sender, e) =>
             {
                 utxodb.Open();
 
-                _AddAddressEvent(e);
+                _AddAddressEvent(e, true);
 
                 utxodb.Close();
             };
@@ -181,7 +230,7 @@ namespace CREA2014
                 AddressEvent addressEvent = blockChain.RemoveAddressEvent(e.Address.Hash);
                 addressEvent.BalanceUpdated -= eh;
 
-                _UpdateBalance();
+                _UpdateBalance(false);
             };
 
             utxodb.Open();
@@ -189,7 +238,7 @@ namespace CREA2014
             foreach (var accountHolder in accountHolders.AllAccountHolders)
             {
                 foreach (var account in accountHolder.Accounts)
-                    _AddAddressEvent(account);
+                    _AddAddressEvent(account, false);
 
                 accountHolder.AccountAdded += _AccountAdded;
                 accountHolder.AccountRemoved += _AccountRemoved;
@@ -208,9 +257,9 @@ namespace CREA2014
                 e.AccountRemoved -= _AccountRemoved;
             };
 
-            blockChain.BalanceUpdated += (sender, e) => _UpdateBalance();
+            blockChain.BalanceUpdated += (sender, e) => _UpdateBalance(false);
 
-            _UpdateBalance();
+            _UpdateBalance(false);
 
             mining = new Mining();
 
@@ -300,6 +349,9 @@ namespace CREA2014
     {
         public CurrencyUnit usableAmount { get; set; }
         public CurrencyUnit unusableAmount { get; set; }
+        public CurrencyUnit unconfirmedAmount { get; set; }
+        public CurrencyUnit usableAmountWithUnconfirmed { get { return new CurrencyUnit(usableAmount.rawAmount - unconfirmedAmount.rawAmount); } }
+        public CurrencyUnit unusableAmountWithUnconfirmed { get { return new CurrencyUnit(unusableAmount.rawAmount + unconfirmedAmount.rawAmount); } }
     }
 
     #region test

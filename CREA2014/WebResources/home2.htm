@@ -61,6 +61,20 @@
                 return self.unusableValue() + self.unusableUnit();
             });
 
+            self.unusableConfirmedName = ko.observable("");
+            self.unusableConfirmedValue = ko.observable(0);
+            self.unusableConfirmedUnit = ko.observable("");
+            self.unusableConfirmedBalance = ko.computed(function () {
+                return self.unusableConfirmedValue() + self.unusableConfirmedUnit();
+            });
+
+            self.unusableUnconfirmedName = ko.observable("");
+            self.unusableUnconfirmedValue = ko.observable(0);
+            self.unusableUnconfirmedUnit = ko.observable("");
+            self.unusableUnconfirmedBalance = ko.computed(function () {
+                return self.unusableUnconfirmedValue() + self.unusableUnconfirmedUnit();
+            });
+
             self.buttonNewAccountHolderName = ko.observable("");
             self.buttonNewAccountHolderKeyName = ko.observable("");
             self.buttonNewAccountHolderKey = ko.observable();
@@ -235,10 +249,10 @@
                     vm.currentBlockIndex(obj.currentBlockIndex);
 
                     for (var i = 0; i < vm.invalidTxs().length; i++) {
-                        vm.invalidTxs[i].confirmation(obj.currentBlockIndex - vm.invalidTxs[i].blockIndex());
+                        vm.invalidTxs()[i].confirmation(obj.currentBlockIndex - vm.invalidTxs()[i].blockIndex());
                     }
                     for (var i = 0; i < vm.unconfirmedTxs().length; i++) {
-                        vm.unconfirmedTxs[i].confirmation(obj.currentBlockIndex - vm.unconfirmedTxs[i].blockIndex());
+                        vm.unconfirmedTxs()[i].confirmation(obj.currentBlockIndex - vm.unconfirmedTxs()[i].blockIndex());
                     }
                     for (var i = 0; i < vm.confirmedTxs().length; i++) {
                         vm.confirmedTxs()[i].confirmation(obj.currentBlockIndex - vm.confirmedTxs()[i].blockIndex());
@@ -251,8 +265,8 @@
                     var obj = JSON.parse(e.data.substring(17));
 
                     var index = null;
-                    for (var i = 0; i < vm.invalidTxs.length; i++) {
-                        if (vm.invalidTxs[i].id == obj.id) {
+                    for (var i = 0; i < vm.invalidTxs().length; i++) {
+                        if (vm.invalidTxs()[i].id() == obj.id) {
                             index = i;
 
                             break;
@@ -270,8 +284,8 @@
                     var obj = JSON.parse(e.data.substring(21));
 
                     var index = null;
-                    for (var i = 0; i < vm.unconfirmedTxs.length; i++) {
-                        if (vm.unconfirmedTxs[i].id == obj.id) {
+                    for (var i = 0; i < vm.unconfirmedTxs().length; i++) {
+                        if (vm.unconfirmedTxs()[i].id() == obj.id) {
                             index = i;
 
                             break;
@@ -289,8 +303,8 @@
                     var obj = JSON.parse(e.data.substring(19));
 
                     var index = null;
-                    for (var i = 0; i < vm.confirmedTxs.length; i++) {
-                        if (vm.confirmedTxs[i].id == obj.id) {
+                    for (var i = 0; i < vm.confirmedTxs().length; i++) {
+                        if (vm.confirmedTxs()[i].id() == obj.id) {
                             index = i;
 
                             break;
@@ -323,6 +337,14 @@
                     vm.unusableName(obj.partBalance.detail.unusable.name);
                     vm.unusableValue(obj.partBalance.detail.unusable.value);
                     vm.unusableUnit(obj.partBalance.detail.unusable.unit);
+
+                    vm.unusableConfirmedName(obj.partBalance.detail.unusableConfirmed.name);
+                    vm.unusableConfirmedValue(obj.partBalance.detail.unusableConfirmed.value);
+                    vm.unusableConfirmedUnit(obj.partBalance.detail.unusableConfirmed.unit);
+
+                    vm.unusableUnconfirmedName(obj.partBalance.detail.unusableUnconfirmed.name);
+                    vm.unusableUnconfirmedValue(obj.partBalance.detail.unusableUnconfirmed.value);
+                    vm.unusableUnconfirmedUnit(obj.partBalance.detail.unusableUnconfirmed.unit);
 
                     vm.buttonNewAccountHolderName(obj.partAccount.accountButtons.buttonNewAccountHolder.name);
                     vm.buttonNewAccountHolderKeyName(obj.partAccount.accountButtons.buttonNewAccountHolder.keyName);
@@ -651,6 +673,30 @@
                         margin: 15px 0px 0px 45px;
                     }
 
+                    #zandaka_huka_mi_label {
+                        font-size: 12px;
+                        font-weight: bold;
+                        margin: 15px 0px 0px 45px;
+                    }
+
+                    #zandaka_huka_mi {
+                        font-size: 12px;
+                        font-weight: bold;
+                        margin: 15px 0px 0px 45px;
+                    }
+
+                    #zandaka_huka_zumi_label {
+                        font-size: 12px;
+                        font-weight: bold;
+                        margin: 15px 0px 0px 45px;
+                    }
+
+                    #zandaka_huka_zumi {
+                        font-size: 12px;
+                        font-weight: bold;
+                        margin: 15px 0px 0px 45px;
+                    }
+
                     .button {
                         float: left;
                     }
@@ -881,6 +927,10 @@
                         <div id="zandaka_kanou" data-bind="text: usableBalance"></div>
                         <div id="zandaka_huka_label" data-bind="text: unusableName"></div>
                         <div id="zandaka_huka" data-bind="text: unusableBalance"></div>
+                        <div id="zandaka_huka_mi_label" data-bind="text: unusableConfirmedName"></div>
+                        <div id="zandaka_huka_mi" data-bind="text: unusableConfirmedBalance"></div>
+                        <div id="zandaka_huka_zumi_label" data-bind="text: unusableUnconfirmedName"></div>
+                        <div id="zandaka_huka_zumi" data-bind="text: unusableUnconfirmedBalance"></div>
                     </div>
                     <div id="tab1_tabcontent2" class="tab1_tabcontent" data-bind="visible: activatedPart() == 1">
                         <div id="button1" class="button">
