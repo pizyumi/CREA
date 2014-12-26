@@ -65,16 +65,16 @@
                 <TextBlock x:Name="tbAccountToChk" Foreground="Pink"></TextBlock>
             </StackPanel>
             <DockPanel Grid.Column="0" Grid.Row="12">
-                <TextBox x:Name="tbAccountToAddress"></TextBox>
+                <TextBox x:Name="tbAccountToAddress" TextChanged="tbAccountToAddress_TextChanged"></TextBox>
             </DockPanel>
 
             <StackPanel Grid.Column="0" Grid.Row="14" Orientation="Horizontal">
-                <TextBlock><AccessText x:Name="atAmmount">送付額(_M)：</AccessText></TextBlock>
-                <TextBlock x:Name="tbAmmountChk" Foreground="Pink"></TextBlock>
+                <TextBlock><AccessText x:Name="atAmount">送付額(_M)：</AccessText></TextBlock>
+                <TextBlock x:Name="tbAmountChk" Foreground="Pink"></TextBlock>
             </StackPanel>
             <DockPanel Grid.Column="0" Grid.Row="15">
-                <TextBlock x:Name="tbAmmountUnit" DockPanel.Dock="Right" VerticalAlignment="Center">CREA</TextBlock>
-                <TextBox x:Name="tbAmmount"></TextBox>
+                <TextBlock x:Name="tbAmountUnit" DockPanel.Dock="Right" VerticalAlignment="Center">CREA</TextBlock>
+                <TextBox x:Name="tbAmount" TextChanged="tbAmount_TextChanged"></TextBox>
             </DockPanel>
 
             <StackPanel Grid.Column="0" Grid.Row="17" Orientation="Horizontal">
@@ -83,11 +83,12 @@
             </StackPanel>
             <DockPanel Grid.Column="0" Grid.Row="18">
                 <TextBlock x:Name="tbFeeUnit" DockPanel.Dock="Right" VerticalAlignment="Center">CREA</TextBlock>
-                <TextBox x:Name="tbFee"></TextBox>
+                <TextBox x:Name="tbFee" TextChanged="tbFee_TextChanged"></TextBox>
             </DockPanel>
 
             <StackPanel Grid.Column="0" Grid.Row="20" Orientation="Horizontal">
                 <TextBlock x:Name="tbTotalLabel">計：</TextBlock>
+                <TextBlock x:Name="tbTotalChk" Foreground="Pink"></TextBlock>
             </StackPanel>
             <DockPanel Grid.Column="0" Grid.Row="21">
                 <TextBlock x:Name="tbTotalUnit" DockPanel.Dock="Right">CREA</TextBlock>

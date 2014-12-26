@@ -158,7 +158,7 @@ namespace CREA2014
                 return new CurrencyUnit(rawAmount);
             });
             usableBalanceWithUnconfirmedCache = new CachedData<CurrencyUnit>(() => new CurrencyUnit(usableBalanceCache.Data.rawAmount - unconfirmedBalanceCache.Data.rawAmount));
-            unusableBalanceWithUnconformedCache = new CachedData<CurrencyUnit>(() => new CurrencyUnit(unusableBalanceWithUnconformedCache.Data.rawAmount - unconfirmedBalanceCache.Data.rawAmount));
+            unusableBalanceWithUnconformedCache = new CachedData<CurrencyUnit>(() => new CurrencyUnit(unusableBalanceCache.Data.rawAmount + unconfirmedBalanceCache.Data.rawAmount));
 
             blockChain = new BlockChain(bcadb, bmdb, bdb, bfpdb, ufadb, ufpdb, ufptempdb, utxodb);
             blockChain.LoadTransactionHistories(transactionHistories);

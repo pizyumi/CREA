@@ -805,7 +805,7 @@ namespace CREA2014
 
                                     _AddAccount();
                                 }
-                            });
+                            }, (addressString) => new Account.AccountAddress(addressString).IsValid, (obj) => (obj as IAccount).iUsableAmountWithUnconfirmed);
                             ntw.Owner = this;
 
                             Action _ClearAccountHolder = () => ntw.cbAccountHolder.Items.Clear();
@@ -848,7 +848,7 @@ namespace CREA2014
             Func<string[]> _CreateBalanceJSON = () =>
             {
                 string[] usableName = json.CreateJSONPair("name", "使用可能".Multilanguage(198));
-                string[] usableValue = json.CreateJSONPair("value", core.UnusableBalanceWithUnconfirmed.AmountInCreacoin.Amount);
+                string[] usableValue = json.CreateJSONPair("value", core.UsableBalanceWithUnconfirmed.AmountInCreacoin.Amount);
                 string[] usableUnit = json.CreateJSONPair("unit", Creacoin.Name);
                 string[] usable = json.CreateJSONObject(usableName, usableValue, usableUnit);
 

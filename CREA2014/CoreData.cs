@@ -985,6 +985,28 @@ namespace CREA2014
                 }
             }
 
+            public bool IsValid
+            {
+                get
+                {
+                    if (hash != null)
+                        return true;
+                    else
+                    {
+                        try
+                        {
+                            Sha256Ripemd160Hash test = Hash;
+
+                            return true;
+                        }
+                        catch (Exception)
+                        {
+                            return false;
+                        }
+                    }
+                }
+            }
+
             public override string ToString() { return Base58; }
         }
 

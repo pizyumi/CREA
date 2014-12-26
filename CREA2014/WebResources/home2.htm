@@ -205,6 +205,12 @@
 
                     vm.unusableValue(obj.unusable.value);
                     vm.unusableUnit(obj.unusable.unit);
+
+                    vm.unusableConfirmedValue(obj.unusableConfirmed.value);
+                    vm.unusableConfirmedUnit(obj.unusableConfirmed.unit);
+
+                    vm.unusableUnconfirmedValue(obj.unusableUnconfirmed.value);
+                    vm.unusableUnconfirmedUnit(obj.unusableUnconfirmed.unit);
                 }
                 else if (e.data.indexOf("aahUpdated", 0) == 0) {
                     var obj = JSON.parse(e.data.substring(11));
