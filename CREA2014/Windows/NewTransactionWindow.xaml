@@ -74,7 +74,7 @@
             </StackPanel>
             <DockPanel Grid.Column="0" Grid.Row="15">
                 <TextBlock x:Name="tbAmountUnit" DockPanel.Dock="Right" VerticalAlignment="Center">CREA</TextBlock>
-                <TextBox x:Name="tbAmount" TextChanged="tbAmount_TextChanged"></TextBox>
+                <TextBox x:Name="tbAmount" HorizontalContentAlignment="Right" TextChanged="tbAmount_TextChanged"></TextBox>
             </DockPanel>
 
             <StackPanel Grid.Column="0" Grid.Row="17" Orientation="Horizontal">
@@ -83,7 +83,7 @@
             </StackPanel>
             <DockPanel Grid.Column="0" Grid.Row="18">
                 <TextBlock x:Name="tbFeeUnit" DockPanel.Dock="Right" VerticalAlignment="Center">CREA</TextBlock>
-                <TextBox x:Name="tbFee" TextChanged="tbFee_TextChanged"></TextBox>
+                <TextBox x:Name="tbFee" HorizontalContentAlignment="Right" TextChanged="tbFee_TextChanged"></TextBox>
             </DockPanel>
 
             <StackPanel Grid.Column="0" Grid.Row="20" Orientation="Horizontal">

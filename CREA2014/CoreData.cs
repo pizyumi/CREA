@@ -2751,7 +2751,7 @@ namespace CREA2014
             transferTxs = _transferTxs;
         }
 
-        private static readonly int maxTxs = 100;
+        public static readonly int maxTxs = 100;
 
 #if TEST
         private static readonly long blockGenerationInterval = 1; //[sec]
@@ -3320,15 +3320,25 @@ namespace CREA2014
                 throw new NotSupportedException("tx_block_not_supported");
         }
 
-        public static TransactionalBlock GetBlockTemplate(long index, Sha256Ripemd160Hash minerPubKeyHash, TransferTransaction[] transferTxs, Func<long, TransactionalBlock> indexToTxBlock, int version)
+        public static TransactionalBlock GetBlockTemplate(long index, Sha256Ripemd160Hash minerPubKeyHash, TransferTransaction[] transferTxs, TransactionOutput[][] prevTxOutss, Func<long, TransactionalBlock> indexToTxBlock, int version)
         {
             if (index < 1)
                 throw new ArgumentOutOfRangeException("index_out");
 
             if (version == 0 || version == 1)
             {
+                long rawFee = 0;
+
+                foreach (var prevTxOuts in prevTxOutss)
+                    foreach (var prevTxOut in prevTxOuts)
+                        rawFee += prevTxOut.Amount.rawAmount;
+
+                foreach (var transferTx in transferTxs)
+                    foreach (var txOut in transferTx.TxOutputs)
+                        rawFee -= txOut.Amount.rawAmount;
+
                 TransactionOutput coinbaseTxOutToMiner = new TransactionOutput();
-                coinbaseTxOutToMiner.LoadVersion0(minerPubKeyHash, GetRewardToMiner(index, version));
+                coinbaseTxOutToMiner.LoadVersion0(minerPubKeyHash, new CurrencyUnit(GetRewardToMiner(index, version).rawAmount + rawFee));
                 CoinbaseTransaction coinbaseTxToMiner = new CoinbaseTransaction();
                 coinbaseTxToMiner.LoadVersion0(new TransactionOutput[] { coinbaseTxOutToMiner });
 
@@ -3707,13 +3717,18 @@ namespace CREA2014
         public bool isExited { get; private set; }
 
         public event EventHandler BalanceUpdated = delegate { };
-        public event EventHandler Updated = delegate { };
+        public event EventHandler<List<Block>> Updated = delegate { };
 
         private readonly AutoResetEvent are;
         private readonly object lockObj = new object();
 
         public long headBlockIndex { get { return blockManager.headBlockIndex; } }
         public long finalizedBlockIndex { get { return blockManager.finalizedBlockIndex; } }
+
+        public List<Utxo> GetAllUtxos(Sha256Ripemd160Hash address)
+        {
+            return utxoManager.GetAllUtxos(address);
+        }
 
         public Utxo FindUtxo(Sha256Ripemd160Hash address, long blockIndex, int txIndex, int txOutIndex)
         {
@@ -4172,12 +4187,16 @@ namespace CREA2014
                 for (int i = prevTxOutputssList.Count; i < blocksList.Count; i++)
                     rejecteds.Add(blocksList[i]);
 
-                Updated(this, EventArgs.Empty);
+                List<Block> notRejecteds = new List<Block>();
+                for (int i = 0; i < prevTxOutputssList.Count; i++)
+                    notRejecteds.Add(blocksList[i]);
+
+                Updated(this, notRejecteds);
 
                 return new UpdateChainInnerReturn(UpdateChainReturnType.updatedAndRejected, blocksCurrent.GetForward((int)(blocksList[prevTxOutputssList.Count].Index - blockManager.headBlockIndex)), rejecteds);
             }
 
-            Updated(this, EventArgs.Empty);
+            Updated(this, blocksList);
 
             return new UpdateChainInnerReturn(UpdateChainReturnType.updated);
         }
@@ -4866,6 +4885,29 @@ namespace CREA2014
             }
 
             return null;
+        }
+
+        public List<Utxo> GetAllUtxos(Sha256Ripemd160Hash address)
+        {
+            List<Utxo> utxos = new List<Utxo>();
+
+            long? position = ufptemp.Get(address);
+            if (!position.HasValue)
+                position = ufp.Get(address);
+
+            if (position.HasValue)
+                while (position.Value != -1)
+                {
+                    UtxoFileItem ufi = SHAREDDATA.FromBinary<UtxoFileItem>(udb.GetUtxoData(position.Value));
+
+                    for (int i = 0; i < ufi.Size; i++)
+                        if (!ufi.utxos[i].IsEmpty)
+                            utxos.Add(ufi.utxos[i]);
+
+                    position = ufi.nextPosition;
+                }
+
+            return utxos;
         }
 
         public List<Utxo> GetAllUtxosLatestFirst(Sha256Ripemd160Hash address)

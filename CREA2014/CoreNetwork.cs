@@ -1509,9 +1509,13 @@ namespace CREA2014
         reqNodeInfos = 1,
 
         notifyNewTransaction = 10,
-        reqTransactions = 11,
+        //reqTransactions = 11,
         notifyNewBlock = 12,
-        reqBlocks = 13,
+        //reqBlocks = 13,
+
+        reqForkBlockIndex = 14,
+        reqMainBlockIds = 15,
+        reqMainBlocks = 16,
 
         PingReq = 100,
         PingRes = 101,
@@ -1835,6 +1839,257 @@ namespace CREA2014
                     return false;
                 else
                     throw new NotSupportedException("res_txs_check");
+            }
+        }
+    }
+
+    public class ReqForkBlockIndex : SHAREDDATA
+    {
+        public ReqForkBlockIndex() : this(0, new Creahash[] { }) { }
+
+        public ReqForkBlockIndex(long _headBlockIndex, Creahash[] _ids)
+            : base(0)
+        {
+            headBlockIndex = _headBlockIndex;
+            ids = _ids;
+        }
+
+        public long headBlockIndex { get; private set; }
+        public Creahash[] ids { get; private set; }
+
+        protected override Func<ReaderWriter, IEnumerable<MainDataInfomation>> StreamInfo
+        {
+            get
+            {
+                if (Version == 0)
+                    return (msrw) => new MainDataInfomation[]{
+                        new MainDataInfomation(typeof(long), () => headBlockIndex, (o) => headBlockIndex = (long)o),
+                        new MainDataInfomation(typeof(Creahash[]), null, null, () => ids, (o) => ids = (Creahash[])o),
+                    };
+                else
+                    throw new NotSupportedException("req_fork_block_index_main_data_info");
+            }
+        }
+        public override bool IsVersioned { get { return true; } }
+        public override bool IsCorruptionChecked
+        {
+            get
+            {
+                if (Version <= 0)
+                    return false;
+                else
+                    throw new NotSupportedException("req_fork_block_index_corruption_checked");
+            }
+        }
+    }
+
+    public class ResForkBlockIndex : SHAREDDATA
+    {
+        public ResForkBlockIndex() : base(0) { }
+
+        public ResForkBlockIndex(bool _isSyncronized, bool _isInMain, bool _isAbnormal, long _forkBlockIndex)
+            : base(0)
+        {
+            if (!_isSyncronized && (!_isInMain || _isAbnormal))
+                throw new ArgumentException();
+            if (_isInMain && (_isAbnormal || forkBlockIndex != 0))
+                throw new ArgumentException();
+
+            isSyncronized = _isSyncronized;
+            isInMain = _isInMain;
+            isAbnormal = _isAbnormal;
+            forkBlockIndex = _forkBlockIndex;
+        }
+
+        public bool isSyncronized { get; private set; }
+        public bool isInMain { get; private set; }
+        public bool isAbnormal { get; private set; }
+        public long forkBlockIndex { get; private set; }
+
+        protected override Func<ReaderWriter, IEnumerable<MainDataInfomation>> StreamInfo
+        {
+            get
+            {
+                if (Version == 0)
+                    return (msrw) => new MainDataInfomation[]{
+                        new MainDataInfomation(typeof(bool), () => isSyncronized, (o) => isSyncronized = (bool)o),
+                        new MainDataInfomation(typeof(bool), () => isInMain, (o) => isInMain = (bool)o),
+                        new MainDataInfomation(typeof(bool), () => isAbnormal, (o) => isAbnormal = (bool)o),
+                        new MainDataInfomation(typeof(long), () => forkBlockIndex, (o) => forkBlockIndex = (long)o),
+                    };
+                else
+                    throw new NotSupportedException("res_fork_block_index_main_data_info");
+            }
+        }
+        public override bool IsVersioned { get { return true; } }
+        public override bool IsCorruptionChecked
+        {
+            get
+            {
+                if (Version <= 0)
+                    return false;
+                else
+                    throw new NotSupportedException("req_fork_block_index_corruption_checked");
+            }
+        }
+    }
+
+    public class ReqMainBlockIds : SHAREDDATA
+    {
+        public ReqMainBlockIds() : base(0) { }
+
+        public ReqMainBlockIds(long _startIndex)
+            : base(0)
+        {
+            if (_startIndex < 0)
+                throw new ArgumentException();
+
+            startIndex = _startIndex;
+        }
+
+        public long startIndex { get; private set; }
+
+        protected override Func<ReaderWriter, IEnumerable<MainDataInfomation>> StreamInfo
+        {
+            get
+            {
+                if (Version == 0)
+                    return (msrw) => new MainDataInfomation[]{
+                        new MainDataInfomation(typeof(long), () => startIndex, (o) => startIndex = (long)o),
+                    };
+                else
+                    throw new NotSupportedException("req_main_block_ids_main_data_info");
+            }
+        }
+        public override bool IsVersioned { get { return true; } }
+        public override bool IsCorruptionChecked
+        {
+            get
+            {
+                if (Version <= 0)
+                    return false;
+                else
+                    throw new NotSupportedException("req_main_block_ids_corruption_checked");
+            }
+        }
+    }
+
+    public class ResMainBlockIds : SHAREDDATA
+    {
+        public ResMainBlockIds() : this(false, new Creahash[] { }) { }
+
+        public ResMainBlockIds(bool _isSyncronized, Creahash[] _ids)
+            : base(0)
+        {
+            isSyncronized = _isSyncronized;
+            ids = _ids;
+        }
+
+        public bool isSyncronized { get; private set; }
+        public Creahash[] ids { get; private set; }
+
+        protected override Func<ReaderWriter, IEnumerable<MainDataInfomation>> StreamInfo
+        {
+            get
+            {
+                if (Version == 0)
+                    return (msrw) => new MainDataInfomation[]{
+                        new MainDataInfomation(typeof(bool), () => isSyncronized, (o) => isSyncronized = (bool)o),
+                        new MainDataInfomation(typeof(Creahash[]), null, null, () => ids, (o) => ids = (Creahash[])o),
+                    };
+                else
+                    throw new NotSupportedException("res_main_block_ids_main_data_info");
+            }
+        }
+        public override bool IsVersioned { get { return true; } }
+        public override bool IsCorruptionChecked
+        {
+            get
+            {
+                if (Version <= 0)
+                    return false;
+                else
+                    throw new NotSupportedException("res_main_block_ids_corruption_checked");
+            }
+        }
+    }
+
+    public class ReqMainBlocks : SHAREDDATA
+    {
+        public ReqMainBlocks() : base(0) { }
+
+        public ReqMainBlocks(long _startIndex)
+            : base(0)
+        {
+            if (_startIndex < 0)
+                throw new ArgumentException();
+
+            startIndex = _startIndex;
+        }
+
+        public long startIndex { get; private set; }
+
+        protected override Func<ReaderWriter, IEnumerable<MainDataInfomation>> StreamInfo
+        {
+            get
+            {
+                if (Version == 0)
+                    return (msrw) => new MainDataInfomation[]{
+                        new MainDataInfomation(typeof(long), () => startIndex, (o) => startIndex = (long)o),
+                    };
+                else
+                    throw new NotSupportedException("req_main_blocks_main_data_info");
+            }
+        }
+        public override bool IsVersioned { get { return true; } }
+        public override bool IsCorruptionChecked
+        {
+            get
+            {
+                if (Version <= 0)
+                    return false;
+                else
+                    throw new NotSupportedException("req_main_blocks_corruption_checked");
+            }
+        }
+    }
+
+    public class ResMainBlocks : SHAREDDATA
+    {
+        public ResMainBlocks() : this(false, new Block[] { }) { }
+
+        public ResMainBlocks(bool _isSyncronized, Block[] _blocks)
+            : base(0)
+        {
+            isSyncronized = _isSyncronized;
+            blocks = _blocks;
+        }
+
+        public bool isSyncronized { get; private set; }
+        public Block[] blocks { get; private set; }
+
+        protected override Func<ReaderWriter, IEnumerable<MainDataInfomation>> StreamInfo
+        {
+            get
+            {
+                if (Version == 0)
+                    return (msrw) => new MainDataInfomation[]{
+                        new MainDataInfomation(typeof(bool), () => isSyncronized, (o) => isSyncronized = (bool)o),
+                        new MainDataInfomation(typeof(Block[]), 0, null, () => blocks, (o) => blocks = (Block[])o),
+                    };
+                else
+                    throw new NotSupportedException("res_main_blocks_main_data_info");
+            }
+        }
+        public override bool IsVersioned { get { return true; } }
+        public override bool IsCorruptionChecked
+        {
+            get
+            {
+                if (Version <= 0)
+                    return false;
+                else
+                    throw new NotSupportedException("res_main_blocks_corruption_checked");
             }
         }
     }
@@ -2599,9 +2854,11 @@ namespace CREA2014
 
     public abstract class CREANODEBASE : CREANODEBASEBASE
     {
-        public CREANODEBASE(ushort _portNumber, int _creaVersion, string _appnameWithVersion)
+        public CREANODEBASE(BlockChain _blockchain, ushort _portNumber, int _creaVersion, string _appnameWithVersion)
             : base(_portNumber, _creaVersion, _appnameWithVersion)
         {
+            blockchain = _blockchain;
+
             processedTransactions = new TransactionCollection();
             processedBlocks = new BlockCollection();
             processedChats = new ChatCollection();
@@ -2617,13 +2874,19 @@ namespace CREA2014
         private object[] inboundConnectionsLock;
         private List<Connection>[] inboundConnections;
 
+        private BlockChain blockchain;
+
         private bool isInitialized = false;
+        private bool isSyncronized = false;
 
         private static readonly int keepConnectionNodeInfosMin = 20;
         private static readonly int outboundConnectionsMax = 2;
         private static readonly int inboundConnectionsMax = 4;
         private static readonly int keepConnectionInterval = 300000;
         private static readonly int keepConnectionCollectMax = 5;
+
+        private static readonly int numOfBlocks = 128;
+        private static readonly int syncronizationInterval = 300000;
 
         private static readonly bool isOutputNumOfConnectingNodes = true;
         private static readonly bool isOutputNumOfNodes = true;
@@ -2720,18 +2983,12 @@ namespace CREA2014
             {
                 NotifyNewChat nnc = SHAREDDATA.FromBinary<NotifyNewChat>(sc.ReadBytes());
 
-                _ConsoleWriteLine("read_nnc");
-
                 bool isNew = !processedChats.Contains(nnc.Id);
                 sc.WriteBytes(BitConverter.GetBytes(isNew));
-
-                _ConsoleWriteLine("write_isnew");
 
                 if (isNew)
                 {
                     Chat chat = SHAREDDATA.FromBinary<Chat>(sc.ReadBytes());
-
-                    _ConsoleWriteLine("read_chat");
 
                     if (chat == null)
                         throw new InvalidOperationException();
@@ -2745,6 +3002,78 @@ namespace CREA2014
 
                     this.StartTask("diffuseNewChat", "diffuseNewChat", () => DiffuseNewChat(nodeInfo, nnc, chat));
                 }
+            }
+            else if (message.name == MessageName.reqForkBlockIndex)
+            {
+                ReqForkBlockIndex rfbi = SHAREDDATA.FromBinary<ReqForkBlockIndex>(sc.ReadBytes());
+
+                if (!isSyncronized || blockchain.headBlockIndex < rfbi.headBlockIndex)
+                {
+                    sc.WriteBytes(new ResForkBlockIndex(false, true, false, 0).ToBinary());
+
+                    return;
+                }
+
+                if (rfbi.ids[0].Equals(blockchain.GetMainBlock(rfbi.headBlockIndex).Id))
+                {
+                    sc.WriteBytes(new ResForkBlockIndex(true, true, false, 0).ToBinary());
+
+                    return;
+                }
+
+                for (int i = 1; i < rfbi.ids.Length; i++)
+                    if (rfbi.ids[i].Equals(blockchain.GetMainBlock(rfbi.headBlockIndex - i).Id))
+                    {
+                        sc.WriteBytes(new ResForkBlockIndex(true, false, false, rfbi.headBlockIndex - i + 1).ToBinary());
+
+                        return;
+                    }
+
+                sc.WriteBytes(new ResForkBlockIndex(true, false, true, 0).ToBinary());
+            }
+            else if (message.name == MessageName.reqMainBlockIds)
+            {
+                ReqMainBlockIds reqmbi = SHAREDDATA.FromBinary<ReqMainBlockIds>(sc.ReadBytes());
+
+                if (!isSyncronized)
+                {
+                    sc.WriteBytes(new ResMainBlockIds(false, new Creahash[] { }).ToBinary());
+
+                    return;
+                }
+
+                List<Creahash> blockIdsList = new List<Creahash>();
+                for (int i = 0; i < numOfBlocks; i++)
+                {
+                    if (reqmbi.startIndex + i > blockchain.headBlockIndex)
+                        break;
+
+                    blockIdsList.Add(blockchain.GetMainBlock(reqmbi.startIndex + i).Id);
+                }
+
+                sc.WriteBytes(new ResMainBlockIds(true, blockIdsList.ToArray()).ToBinary());
+            }
+            else if (message.name == MessageName.reqMainBlocks)
+            {
+                ReqMainBlocks reqmb = SHAREDDATA.FromBinary<ReqMainBlocks>(sc.ReadBytes());
+
+                if (!isSyncronized)
+                {
+                    sc.WriteBytes(new ResMainBlocks(false, new Block[] { }).ToBinary());
+
+                    return;
+                }
+
+                List<Block> blocksList = new List<Block>();
+                for (int i = 0; i < numOfBlocks; i++)
+                {
+                    if (reqmb.startIndex + i > blockchain.headBlockIndex)
+                        break;
+
+                    blocksList.Add(blockchain.GetMainBlock(reqmb.startIndex + i));
+                }
+
+                sc.WriteBytes(new ResMainBlocks(true, blocksList.ToArray()).ToBinary());
             }
             else
                 throw new NotSupportedException("protocol_not_supported");
@@ -2814,18 +3143,52 @@ namespace CREA2014
 
                 sc.WriteBytes(nnc.ToBinary());
 
-                _ConsoleWriteLine("write_nnc");
-
                 if (BitConverter.ToBoolean(sc.ReadBytes(), 0))
-                {
-                    _ConsoleWriteLine("read_isnew");
-
                     sc.WriteBytes(chat.ToBinary());
 
-                    _ConsoleWriteLine("write_chat");
-                }
-
                 return new SHAREDDATA[] { };
+            }
+            else if (message.name == MessageName.reqForkBlockIndex)
+            {
+                if (datas.Length != 1)
+                    throw new InvalidOperationException();
+
+                ReqForkBlockIndex rfbi = datas[0] as ReqForkBlockIndex;
+
+                if (rfbi == null)
+                    throw new InvalidOperationException();
+
+                sc.WriteBytes(rfbi.ToBinary());
+
+                return new SHAREDDATA[] { SHAREDDATA.FromBinary<ResForkBlockIndex>(sc.ReadBytes()) };
+            }
+            else if (message.name == MessageName.reqMainBlockIds)
+            {
+                if (datas.Length != 1)
+                    throw new InvalidOperationException();
+
+                ReqMainBlockIds rmbi = datas[0] as ReqMainBlockIds;
+
+                if (rmbi == null)
+                    throw new InvalidOperationException();
+
+                sc.WriteBytes(rmbi.ToBinary());
+
+                return new SHAREDDATA[] { SHAREDDATA.FromBinary<ResMainBlockIds>(sc.ReadBytes()) };
+            }
+            else if (message.name == MessageName.reqMainBlocks)
+            {
+                if (datas.Length != 1)
+                    throw new InvalidOperationException();
+
+                ReqMainBlocks rmb = datas[0] as ReqMainBlocks;
+
+                if (rmb == null)
+                    throw new InvalidOperationException();
+
+                sc.WriteBytes(rmb.ToBinary());
+
+                return new SHAREDDATA[] { SHAREDDATA.FromBinary<ResMainBlocks>(sc.ReadBytes()) };
             }
             else
                 throw new NotSupportedException("protocol_not_supported");
@@ -2853,7 +3216,7 @@ namespace CREA2014
             DiffuseNewBlock(null, new NotifyNewBlock(block.Id), block);
         }
 
-        private void DiffuseNewBlock(NodeInformation source, NotifyNewBlock nnb, Block block) { Diffuse(source, new Message(MessageName.notifyNewTransaction, 0), nnb, block); }
+        private void DiffuseNewBlock(NodeInformation source, NotifyNewBlock nnb, Block block) { Diffuse(source, new Message(MessageName.notifyNewBlock, 0), nnb, block); }
 
         public void DiffuseNewChat(Chat chat)
         {
@@ -3280,59 +3643,261 @@ namespace CREA2014
             this.StartTask("keep_connections", "keep_connections", _KeepConnections);
         }
 
-        public void SyncronizeBlockchain(BlockChain blockchain)
+        public void SyncronizeBlockchain()
         {
-            long startIndex;
-
-            if (blockchain.headBlockIndex != -1)
+            while (true)
             {
-                Connection[] allConnections = GetAllConnections().ToArray();
+                long startIndex;
 
-                //送信
-                Creahash headBlockId = blockchain.GetHeadBlock().Id;
-
-                //受信
-                bool?[] isSyncronized = new bool?[allConnections.Length];
-                bool?[] isInBlockchains = new bool?[allConnections.Length];
-                Creahash[][] prevBlockIdss = new Creahash[allConnections.Length][];
-
-                for (int i = 0; i < allConnections.Length; i++)
+                if (blockchain.headBlockIndex != -1)
                 {
-
-                }
-
-                bool isInBlockchain = true;
-
-                int trueCount = 0;
-                int falseCount = 0;
-                for (int i = 0; i < isInBlockchains.Length; i++)
-                    if (isSyncronized[i].HasValue && isSyncronized[i].Value && isInBlockchains[i].HasValue)
-                        if (isInBlockchains[i].Value)
-                            trueCount++;
-                        else
-                            falseCount++;
-
-                if (falseCount > trueCount)
-                    isInBlockchain = false;
-
-                if (!isInBlockchain)
-                {
-                    Creahash decidedId = null;
-                    int decidedIdCount = 0;
-                    Dictionary<Creahash, int> idCounts = new Dictionary<Creahash, int>();
-                    for (int i = 0; i < prevBlockIdss.Length; i++)
+                    List<Creahash> blockIdsList = new List<Creahash>();
+                    for (int i = 0; i < 512; i++)
                     {
-                        if (!idCounts.Keys.Contains(prevBlockIdss[i][0]))
-                        {
+                        if (blockchain.headBlockIndex - i < 0)
+                            break;
 
-                        }
+                        blockIdsList.Add(blockchain.GetMainBlock(blockchain.headBlockIndex - i).Id);
                     }
+
+                    ReqForkBlockIndex reqfbi = new ReqForkBlockIndex(blockchain.headBlockIndex, blockIdsList.ToArray());
+
+                    Connection[] allConnections = GetAllConnections().ToArray();
+
+                    ResForkBlockIndex[] resfbis = new ResForkBlockIndex[allConnections.Length];
+
+                    for (int i = 0; i < allConnections.Length; i++)
+                    {
+                        SHAREDDATA[] resDatas = NewSession(allConnections[i], allConnections[i].nodeInfo, new Message(MessageName.reqForkBlockIndex, 0), reqfbi);
+                        if (resDatas != null && resDatas.Length > 0 && resDatas[0] is ResForkBlockIndex)
+                            resfbis[i] = resDatas[0] as ResForkBlockIndex;
+                    }
+
+                    List<long> forkBlockIndexList = new List<long>();
+
+                    bool isSyncronized = false;
+                    int trueCount = 0;
+                    int falseCount = 0;
+                    int abnormalCount = 0;
+                    for (int i = 0; i < resfbis.Length; i++)
+                        if (resfbis != null && resfbis[i].isSyncronized)
+                        {
+                            isSyncronized = true;
+
+                            if (resfbis[i].isInMain)
+                                trueCount++;
+                            else
+                            {
+                                falseCount++;
+
+                                if (resfbis[i].isAbnormal)
+                                    abnormalCount++;
+                                else
+                                    forkBlockIndexList.Add(resfbis[i].forkBlockIndex);
+                            }
+                        }
+
+                    if (!isSyncronized)
+                    {
+                        isSyncronized = true;
+
+                        return;
+                    }
+
+                    if (trueCount == 0 && falseCount == 0)
+                    {
+                        Thread.Sleep(syncronizationInterval);
+
+                        continue;
+                    }
+
+                    if (falseCount > trueCount)
+                    {
+                        if (abnormalCount > falseCount - abnormalCount)
+                            throw new InvalidOperationException("fatal:blockchain_too_deep_fork");
+
+                        long? decidedBlockIndex = null;
+                        int decidedBlockIndexCount = 0;
+                        Dictionary<long, int> blockIndexCounts = new Dictionary<long, int>();
+
+                        foreach (var forkBlockIndex in forkBlockIndexList)
+                            if (!blockIndexCounts.Keys.Contains(forkBlockIndex))
+                            {
+                                blockIndexCounts.Add(forkBlockIndex, 1);
+
+                                if (decidedBlockIndexCount == 0)
+                                {
+                                    decidedBlockIndex = forkBlockIndex;
+                                    decidedBlockIndexCount = 1;
+                                }
+                            }
+                            else
+                            {
+                                int count = blockIndexCounts[forkBlockIndex] + 1;
+
+                                blockIndexCounts[forkBlockIndex] = count;
+
+                                if (count > decidedBlockIndexCount)
+                                {
+                                    decidedBlockIndex = forkBlockIndex;
+                                    decidedBlockIndexCount = count;
+                                }
+                            }
+
+                        if (!decidedBlockIndex.HasValue)
+                            throw new InvalidOperationException();
+
+                        startIndex = decidedBlockIndex.Value;
+                    }
+                    else
+                        startIndex = blockchain.headBlockIndex + 1;
                 }
                 else
-                    startIndex = blockchain.headBlockIndex + 1;
+                    startIndex = 0;
+
+                while (true)
+                {
+                    ReqMainBlockIds reqmbi = new ReqMainBlockIds(startIndex);
+
+                    Connection[] allConnections = GetAllConnections().ToArray();
+
+                    ResMainBlockIds[] resmbis = new ResMainBlockIds[allConnections.Length];
+
+                    for (int i = 0; i < allConnections.Length; i++)
+                    {
+                        SHAREDDATA[] resDatas = NewSession(allConnections[i], allConnections[i].nodeInfo, new Message(MessageName.reqMainBlockIds, 0), reqmbi);
+                        if (resDatas != null && resDatas.Length > 0 && resDatas[0] is ResMainBlockIds)
+                            resmbis[i] = resDatas[0] as ResMainBlockIds;
+                    }
+
+                    long? decidedLength = null;
+                    int decidedLengthCount = 0;
+                    Dictionary<long, int> lengthCounts = new Dictionary<long, int>();
+
+                    for (int i = 0; i < resmbis.Length; i++)
+                    {
+                        if (resmbis[i] == null || !resmbis[i].isSyncronized)
+                            continue;
+
+                        if (!lengthCounts.Keys.Contains(resmbis[i].ids.Length))
+                        {
+                            lengthCounts.Add(resmbis[i].ids.Length, 1);
+
+                            if (decidedLengthCount == 0)
+                            {
+                                decidedLength = resmbis[i].ids.Length;
+                                decidedLengthCount = 1;
+                            }
+                        }
+                        else
+                        {
+                            int count = lengthCounts[resmbis[i].ids.Length] + 1;
+
+                            lengthCounts[resmbis[i].ids.Length] = count;
+
+                            if (count > decidedLengthCount)
+                            {
+                                decidedLength = resmbis[i].ids.Length;
+                                decidedLengthCount = count;
+                            }
+                        }
+                    }
+
+                    if (!decidedLength.HasValue)
+                        break;
+
+                    if (decidedLength == 0)
+                    {
+                        isSyncronized = true;
+
+                        return;
+                    }
+
+                    Creahash decidedId = null;
+                    int decidedIdCount = 0;
+                    List<Connection> decidedConnections = new List<Connection>();
+                    Dictionary<Creahash, int> idCounts = new Dictionary<Creahash, int>();
+                    Dictionary<Creahash, List<Connection>> idConnections = new Dictionary<Creahash, List<Connection>>();
+
+                    long blockIndex = decidedLength.Value - 1;
+
+                    for (int i = 0; i < resmbis.Length; i++)
+                    {
+                        if (resmbis[i] == null || !resmbis[i].isSyncronized)
+                            continue;
+                        if (resmbis[i].ids.Length < decidedLength)
+                            continue;
+
+                        if (!idCounts.Keys.Contains(resmbis[i].ids[blockIndex]))
+                        {
+                            List<Connection> connections = new List<Connection>() { allConnections[i] };
+
+                            idCounts.Add(resmbis[i].ids[blockIndex], 1);
+                            idConnections.Add(resmbis[i].ids[blockIndex], connections);
+
+                            if (decidedIdCount == 0)
+                            {
+                                decidedId = resmbis[i].ids[blockIndex];
+                                decidedIdCount = 1;
+                                decidedConnections = connections;
+                            }
+                        }
+                        else
+                        {
+                            int count = idCounts[resmbis[i].ids[blockIndex]] + 1;
+
+                            idCounts[resmbis[i].ids[blockIndex]] = count;
+                            idConnections[resmbis[i].ids[blockIndex]].Add(allConnections[i]);
+
+                            if (count > decidedIdCount)
+                            {
+                                decidedId = resmbis[i].ids[blockIndex];
+                                decidedIdCount = count;
+                                decidedConnections = idConnections[resmbis[i].ids[blockIndex]];
+                            }
+                        }
+                    }
+
+                    if (decidedId == null)
+                        break;
+
+                    ReqMainBlocks reqmb = new ReqMainBlocks(startIndex);
+
+                    Block[] blocks = null;
+                    foreach (var connection in decidedConnections)
+                    {
+                        SHAREDDATA[] resDatas = NewSession(connection, connection.nodeInfo, new Message(MessageName.reqMainBlocks, 0), reqmb);
+                        if (resDatas != null && resDatas.Length > 0 && resDatas[0] is ResMainBlocks)
+                        {
+                            ResMainBlocks resmb = resDatas[0] as ResMainBlocks;
+                            if (!resmb.isSyncronized)
+                                continue;
+                            blocks = resmb.blocks;
+                        }
+
+                        //<未実装>正しいブロックであることの確認
+                        if (blocks != null)
+                            break;
+                    }
+
+                    if (blocks == null)
+                        break;
+
+                    foreach (var block in blocks)
+                        blockchain.UpdateChain(block);
+
+                    if (decidedLength != numOfBlocks)
+                    {
+                        isSyncronized = true;
+
+                        return;
+                    }
+
+                    startIndex += numOfBlocks;
+                }
+
+                Thread.Sleep(syncronizationInterval);
             }
-            else
-                startIndex = 0;
         }
 
         private int GetDistanceLevel(NodeInformation nodeInfo2)
@@ -3393,8 +3958,8 @@ namespace CREA2014
 
     public class CreaNode : CREANODEBASE
     {
-        public CreaNode(ushort _portNumber, int _creaVersion, string _appnameWithVersion, FirstNodeInfosDatabase _fnisDatabase)
-            : base(_portNumber, _creaVersion, _appnameWithVersion)
+        public CreaNode(BlockChain _blockchain, ushort _portNumber, int _creaVersion, string _appnameWithVersion, FirstNodeInfosDatabase _fnisDatabase)
+            : base(_blockchain, _portNumber, _creaVersion, _appnameWithVersion)
         {
             fnisDatabase = _fnisDatabase;
 
@@ -3563,7 +4128,7 @@ namespace CREA2014
 
     public class CreaNodeTest : CREANODEBASE
     {
-        public CreaNodeTest(ushort _portNumber, int _creaVersion, string _appnameWithVersion) : base(_portNumber, _creaVersion, _appnameWithVersion) { }
+        public CreaNodeTest(BlockChain _blockchain, ushort _portNumber, int _creaVersion, string _appnameWithVersion) : base(_blockchain, _portNumber, _creaVersion, _appnameWithVersion) { }
 
         private readonly List<FirstNodeInformation> fnis = new List<FirstNodeInformation>();
 

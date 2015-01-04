@@ -255,13 +255,28 @@
                     vm.currentBlockIndex(obj.currentBlockIndex);
 
                     for (var i = 0; i < vm.invalidTxs().length; i++) {
-                        vm.invalidTxs()[i].confirmation(obj.currentBlockIndex - vm.invalidTxs()[i].blockIndex());
+                        if (vm.invalidTxs()[i].blockIndex() == 0) {
+                            vm.invalidTxs()[i].confirmation("-");
+                        }
+                        else {
+                            vm.invalidTxs()[i].confirmation(obj.currentBlockIndex - vm.invalidTxs()[i].blockIndex());
+                        }
                     }
                     for (var i = 0; i < vm.unconfirmedTxs().length; i++) {
-                        vm.unconfirmedTxs()[i].confirmation(obj.currentBlockIndex - vm.unconfirmedTxs()[i].blockIndex());
+                        if (vm.unconfirmedTxs()[i].blockIndex() == 0) {
+                            vm.unconfirmedTxs()[i].confirmation("-");
+                        }
+                        else {
+                            vm.unconfirmedTxs()[i].confirmation(obj.currentBlockIndex - vm.unconfirmedTxs()[i].blockIndex());
+                        }
                     }
                     for (var i = 0; i < vm.confirmedTxs().length; i++) {
-                        vm.confirmedTxs()[i].confirmation(obj.currentBlockIndex - vm.confirmedTxs()[i].blockIndex());
+                        if (vm.confirmedTxs()[i].blockIndex() == 0) {
+                            vm.confirmedTxs()[i].confirmation("-");
+                        }
+                        else {
+                            vm.confirmedTxs()[i].confirmation(obj.currentBlockIndex - vm.confirmedTxs()[i].blockIndex());
+                        }
                     }
                 }
                 else if (e.data.indexOf("invalidTxAdded", 0) == 0) {
@@ -469,7 +484,12 @@
                 th.validity(original.validity);
                 th.state(original.state);
                 th.blockIndex(original.blockIndex);
-                th.confirmation(currentBlockIndex - original.blockIndex);
+                if (original.blockIndex == 0) {
+                    th.confirmation("-");
+                }
+                else {
+                    th.confirmation(currentBlockIndex - original.blockIndex);
+                }
                 th.type(original.type);
                 th.datetime(original.datetime);
                 th.id(original.id);

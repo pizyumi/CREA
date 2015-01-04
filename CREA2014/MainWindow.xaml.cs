@@ -815,19 +815,21 @@ namespace CREA2014
                                     ntw.cbAccountHolder.Items.Add(ah);
                             };
 
+                            EventHandler balanceUpdated = (sender2, e2) => this.ExecuteInUIThread(() => ntw.UpdateBalance());
+
                             EventHandler<IAccountHolder> accountHolderAdded = (sender2, e2) => _ClearAccountHolder.AndThen(_AddAccountHolder).ExecuteInUIThread();
 
                             core.iAccountHolders.iAccountHolderAdded += accountHolderAdded;
+                            core.BalanceUpdated += balanceUpdated;
 
                             _AddAccountHolder();
 
                             ntw.rbAnonymous.IsChecked = true;
 
                             if (ntw.ShowDialog() == true)
-                            {
+                                core.NewTransaction(ntw.cbAccount.SelectedItem as IAccount, new Account.AccountAddress(ntw.tbAccountToAddress.Text).Hash, new Creacoin(decimal.Parse(ntw.tbAmount.Text)), new Creacoin(decimal.Parse(ntw.tbFee.Text)));
 
-                            }
-
+                            core.BalanceUpdated -= balanceUpdated;
                             core.iAccountHolders.iAccountHolderAdded -= accountHolderAdded;
 
                             if (iAccountHolder != null)
@@ -911,14 +913,14 @@ namespace CREA2014
 
             Func<TransactionHistory, string[]> _CreateTransactionHistoryJSON = (th) =>
             {
-                string[] thValidity = json.CreateJSONPair("validity", th.isValid ? "有効" : "無効");
-                string[] thState = json.CreateJSONPair("state", th.isConfirmed ? "承認済" : "未承認");
+                string[] thValidity = json.CreateJSONPair("validity", th.isValid ? "有効".Multilanguage(265) : "無効".Multilanguage(266));
+                string[] thState = json.CreateJSONPair("state", th.isConfirmed ? "承認済".Multilanguage(267) : "未承認".Multilanguage(268));
                 string[] thBlockIndex = json.CreateJSONPair("blockIndex", th.blockIndex);
-                string[] thType = json.CreateJSONPair("type", th.type == TransactionHistoryType.mined ? "採掘" : th.type == TransactionHistoryType.sent ? "送付" : th.type == TransactionHistoryType.received ? "受領" : "振替");
-                string[] thDatetime = json.CreateJSONPair("datetime", th.datetime.ToString());
+                string[] thType = json.CreateJSONPair("type", th.type == TransactionHistoryType.mined ? "採掘".Multilanguage(269) : th.type == TransactionHistoryType.sent ? "送付".Multilanguage(270) : th.type == TransactionHistoryType.received ? "受領".Multilanguage(271) : "振替".Multilanguage(272));
+                string[] thDatetime = json.CreateJSONPair("datetime", th.datetime == DateTime.MinValue ? "不明".Multilanguage(273) : th.datetime.ToString());
                 string[] thId = json.CreateJSONPair("id", th.id.ToString());
-                string[] thFromAddress = json.CreateJSONPair("fromAddress", json.CreateJSONArray(th.prevTxOuts.Select((elem) => elem.Address.ToString()).ToArray()));
-                string[] thToAddress = json.CreateJSONPair("toAddress", json.CreateJSONArray(th.transaction.TxOutputs.Select((elem) => elem.Address.ToString()).ToArray()));
+                string[] thFromAddress = json.CreateJSONPair("fromAddress", json.CreateJSONArray(th.prevTxOuts.Select((elem) => new Account.AccountAddress(elem.Address).ToString()).Distinct().ToArray()));
+                string[] thToAddress = json.CreateJSONPair("toAddress", json.CreateJSONArray(th.transaction.TxOutputs.Select((elem) => new Account.AccountAddress(elem.Address).ToString()).Distinct().ToArray()));
                 string[] thAmount = json.CreateJSONPair("amount", th.amount.AmountInCreacoin.Amount);
 
                 return json.CreateJSONObject(thValidity, thState, thBlockIndex, thType, thDatetime, thId, thFromAddress, thToAddress, thAmount);

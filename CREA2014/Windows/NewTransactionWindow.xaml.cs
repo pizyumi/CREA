@@ -84,15 +84,7 @@ namespace CREA2014.Windows
         {
             AccountValidate();
 
-            if (isValid2)
-            {
-                tbBlance.Text = (accountBalance = _GetBalance(cbAccount.SelectedItem)).AmountInCreacoin.Amount.ToString();
-
-                if (isValid4 && isValid5)
-                    TotalValidate();
-            }
-
-            Validate();
+            UpdateBalance();
         }
 
         private void tbAccountToAddress_TextChanged(object sender, TextChangedEventArgs e)
@@ -205,6 +197,19 @@ namespace CREA2014.Windows
                     tbTotalChk.Text = flag ? string.Empty : "残高不足です。".Multilanguage(264);
                 });
             }
+        }
+
+        public void UpdateBalance()
+        {
+            if (isValid2)
+            {
+                tbBlance.Text = (accountBalance = _GetBalance(cbAccount.SelectedItem)).AmountInCreacoin.Amount.ToString();
+
+                if (isValid4 && isValid5)
+                    TotalValidate();
+            }
+
+            Validate();
         }
     }
 }

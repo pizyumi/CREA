@@ -3786,6 +3786,7 @@ namespace CREA2014
                 {"web_server_data", (args) => "内部ウェブサーバデータが存在しません。".Multilanguage(91)},
                 {"wss_command", (args) => "内部ウェブソケット命令が存在しません。".Multilanguage(92)},
                 {"genesis_block_generated", (args) => "起源ブロックを生成しました。採掘が可能になりました。".Multilanguage(230)},
+                {"blockchain_update", (args) => string.Format("ブロック鎖更新結果：{0}".Multilanguage(274), args[0])},
             };
 
             exceptionMessages = new Dictionary<string, Func<string>>() {
@@ -3799,6 +3800,7 @@ namespace CREA2014
                 {"fatal:bfpdb", () => "データベースが破損した可能性があります。".Multilanguage(227)},
                 {"fatal:blkchain_access", () => "データベースが破損した可能性があります。".Multilanguage(227)},
                 {"fatal:blkchain_freeze", () => "データベースが応答を停止しました。".Multilanguage(228)},
+                {"fatal:blockchain_too_deep_fork", () => "致命的なブロック鎖分岐を検出しました。".Multilanguage(275)},
             };
 
             Extension.Tasked += (sender, e) => tasker.New(new TaskData(e, taskNumber++));

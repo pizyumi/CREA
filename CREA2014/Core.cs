@@ -11,6 +11,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
+using System.Linq;
 
 namespace CREA2014
 {
@@ -65,6 +66,8 @@ namespace CREA2014
 
         public BlockChain blockChain { get; private set; }
 
+        private Dictionary<TransferTransaction, TransactionOutput[]> unconfirmedTtxs;
+        private Sha256Ripemd160Hash miningAddress;
         private Mining mining;
 
         private bool isSystemStarted;
@@ -203,7 +206,7 @@ namespace CREA2014
                 blockChain.AddAddressEvent(addressEvent);
 
                 long rawAmount = 0;
-                foreach (var unconfirmedTh in transactionHistories.unconfirmedTransactionHistories)
+                foreach (var unconfirmedTh in transactionHistories.unconfirmedTransactionHistories.ToArray())
                     foreach (var prevTxOut in unconfirmedTh.senders)
                         if (prevTxOut.Address.Equals(account.Address))
                             rawAmount += prevTxOut.Amount.rawAmount;
@@ -261,15 +264,114 @@ namespace CREA2014
 
             _UpdateBalance(false);
 
+            unconfirmedTtxs = new Dictionary<TransferTransaction, TransactionOutput[]>();
             mining = new Mining();
+            mining.FoundNonce += (sender, e) => creaNodeTest.DiffuseNewBlock(e);
+
+            blockChain.Updated += (sender, e) =>
+            {
+                foreach (var block in e)
+                    foreach (var tx in block.Transactions)
+                        foreach (var txIn in tx.TxInputs)
+                        {
+                            TransferTransaction contradiction = null;
+
+                            foreach (var unconfirmedTx in unconfirmedTtxs)
+                            {
+                                foreach (var unconfirmedTxIn in unconfirmedTx.Key.TxInputs)
+                                    if (txIn.PrevTxBlockIndex == unconfirmedTxIn.PrevTxBlockIndex && txIn.PrevTxIndex == unconfirmedTxIn.PrevTxIndex && txIn.PrevTxOutputIndex == unconfirmedTxIn.PrevTxOutputIndex)
+                                    {
+                                        contradiction = unconfirmedTx.Key;
+
+                                        break;
+                                    }
+
+                                if (contradiction != null)
+                                    break;
+                            }
+
+                            if (contradiction != null)
+                                unconfirmedTtxs.Remove(contradiction);
+                        }
+
+                Mine();
+            };
+
+            Mine();
 
             //creaNodeTest = new CreaNode(ps.NodePort, creaVersion, appnameWithVersion, new FirstNodeInfosDatabase(p2pDirectory));
-            creaNodeTest = new CreaNodeTest(ps.NodePort, creaVersion, appnameWithVersion);
+            creaNodeTest = new CreaNodeTest(blockChain, ps.NodePort, creaVersion, appnameWithVersion);
             //creaNodeTest.ConnectionKeeped += (sender, e) => creaNodeTest.SyncronizeBlockchain(blockChain);
             creaNodeTest.ReceivedNewTransaction += (sender, e) =>
             {
+                TransferTransaction ttx = e as TransferTransaction;
+
+                if (ttx == null)
+                    return;
+
+                TransactionOutput[] prevTxOuts = new TransactionOutput[ttx.TxInputs.Length];
+                for (int i = 0; i < prevTxOuts.Length; i++)
+                    prevTxOuts[i] = blockChain.GetMainBlock(ttx.TxInputs[i].PrevTxBlockIndex).Transactions[ttx.TxInputs[i].PrevTxIndex].TxOutputs[ttx.TxInputs[i].PrevTxOutputIndex];
+
+                if (!ttx.Verify(prevTxOuts))
+                    return;
+
+                List<TransactionOutput> senders = new List<TransactionOutput>();
+                List<TransactionOutput> receivers = new List<TransactionOutput>();
+
+                long sentAmount = 0;
+                long receivedAmount = 0;
+
+                for (int i = 0; i < ttx.txInputs.Length; i++)
+                    foreach (var accountHolder in accountHolders.AllAccountHolders)
+                        foreach (var account in accountHolder.Accounts)
+                            if (prevTxOuts[i].Address.Equals(account.Address.Hash))
+                            {
+                                sentAmount += prevTxOuts[i].Amount.rawAmount;
+
+                                senders.Add(prevTxOuts[i]);
+                            }
+
+                for (int i = 0; i < ttx.TxOutputs.Length; i++)
+                    foreach (var accountHolder in accountHolders.AllAccountHolders)
+                        foreach (var account in accountHolder.Accounts)
+                            if (ttx.TxOutputs[i].Address.Equals(account.Address.Hash))
+                            {
+                                receivedAmount += ttx.TxOutputs[i].Amount.rawAmount;
+
+                                receivers.Add(ttx.TxOutputs[i]);
+                            }
+
+                if (senders.Count > 0 || receivers.Count > 0)
+                {
+                    TransactionHistoryType type = TransactionHistoryType.transfered;
+                    if (receivers.Count < ttx.TxOutputs.Length)
+                        type = TransactionHistoryType.sent;
+                    else if (senders.Count < ttx.TxInputs.Length)
+                        type = TransactionHistoryType.received;
+
+                    transactionHistories.AddTransactionHistory(new TransactionHistory(true, false, type, DateTime.MinValue, 0, ttx.Id, senders.ToArray(), receivers.ToArray(), ttx, prevTxOuts, new CurrencyUnit(sentAmount), new CurrencyUnit(receivedAmount - sentAmount)));
+                }
+
+                utxodb.Open();
+
+                for (int i = 0; i < ttx.TxInputs.Length; i++)
+                    if (blockChain.FindUtxo(prevTxOuts[i].Address, ttx.TxInputs[i].PrevTxBlockIndex, ttx.TxInputs[i].PrevTxIndex, ttx.TxInputs[i].PrevTxOutputIndex) == null)
+                        return;
+
+                utxodb.Close();
+
+                foreach (var txIn in ttx.TxInputs)
+                    foreach (var unconfirmedTtx in unconfirmedTtxs)
+                        foreach (var unconfirmedTxIn in unconfirmedTtx.Key.TxInputs)
+                            if (txIn.PrevTxBlockIndex == unconfirmedTxIn.PrevTxBlockIndex && txIn.PrevTxIndex == unconfirmedTxIn.PrevTxIndex && txIn.PrevTxOutputIndex == unconfirmedTxIn.PrevTxOutputIndex)
+                                return;
+
+                unconfirmedTtxs.Add(ttx, prevTxOuts);
+
+                Mine();
             };
-            creaNodeTest.ReceivedNewBlock += (sender, e) => blockChain.UpdateChain(e);
+            creaNodeTest.ReceivedNewBlock += (sender, e) => blockChain.UpdateChain(e).Pipe((ret) => this.RaiseResult("blockchain_update", 5, ret.ToString()));
             //creaNodeTest.Start();
 
             isSystemStarted = true;
@@ -288,13 +390,166 @@ namespace CREA2014
             isSystemStarted = false;
         }
 
-        private EventHandler<TransactionalBlock> _FoundNonce;
-        private EventHandler _UpdatedBlockchain;
+        public void NewTransaction(IAccount iAccount, Sha256Ripemd160Hash address, CurrencyUnit amount, CurrencyUnit fee)
+        {
+            if (!isSystemStarted)
+                throw new InvalidOperationException("core_not_started");
+
+            Account account = iAccount as Account;
+            if (account == null)
+                throw new ArgumentException("iaccount_type");
+
+            utxodb.Open();
+
+            List<Utxo> utxosList = blockChain.GetAllUtxos(account.Address.Hash);
+            utxosList.Sort((a, b) =>
+            {
+                if (a.blockIndex < b.blockIndex)
+                    return -1;
+                else if (a.blockIndex > b.blockIndex)
+                    return 1;
+
+                if (a.txIndex < b.txIndex)
+                    return -1;
+                else if (a.txIndex > b.txIndex)
+                    return 1;
+
+                if (a.txOutIndex < b.txOutIndex)
+                    return -1;
+                else if (a.txOutIndex > b.txOutIndex)
+                    return 1;
+
+                return 0;
+            });
+            Utxo[] utxos = utxosList.ToArray();
+
+            utxodb.Close();
+
+            List<TransactionInput> usedTxInList = new List<TransactionInput>();
+            foreach (var unconfirmedTh in transactionHistories.unconfirmedTransactionHistories.ToArray())
+                for (int i = 0; i < unconfirmedTh.prevTxOuts.Length; i++)
+                    if (unconfirmedTh.prevTxOuts[i].Address.Equals(account.Address.Hash))
+                        usedTxInList.Add(unconfirmedTh.transaction.TxInputs[i]);
+            usedTxInList.Sort((a, b) =>
+            {
+                if (a.PrevTxBlockIndex < b.PrevTxBlockIndex)
+                    return -1;
+                else if (a.PrevTxBlockIndex > b.PrevTxBlockIndex)
+                    return 1;
+
+                if (a.PrevTxIndex < b.PrevTxIndex)
+                    return -1;
+                else if (a.PrevTxIndex > b.PrevTxIndex)
+                    return 1;
+
+                if (a.PrevTxOutputIndex < b.PrevTxOutputIndex)
+                    return -1;
+                else if (a.PrevTxOutputIndex > b.PrevTxOutputIndex)
+                    return 1;
+
+                return 0;
+            });
+            TransactionInput[] usedTxIns = usedTxInList.ToArray();
+
+            List<Utxo> unusedUtxosList = new List<Utxo>();
+
+            int position = -1;
+            for (int i = 0; i < usedTxIns.Length; i++)
+            {
+                bool flag = false;
+                while (position < utxos.Length)
+                {
+                    position++;
+
+                    if (usedTxIns[i].PrevTxBlockIndex == utxos[position].blockIndex && usedTxIns[i].PrevTxIndex == utxos[position].txIndex && usedTxIns[i].PrevTxOutputIndex == utxos[position].txOutIndex)
+                    {
+                        flag = true;
+
+                        break;
+                    }
+                    else
+                        unusedUtxosList.Add(utxos[position]);
+                }
+
+                if (!flag)
+                    throw new InvalidOperationException();
+            }
+
+            long rawFeeAndAmount = amount.rawAmount + fee.rawAmount;
+
+            List<Utxo> useUtxosList = new List<Utxo>();
+            long rawFeeAndAmountAndChange = 0;
+
+            bool flag2 = false;
+            foreach (var utxo in unusedUtxosList)
+            {
+                useUtxosList.Add(utxo);
+
+                if ((rawFeeAndAmountAndChange += utxo.amount.rawAmount) > rawFeeAndAmount)
+                {
+                    flag2 = true;
+
+                    break;
+                }
+            }
+
+            if (!flag2)
+                for (int i = position + 1; i < utxos.Length; i++)
+                {
+                    useUtxosList.Add(utxos[i]);
+
+                    if ((rawFeeAndAmountAndChange += utxos[i].amount.rawAmount) > rawFeeAndAmount)
+                    {
+                        flag2 = true;
+
+                        break;
+                    }
+                }
+
+            if (!flag2)
+                throw new InvalidOperationException();
+
+            Utxo[] useUtxos = useUtxosList.ToArray();
+
+            TransactionInput[] txIns = new TransactionInput[useUtxos.Length];
+            for (int i = 0; i < txIns.Length; i++)
+            {
+                txIns[i] = new TransactionInput();
+                txIns[i].LoadVersion0(useUtxos[i].blockIndex, useUtxos[i].txIndex, useUtxos[i].txOutIndex, account.Ecdsa256KeyPair.pubKey);
+            }
+
+            long rawChange = rawFeeAndAmountAndChange - rawFeeAndAmount;
+
+            TransactionOutput[] txOuts = new TransactionOutput[rawChange == 0 ? 1 : 2];
+            txOuts[0] = new TransactionOutput();
+            txOuts[0].LoadVersion0(address, amount);
+            if (rawChange != 0)
+            {
+                txOuts[1] = new TransactionOutput();
+                txOuts[1].LoadVersion0(account.Address.Hash, new CurrencyUnit(rawChange));
+            }
+
+            TransactionOutput[] prevTxOuts = new TransactionOutput[useUtxos.Length];
+            for (int i = 0; i < prevTxOuts.Length; i++)
+                prevTxOuts[i] = blockChain.GetMainBlock(txIns[i].PrevTxBlockIndex).Transactions[txIns[i].PrevTxIndex].TxOutputs[txIns[i].PrevTxOutputIndex];
+
+            Ecdsa256PrivKey[] privKeys = new Ecdsa256PrivKey[useUtxos.Length];
+            for (int i = 0; i < privKeys.Length; i++)
+                privKeys[i] = account.Ecdsa256KeyPair.privKey;
+
+            TransferTransaction ttx = new TransferTransaction();
+            ttx.LoadVersion0(txIns, txOuts);
+            ttx.Sign(prevTxOuts, privKeys);
+
+            creaNodeTest.DiffuseNewTransaction(ttx);
+        }
 
         public void StartMining(IAccount iAccount)
         {
             if (!isSystemStarted)
                 throw new InvalidOperationException("core_not_started");
+            if (mining.isStarted)
+                throw new InvalidOperationException("already_mining");
             if (!canMine)
                 throw new InvalidOperationException("cant_mine");
 
@@ -302,31 +557,32 @@ namespace CREA2014
             if (account == null)
                 throw new ArgumentException("iaccount_type");
 
-            Action _Mine = () =>
-            {
-                mining.NewMiningBlock(TransactionalBlock.GetBlockTemplate(blockChain.headBlockIndex + 1, account.Address.Hash, new TransferTransaction[] { }, (index) => blockChain.GetMainBlock(index) as TransactionalBlock, 0));
-            };
+            miningAddress = account.Address.Hash;
 
-            _FoundNonce = (sender, e) => creaNodeTest.DiffuseNewBlock(e);
-            _UpdatedBlockchain = (sender, e) => _Mine();
-
-            blockChain.Updated += _UpdatedBlockchain;
-
-            mining.FoundNonce += _FoundNonce;
             mining.Start();
 
-            _Mine();
+            Mine();
         }
 
         public void EndMining()
         {
             if (!isSystemStarted)
                 throw new InvalidOperationException("core_not_started");
+            if (!mining.isStarted)
+                throw new InvalidOperationException("not_mining");
 
             mining.End();
-            mining.FoundNonce -= _FoundNonce;
+        }
 
-            blockChain.Updated -= _UpdatedBlockchain;
+        private void Mine()
+        {
+            if (miningAddress != null)
+            {
+                TransferTransaction[] ttxs = unconfirmedTtxs.Keys.Take(TransactionalBlock.maxTxs - 2).ToArray();
+                TransactionOutput[][] prevTxOutss = unconfirmedTtxs.Values.Take(TransactionalBlock.maxTxs - 2).ToArray();
+
+                mining.NewMiningBlock(TransactionalBlock.GetBlockTemplate(blockChain.headBlockIndex + 1, miningAddress, ttxs, prevTxOutss, (index) => blockChain.GetMainBlock(index) as TransactionalBlock, 0));
+            }
         }
     }
 
