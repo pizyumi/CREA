@@ -2903,6 +2903,7 @@ namespace CREA2014
         private readonly ChatCollection processedChats;
 
         public event EventHandler ConnectionKeeped = delegate { };
+        public event EventHandler Syncronized = delegate { };
         public event EventHandler NumOfConnectingNodesChanged = delegate { };
         public event EventHandler NumOfNodesChanged = delegate { };
         public event EventHandler<Transaction> ReceivedNewTransaction = delegate { };
@@ -3675,14 +3676,17 @@ namespace CREA2014
 
                     List<long> forkBlockIndexList = new List<long>();
 
-                    bool isSyncronized = false;
+                    bool? isSyncronizedInner = null;
                     int trueCount = 0;
                     int falseCount = 0;
                     int abnormalCount = 0;
                     for (int i = 0; i < resfbis.Length; i++)
-                        if (resfbis != null && resfbis[i].isSyncronized)
+                        if (resfbis != null)
                         {
-                            isSyncronized = true;
+                            if (isSyncronizedInner == null)
+                                isSyncronizedInner = resfbis[i].isSyncronized;
+                            else if (resfbis[i].isSyncronized)
+                                isSyncronizedInner = true;
 
                             if (resfbis[i].isInMain)
                                 trueCount++;
@@ -3697,18 +3701,22 @@ namespace CREA2014
                             }
                         }
 
-                    if (!isSyncronized)
-                    {
-                        isSyncronized = true;
-
-                        return;
-                    }
-
-                    if (trueCount == 0 && falseCount == 0)
+                    if (!isSyncronizedInner.HasValue)
                     {
                         Thread.Sleep(syncronizationInterval);
 
                         continue;
+                    }
+
+                    if (!isSyncronizedInner.Value)
+                    {
+                        this.RaiseNotification("sync_completed", 5);
+
+                        isSyncronized = true;
+
+                        Syncronized(this, EventArgs.Empty);
+
+                        return;
                     }
 
                     if (falseCount > trueCount)
@@ -3808,7 +3816,11 @@ namespace CREA2014
 
                     if (decidedLength == 0)
                     {
+                        this.RaiseNotification("sync_completed", 5);
+
                         isSyncronized = true;
+
+                        Syncronized(this, EventArgs.Empty);
 
                         return;
                     }
@@ -3889,6 +3901,10 @@ namespace CREA2014
                     if (decidedLength != numOfBlocks)
                     {
                         isSyncronized = true;
+
+                        this.RaiseNotification("sync_completed", 5);
+
+                        Syncronized(this, EventArgs.Empty);
 
                         return;
                     }

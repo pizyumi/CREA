@@ -3787,6 +3787,7 @@ namespace CREA2014
                 {"wss_command", (args) => "内部ウェブソケット命令が存在しません。".Multilanguage(92)},
                 {"genesis_block_generated", (args) => "起源ブロックを生成しました。採掘が可能になりました。".Multilanguage(230)},
                 {"blockchain_update", (args) => string.Format("ブロック鎖更新結果：{0}".Multilanguage(274), args[0])},
+                {"sync_completed", (args) => "同期完了".Multilanguage(276)},
             };
 
             exceptionMessages = new Dictionary<string, Func<string>>() {

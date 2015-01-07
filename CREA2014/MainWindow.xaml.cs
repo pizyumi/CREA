@@ -436,31 +436,14 @@ namespace CREA2014
             miHelp.Header = "ヘルプ".Multilanguage(21) + "(_H)";
             miAbout.Header = "CREAについて".Multilanguage(22) + "(_A)...";
 
-            core.iCreaNodeTest.ConnectionKeeped += (sender, e) =>
-            {
-                this.ExecuteInUIThread(() =>
-                {
-                    tbKeepConnection.Text = core.iCreaNodeTest.isKeepConnection ? "常時接続確立".Multilanguage(217) : "常時接続未確立".Multilanguage(218);
-                });
-            };
+            core.iCreaNodeTest.ConnectionKeeped += (sender, e) => this.ExecuteInUIThread(() => tbKeepConnection.Text = "常時接続確立（同期未完了）".Multilanguage(277));
+            core.iCreaNodeTest.Syncronized += (sender, e) => this.ExecuteInUIThread(() => tbKeepConnection.Text = "常時接続確立（同期完了）".Multilanguage(278));
             core.iCreaNodeTest.NewVersionDetected += (sender, e) =>
             {
 
             };
-            core.iCreaNodeTest.NumOfConnectingNodesChanged += (sender, e) =>
-            {
-                this.ExecuteInUIThread(() =>
-                {
-                    tbNumOfConnectingNodes.Text = "接続数：".Multilanguage(219) + core.iCreaNodeTest.NumOfConnectingNodes.ToString();
-                });
-            };
-            core.iCreaNodeTest.NumOfNodesChanged += (sender, e) =>
-            {
-                this.ExecuteInUIThread(() =>
-                {
-                    tbNumOfNodes.Text = "ノード数：".Multilanguage(220) + core.iCreaNodeTest.NumOfNodes.ToString();
-                });
-            };
+            core.iCreaNodeTest.NumOfConnectingNodesChanged += (sender, e) => this.ExecuteInUIThread(() => tbNumOfConnectingNodes.Text = "接続数：".Multilanguage(219) + core.iCreaNodeTest.NumOfConnectingNodes.ToString());
+            core.iCreaNodeTest.NumOfNodesChanged += (sender, e) => this.ExecuteInUIThread(() => tbNumOfNodes.Text = "ノード数：".Multilanguage(220) + core.iCreaNodeTest.NumOfNodes.ToString());
 
             tbKeepConnection.Text = core.iCreaNodeTest.isKeepConnection ? "常時接続確立".Multilanguage(217) : "常時接続未確立".Multilanguage(218);
             tbNumOfConnectingNodes.Text = "接続数：".Multilanguage(219) + core.iCreaNodeTest.NumOfConnectingNodes.ToString();

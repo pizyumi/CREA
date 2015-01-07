@@ -301,7 +301,7 @@ namespace CREA2014
 
             //creaNodeTest = new CreaNode(ps.NodePort, creaVersion, appnameWithVersion, new FirstNodeInfosDatabase(p2pDirectory));
             creaNodeTest = new CreaNodeTest(blockChain, ps.NodePort, creaVersion, appnameWithVersion);
-            //creaNodeTest.ConnectionKeeped += (sender, e) => creaNodeTest.SyncronizeBlockchain(blockChain);
+            creaNodeTest.ConnectionKeeped += (sender, e) => creaNodeTest.SyncronizeBlockchain();
             creaNodeTest.ReceivedNewTransaction += (sender, e) =>
             {
                 TransferTransaction ttx = e as TransferTransaction;
