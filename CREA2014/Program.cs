@@ -42,6 +42,62 @@ namespace CREA2014
         }
     }
 
+    public class SemaphoreAccess<T>
+    {
+        public SemaphoreAccess(T _obj, SemaphoreAccesserFactory<T> _factory)
+        {
+            obj = _obj;
+            factory = _factory;
+
+            semaphore = new Semaphore(1, 1);
+        }
+
+        private T obj;
+        private SemaphoreAccesserFactory<T> factory;
+        private SemaphoreAccesser<T> accessObj;
+        private Semaphore semaphore;
+
+        public SemaphoreAccesser<T> GetAccess()
+        {
+            if (!semaphore.WaitOne(30000))
+                return null;
+
+            return accessObj = factory.Create((accObj) =>
+            {
+                if (accObj == accessObj)
+                    return obj;
+
+                throw new Exception("cant_access_resource");
+            });
+        }
+
+        public void ReleaseAccess(SemaphoreAccesser<T> accesser)
+        {
+            if (accesser != accessObj)
+                throw new Exception("cant_release_resource");
+
+            accessObj = null;
+
+            semaphore.Release();
+        }
+
+        public T GetObj() { return obj; }
+    }
+
+    public abstract class SemaphoreAccesser<T>
+    {
+        public SemaphoreAccesser(Func<object, T> _accesser) { accesser = _accesser; }
+
+        private Func<object, T> accesser;
+
+        protected T Obj { get { return accesser(this); } }
+    }
+
+    public abstract class SemaphoreAccesserFactory<T>
+    {
+        public abstract SemaphoreAccesser<T> Create(Func<object, T> accesser);
+    }
+
     public class Node<T>
     {
         public Node(T _value, Node<T> _parent) : this(_value, _parent, new List<Node<T>>()) { }
@@ -3509,6 +3565,75 @@ namespace CREA2014
         private static string version = string.Join(".", verMaj.ToString(), verMin.ToString(), verMMin.ToString()) + "(" + verS + ")" + "(" + verR.ToString() + ")" + "(" + verC.ToString() + ")";
         private static string appnameWithVersion = string.Join(" ", appname, version);
 
+        public class Person
+        {
+            public Person(string _name, int _age)
+            {
+                name = _name;
+                age = _age;
+            }
+
+            public string name { get; set; }
+            public int age { get; set; }
+        }
+
+        public class PersonAccesser : SemaphoreAccesser<Person>
+        {
+            public PersonAccesser(Func<object, Person> _accesser) : base(_accesser) { }
+
+            public string name
+            {
+                get
+                {
+                    Person person = Obj;
+
+                    if (person == null)
+                        throw new InvalidOperationException();
+
+                    return person.name;
+                }
+                set
+                {
+                    Person person = Obj;
+
+                    if (person == null)
+                        throw new InvalidOperationException();
+
+                    person.name = value;
+                }
+            }
+
+            public int age
+            {
+                get
+                {
+                    Person person = Obj;
+
+                    if (person == null)
+                        throw new InvalidOperationException();
+
+                    return person.age;
+                }
+                set
+                {
+                    Person person = Obj;
+
+                    if (person == null)
+                        throw new InvalidOperationException();
+
+                    person.age = value;
+                }
+            }
+        }
+
+        public class PersonAccesserFactory : SemaphoreAccesserFactory<Person>
+        {
+            public override SemaphoreAccesser<Person> Create(Func<object, Person> accesser)
+            {
+                return new PersonAccesser(accesser);
+            }
+        }
+
         [STAThread]
         public static void Main(string[] args)
         {
@@ -3537,6 +3662,41 @@ namespace CREA2014
             //New.BlockChainTest.Test23();
             //New.BlockChainTest.Test24();
             //BlockChainTest.Test25();
+
+
+            Person person = new Person("washida", 24);
+
+            PersonAccesserFactory paf = new PersonAccesserFactory();
+
+            SemaphoreAccess<Person> sa = new SemaphoreAccess<Person>(person, paf);
+
+            PersonAccesser sa2 = sa.GetAccess() as PersonAccesser;
+
+            Thread thread = new Thread(() =>
+            {
+                PersonAccesser sa3 = sa.GetAccess() as PersonAccesser;
+
+                Console.WriteLine(sa3.name);
+
+                sa3.name = "vvv";
+
+                sa.ReleaseAccess(sa3);
+            });
+            thread.Start();
+
+            Console.WriteLine(sa2.name);
+
+            sa2.name = "www";
+
+            Console.ReadLine();
+
+            sa.ReleaseAccess(sa2);
+
+            PersonAccesser sa4 = sa.GetAccess() as PersonAccesser;
+
+            Console.WriteLine(sa4.name);
+
+            //Console.WriteLine(sa2.Obj.name);
 
 
 

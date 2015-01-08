@@ -3647,6 +3647,20 @@ namespace CREA2014
 
     #region ブロック鎖
 
+    public class BlockChainAccesser
+    {
+        public BlockChainAccesser(BlockChain _blockchain, object _accessObj, Func<object, bool> _checker)
+        {
+            blockchain = _blockchain;
+            accessObj = _accessObj;
+            checker = _checker;
+        }
+
+        private BlockChain blockchain;
+        private object accessObj;
+        private Func<object, bool> checker;
+    }
+
     //未試験項目
     //・ブロック鎖のExit/同時更新など
     //・取引履歴関連
